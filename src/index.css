@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --bg-canvas: #FAF8FB;
+    --text-primary: #1E1A24;
+    --text-secondary: #797487;
+    --card-bg: #FFFFFF;
+    --card-border: #EADBFC;
+    --primary-purple: #5925DC;
+    --secondary-purple: #9B51E0;
+    --badge-bg: #F4EBFF;
+    --glass-bg: rgba(255, 255, 255, 0.82);
+    --glass-floating-bg: rgba(255, 255, 255, 0.88);
+  }
+
+  .dark {
+    --bg-canvas: #120E17;
+    --text-primary: #F7EEFC;
+    --text-secondary: #A39BAC;
+    --card-bg: #1B1524;
+    --card-border: #322742;
+    --primary-purple: #9D5AF5;
+    --secondary-purple: #C296FD;
+    --badge-bg: #2B1E3E;
+    --glass-bg: rgba(27, 21, 36, 0.82);
+    --glass-floating-bg: rgba(27, 21, 36, 0.88);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Plus Jakarta Sans', system-ui, sans-serif;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+}
+
+/* Iris Liquid Glass Design Tokens & Classes */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 12px 32px -4px rgba(89, 37, 220, 0.08), inset 0 1px 1px 0 rgba(255, 255, 255, 0.4);
+  transition: all 0.25s ease;
+}
+
+.glass-floating {
+  background: var(--glass-floating-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 16px 36px -6px rgba(89, 37, 220, 0.16), inset 0 1px 2px 0 rgba(255, 255, 255, 0.3);
+  transition: all 0.25s ease;
+}
+
+.glass-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 3px 14px -2px rgba(89, 37, 220, 0.04);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  box-shadow: 0 8px 24px -3px rgba(89, 37, 220, 0.12);
+  border-color: #D6BBFB;
+  transform: translateY(-2px);
+}
+
+.dark .glass-card:hover {
+  border-color: #7D49D4;
+  box-shadow: 0 8px 24px -3px rgba(157, 90, 245, 0.2);
+}
+
+/* Privacy blur shield */
+.privacy-blur {
+  filter: blur(8px);
+  user-select: none;
+  transition: filter 0.2s ease-in-out;
+}
+
+/* Smooth gliding entrance animation */
+@keyframes glideIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-glide-in {
+  animation: glideIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #EADBFC;
+  border-radius: 9999px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #382A4A;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #D6BBFB;
+}

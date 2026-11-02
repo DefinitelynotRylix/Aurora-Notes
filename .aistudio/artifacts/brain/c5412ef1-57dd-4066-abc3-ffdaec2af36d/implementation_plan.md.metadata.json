@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for Local Only Log Mode in Settings for Iris Notes. Features a local in-memory/localStorage rolling log buffer, log viewer, and plain text (.txt) diagnostic export for offline bug reporting.",
+  "updatedAt":  "2026-11-02T07:14:56.738235387Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
