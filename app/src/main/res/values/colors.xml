@@ -1,0 +1,8 @@
+<resources>
+    <color name="iris_royal_violet">#5925DC</color>
+    <color name="iris_amethyst">#9B51E0</color>
+    <color name="iris_background_light">#FAF8FB</color>
+    <color name="iris_surface_light">#FFFFFF</color>
+    <color name="iris_background_dark">#120E17</color>
+    <color name="iris_surface_dark">#1B1524</color>
+</resources>
