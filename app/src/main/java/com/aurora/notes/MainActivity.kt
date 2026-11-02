@@ -89,6 +89,9 @@ class MainActivity : FragmentActivity() {
     }
 }
 
+import com.aurora.notes.ui.components.FloatingPillNavigationBar
+import androidx.compose.material.icons.filled.Fingerprint
+
 @Composable
 fun AuroraApp(
     viewModel: NotesViewModel,
@@ -102,7 +105,75 @@ fun AuroraApp(
     val filteredNotes by viewModel.filteredActiveNotes.collectAsState()
     val filteredTrashedNotes by viewModel.filteredTrashedNotes.collectAsState()
 
-    if (activeEditingNote != null) {
+    val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
+    val isAppLocked by viewModel.isAppLocked.collectAsState()
+
+    LaunchedEffect(isAppLocked) {
+        if (isAppLocked) {
+            onTriggerBiometricAuth(
+                { viewModel.unlockApp() },
+                { /* keep locked on failure */ }
+            )
+        }
+    }
+
+    if (isAppLocked) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = androidx.compose.ui.Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = AuroraRoyalViolet.copy(alpha = 0.15f),
+                        modifier = Modifier.size(72.dp)
+                    ) {
+                        Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
+                            Icon(
+                                Icons.Default.Fingerprint,
+                                contentDescription = null,
+                                tint = AuroraRoyalViolet,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Aurora Notes Locked",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    )
+
+                    Text(
+                        text = "Authenticate with biometric fingerprint, face unlock, or device PIN to continue",
+                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+
+                    Button(
+                        onClick = {
+                            onTriggerBiometricAuth(
+                                { viewModel.unlockApp() },
+                                { /* keep locked */ }
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("Unlock App")
+                    }
+                }
+            }
+        }
+    } else if (activeEditingNote != null) {
         NoteEditorScreen(
             note = activeEditingNote!!,
             onSaveAndClose = { updatedNote ->
@@ -125,61 +196,10 @@ fun AuroraApp(
                 }
             },
             bottomBar = {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    tonalElevation = 8.dp,
-                    color = MaterialTheme.colorScheme.surface
-                ) {
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        NavigationBarItem(
-                            selected = selectedTab == 0,
-                            onClick = { viewModel.setSelectedTab(0) },
-                            icon = { Icon(Icons.Default.Description, contentDescription = "Notes") },
-                            label = { Text("Notes") },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = AuroraRoyalViolet,
-                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.22f)
-                            )
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 1,
-                            onClick = { viewModel.setSelectedTab(1) },
-                            icon = { Icon(Icons.Default.PushPin, contentDescription = "Pinned") },
-                            label = { Text("Pinned") },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = AuroraRoyalViolet,
-                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.22f)
-                            )
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 2,
-                            onClick = { viewModel.setSelectedTab(2) },
-                            icon = { Icon(Icons.Default.Delete, contentDescription = "Trash") },
-                            label = { Text("Trash") },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = AuroraRoyalViolet,
-                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.22f)
-                            )
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 3,
-                            onClick = { viewModel.setSelectedTab(3) },
-                            icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                            label = { Text("Settings") },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = AuroraRoyalViolet,
-                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.22f)
-                            )
-                        )
-                    }
-                }
+                FloatingPillNavigationBar(
+                    selectedTab = selectedTab,
+                    onTabSelected = { viewModel.setSelectedTab(it) }
+                )
             }
         ) { paddingValues ->
             when (selectedTab) {
@@ -197,6 +217,7 @@ fun AuroraApp(
                         onDeleteNote = { viewModel.moveToTrash(it) },
                         onToggleCheckItem = { noteId, itemId -> viewModel.toggleChecklistItem(noteId, itemId) },
                         onAddNote = { viewModel.openNewNote() },
+                        onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
                         modifier = Modifier.padding(paddingValues)
                     )
                 }
@@ -215,6 +236,8 @@ fun AuroraApp(
                 }
                 3 -> {
                     SettingsScreen(
+                        isBiometricEnabled = isBiometricEnabled,
+                        onSetBiometricLock = { enabled -> viewModel.setBiometricLockEnabled(enabled) },
                         onClearLogs = { viewModel.clearDiagnosticLogs() },
                         onExportLogs = { viewModel.exportDiagnosticLogs() },
                         onTriggerBiometricAuth = onTriggerBiometricAuth,

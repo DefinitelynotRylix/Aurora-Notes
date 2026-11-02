@@ -39,6 +39,7 @@ fun NotesScreen(
     onDeleteNote: (String) -> Unit,
     onToggleCheckItem: (String, String) -> Unit,
     onAddNote: () -> Unit,
+    onDeleteTag: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val categories = listOf("All", "General", "Ideas", "Personal", "Work")
@@ -164,7 +165,8 @@ fun NotesScreen(
                         onClick = { onSelectNote(note) },
                         onTogglePin = { onTogglePin(note) },
                         onDelete = { onDeleteNote(note.id) },
-                        onToggleCheckItem = { itemId -> onToggleCheckItem(note.id, itemId) }
+                        onToggleCheckItem = { itemId -> onToggleCheckItem(note.id, itemId) },
+                        onDeleteTag = onDeleteTag
                     )
                 }
             }

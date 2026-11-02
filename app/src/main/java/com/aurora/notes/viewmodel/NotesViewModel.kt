@@ -15,7 +15,21 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+import android.content.Context
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
 class NotesViewModel(application: Application) : AndroidViewModel(application) {
+
+    private const val PREFS_NAME = "aurora_notes_preferences"
+    private const val KEY_BIOMETRIC_LOCK = "key_biometric_lock_enabled"
+
+    private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val repository: AuroraRepository
 
@@ -36,6 +50,12 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isGridView = MutableStateFlow(true)
     val isGridView = _isGridView.asStateFlow()
+
+    private val _isBiometricEnabled = MutableStateFlow(prefs.getBoolean(KEY_BIOMETRIC_LOCK, false))
+    val isBiometricEnabled = _isBiometricEnabled.asStateFlow()
+
+    private val _isAppLocked = MutableStateFlow(prefs.getBoolean(KEY_BIOMETRIC_LOCK, false))
+    val isAppLocked = _isAppLocked.asStateFlow()
 
     init {
         val noteDao = AuroraDatabase.getDatabase(application).noteDao()
@@ -184,5 +204,36 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
     fun exportDiagnosticLogs(): String {
         return LocalLogger.exportToPlainText()
+    }
+
+    fun setBiometricLockEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BIOMETRIC_LOCK, enabled).apply()
+        _isBiometricEnabled.value = enabled
+        if (!enabled) {
+            _isAppLocked.value = false
+        }
+    }
+
+    fun unlockApp() {
+        _isAppLocked.value = false
+    }
+
+    fun lockApp() {
+        if (_isBiometricEnabled.value) {
+            _isAppLocked.value = true
+        }
+    }
+
+    fun deleteTagAndDetachFromNotes(tagToDelete: String) {
+        viewModelScope.launch {
+            val activeNotes = allActiveNotes.value
+            activeNotes.forEach { note ->
+                if (note.tags.contains(tagToDelete)) {
+                    val updatedTags = note.tags.filter { it != tagToDelete }
+                    repository.saveNote(note.copy(tags = updatedTags))
+                }
+            }
+            LocalLogger.security("TAGS", "Deleted tag '$tagToDelete' and detached it from all associated notes.")
+        }
     }
 }

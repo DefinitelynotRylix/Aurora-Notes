@@ -39,6 +39,7 @@ fun NoteCard(
     onTogglePin: () -> Unit,
     onDelete: () -> Unit,
     onToggleCheckItem: (String) -> Unit,
+    onDeleteTag: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val dateFormat = SimpleDateFormat("MMM d", Locale.US)
@@ -220,17 +221,55 @@ fun NoteCard(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Tags Row
+            // Tags Row with Long Press Deletion
             if (note.tags.isNotEmpty()) {
+                var pendingDeleteTag by remember { mutableStateOf<String?>(null) }
+
+                if (pendingDeleteTag != null) {
+                    AlertDialog(
+                        onDismissRequest = { pendingDeleteTag = null },
+                        title = { Text("Delete Tag #${pendingDeleteTag}?") },
+                        text = {
+                            Text(
+                                "Deleting this tag will not delete your notes. Notes under #${pendingDeleteTag} will simply become regular tag-less notes.",
+                                fontSize = 13.sp
+                            )
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    val tag = pendingDeleteTag
+                                    pendingDeleteTag = null
+                                    if (tag != null) {
+                                        onDeleteTag?.invoke(tag)
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
+                            ) {
+                                Text("Delete Tag")
+                            }
+                        },
+                        dismissButton = {
+                            OutlinedButton(onClick = { pendingDeleteTag = null }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
+
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    note.tags.take(2).forEach { tag ->
+                    note.tags.take(3).forEach { tag ->
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = MaterialTheme.colorScheme.background,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
+                            modifier = Modifier.combinedClickable(
+                                onClick = {},
+                                onLongClick = { pendingDeleteTag = tag }
+                            )
                         ) {
                             Text(
                                 text = "#$tag",

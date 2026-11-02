@@ -13,6 +13,7 @@ interface NoteCardProps {
   onTogglePin: (id: string, e: React.MouseEvent) => void;
   onDelete: (id: string, e?: React.MouseEvent | React.TouchEvent | null) => void;
   onToggleCheckItem: (noteId: string, itemId: string, e: React.MouseEvent) => void;
+  onDeleteTag?: (tag: string) => void;
   isGridView: boolean;
   animateMovement: boolean;
 }
@@ -23,6 +24,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   onTogglePin,
   onDelete,
   onToggleCheckItem,
+  onDeleteTag,
   animateMovement,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
@@ -260,13 +262,23 @@ export const NoteCard: React.FC<NoteCardProps> = ({
           </div>
         )}
 
-        {/* Tags */}
+        {/* Tags with long press deletion */}
         {note.tags && note.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-2">
-            {note.tags.slice(0, 2).map((tag) => (
+          <div className="flex flex-wrap gap-1 mb-2" onClick={(e) => e.stopPropagation()}>
+            {note.tags.slice(0, 3).map((tag) => (
               <span
                 key={tag}
-                className="text-[9px] sm:text-[10px] font-medium px-1.5 py-0.2 rounded bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border border-[#EADBFC]/60 dark:border-[#322742]"
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (onDeleteTag) {
+                    if (window.confirm(`Delete Tag #${tag}? Notes with this tag will become regular tag-less notes.`)) {
+                      onDeleteTag(tag);
+                    }
+                  }
+                }}
+                title="Long press / right-click to delete tag"
+                className="text-[9px] sm:text-[10px] font-medium px-1.5 py-0.2 rounded bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border border-[#EADBFC]/60 dark:border-[#322742] cursor-pointer hover:border-rose-400"
               >
                 #{tag}
               </span>

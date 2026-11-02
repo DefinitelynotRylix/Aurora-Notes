@@ -468,6 +468,20 @@ export default function App() {
                   // If notes are adjacent pinned notes, don't trigger jarring movement animations.
                   const animateMovement = note.id === lastPinnedId;
 
+                  const handleDeleteTagAndDetach = (tagToDelete: string) => {
+                    const updatedNotes = notes.map((n) => {
+                      if (n.tags?.includes(tagToDelete)) {
+                        return {
+                          ...n,
+                          tags: n.tags.filter((t) => t !== tagToDelete),
+                        };
+                      }
+                      return n;
+                    });
+                    persistNotes(updatedNotes);
+                    logger.security('TAGS', `Deleted tag "${tagToDelete}" from local notes`);
+                  };
+
                   return (
                     <NoteCard
                       key={note.id}
@@ -478,6 +492,7 @@ export default function App() {
                       onTogglePin={handleTogglePin}
                       onDelete={handleDeleteNote}
                       onToggleCheckItem={handleToggleCheckItem}
+                      onDeleteTag={handleDeleteTagAndDetach}
                     />
                   );
                 })}

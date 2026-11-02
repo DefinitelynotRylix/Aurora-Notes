@@ -38,15 +38,16 @@ import java.util.Locale
 
 @Composable
 fun SettingsScreen(
-    onClearLogs: () -> Unit,
-    onExportLogs: () -> String,
+    isBiometricEnabled: Boolean = false,
+    onSetBiometricLock: (Boolean) -> Unit = {},
+    onClearLogs: () -> Unit = {},
+    onExportLogs: () -> String = { "" },
     onTriggerBiometricAuth: (onSuccess: () -> Unit, onError: (String) -> Unit) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val logs by LocalLogger.logs.collectAsState()
     var selectedLevelFilter by remember { mutableStateOf<LogLevel?>(null) }
-    var isAppLockEnabled by remember { mutableStateOf(false) }
 
     val filteredLogs = remember(logs, selectedLevelFilter) {
         if (selectedLevelFilter == null) logs else logs.filter { it.level == selectedLevelFilter }
@@ -96,21 +97,21 @@ fun SettingsScreen(
                     }
 
                     Switch(
-                        checked = isAppLockEnabled,
+                        checked = isBiometricEnabled,
                         onCheckedChange = { targetState ->
                             if (targetState) {
                                 onTriggerBiometricAuth(
                                     {
-                                        isAppLockEnabled = true
+                                        onSetBiometricLock(true)
                                         Toast.makeText(context, "Biometric Lock Activated!", Toast.LENGTH_SHORT).show()
                                     },
                                     { err ->
-                                        isAppLockEnabled = false
+                                        onSetBiometricLock(false)
                                         Toast.makeText(context, "Authentication Failed: $err", Toast.LENGTH_SHORT).show()
                                     }
                                 )
                             } else {
-                                isAppLockEnabled = false
+                                onSetBiometricLock(false)
                                 Toast.makeText(context, "Biometric Lock Disabled", Toast.LENGTH_SHORT).show()
                             }
                         }
