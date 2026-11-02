@@ -33,77 +33,63 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   return (
     <nav
       aria-label="Bottom Navigation"
-      className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 max-w-md w-auto px-2 pointer-events-auto"
+      className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-sm sm:max-w-md px-2 pointer-events-auto"
     >
-      <div className="glass-floating rounded-full p-1.5 sm:p-2 flex items-center gap-1 shadow-[0_16px_36px_-4px_rgba(89,37,220,0.2)] dark:shadow-[0_16px_36px_-4px_rgba(0,0,0,0.6)] border border-white/80 dark:border-white/10 bg-white/90 dark:bg-[#1B1524]/90 backdrop-blur-2xl">
-        {items.map((item) => {
-          const isSelected = activeTab === item.id;
-          const IconComponent = item.icon;
+      <div className="glass-floating rounded-full p-1.5 flex items-center justify-between shadow-[0_16px_36px_-4px_rgba(89,37,220,0.25)] dark:shadow-[0_16px_36px_-4px_rgba(0,0,0,0.7)] border border-white/80 dark:border-white/10 bg-white/95 dark:bg-[#1B1524]/95 backdrop-blur-2xl">
+        <div className="grid grid-cols-4 w-full gap-1">
+          {items.map((item) => {
+            const isSelected = activeTab === item.id;
+            const IconComponent = item.icon;
 
-          return (
-            <button
-              key={item.id}
-              onClick={() => onChangeTab(item.id)}
-              aria-label={item.label}
-              aria-current={isSelected ? 'page' : undefined}
-              className={`relative px-3 sm:px-4 py-2 sm:py-2.5 rounded-full flex items-center gap-1.5 text-xs font-semibold transition-colors duration-200 select-none focus:outline-none cursor-pointer ${
-                isSelected
-                  ? 'text-white'
-                  : 'text-[#484455] dark:text-[#A39BAC] hover:text-[#5925DC] dark:hover:text-[#C296FD]'
-              }`}
-            >
-              {/* Liquid Sliding Purple Gradient Circle Indicator */}
-              {isSelected && (
-                <motion.div
-                  layoutId="nav-liquid-circle"
-                  className="absolute inset-0 rounded-full bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] shadow-[0_4px_16px_rgba(89,37,220,0.35)] dark:shadow-[0_4px_16px_rgba(157,90,245,0.4)] z-0"
-                  transition={{
-                    layout: {
+            return (
+              <button
+                key={item.id}
+                onClick={() => onChangeTab(item.id)}
+                aria-label={item.label}
+                aria-current={isSelected ? 'page' : undefined}
+                className={`relative py-2.5 rounded-full flex items-center justify-center gap-1.5 text-xs font-semibold transition-colors duration-200 select-none focus:outline-none cursor-pointer w-full ${
+                  isSelected
+                    ? 'text-white'
+                    : 'text-[#484455] dark:text-[#A39BAC] hover:text-[#5925DC] dark:hover:text-[#C296FD]'
+                }`}
+              >
+                {/* Glowing Purple Active Pill Indicator */}
+                {isSelected && (
+                  <motion.div
+                    layoutId="nav-liquid-circle"
+                    className="absolute inset-0 rounded-full bg-gradient-to-r from-[#5925DC] via-[#7B35E8] to-[#9B51E0] dark:from-[#7839EE] dark:via-[#9D5AF5] dark:to-[#C296FD] shadow-[0_0_18px_rgba(157,90,245,0.65)] border border-white/30 z-0"
+                    transition={{
                       type: 'spring',
-                      stiffness: 400,
-                      damping: 28,
-                    },
-                    scaleX: {
-                      type: 'tween',
-                      duration: 0.32,
-                      ease: 'easeInOut',
-                    },
-                    scaleY: {
-                      type: 'tween',
-                      duration: 0.32,
-                      ease: 'easeInOut',
-                    },
-                  }}
-                  animate={{
-                    scaleX: [1, 1.25, 0.95, 1],
-                    scaleY: [1, 0.7, 1.05, 1],
-                  }}
-                />
-              )}
-
-              {/* Icon & Label */}
-              <span className="relative z-10 flex items-center gap-1.5">
-                <IconComponent
-                  className={`w-4 h-4 transition-transform ${
-                    isSelected ? 'scale-105' : 'group-hover:scale-105'
-                  }`}
-                />
-                <span className="hidden sm:inline">{item.label}</span>
-                {typeof item.badge === 'number' && item.badge > 0 && (
-                  <span
-                    className={`ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                      isSelected
-                        ? 'bg-white/25 text-white'
-                        : 'bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD]'
-                    }`}
-                  >
-                    {item.badge}
-                  </span>
+                      stiffness: 450,
+                      damping: 30,
+                    }}
+                  />
                 )}
-              </span>
-            </button>
-          );
-        })}
+
+                {/* Icon & Label */}
+                <span className="relative z-10 flex items-center justify-center gap-1">
+                  <IconComponent
+                    className={`w-4 h-4 transition-transform ${
+                      isSelected ? 'scale-110' : 'group-hover:scale-105'
+                    }`}
+                  />
+                  <span className="hidden sm:inline text-[11px] font-medium">{item.label}</span>
+                  {typeof item.badge === 'number' && item.badge > 0 && (
+                    <span
+                      className={`ml-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
+                        isSelected
+                          ? 'bg-white/30 text-white'
+                          : 'bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD]'
+                      }`}
+                    >
+                      {item.badge}
+                    </span>
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </nav>
   );

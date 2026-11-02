@@ -39,14 +39,62 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             AuroraTheme {
-                AuroraApp(viewModel = viewModel)
+                AuroraApp(
+                    viewModel = viewModel,
+                    onTriggerBiometricAuth = { onSuccess, onError ->
+                        showBiometricPrompt(this, onSuccess, onError)
+                    }
+                )
             }
+        }
+    }
+
+    private fun showBiometricPrompt(
+        activity: FragmentActivity,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val executor = ContextCompat.getMainExecutor(activity)
+        val biometricPrompt = BiometricPrompt(
+            activity,
+            executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    onSuccess()
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    onError(errString.toString())
+                }
+
+                override fun onAuthenticationFailed() {
+                    super.onAuthenticationFailed()
+                    onError("Authentication failed")
+                }
+            }
+        )
+
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Aurora Notes Lock")
+            .setSubtitle("Verify identity to access your notes")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+            .build()
+
+        try {
+            biometricPrompt.authenticate(promptInfo)
+        } catch (e: Exception) {
+            onError(e.localizedMessage ?: "Biometric prompt error")
         }
     }
 }
 
 @Composable
-fun AuroraApp(viewModel: NotesViewModel) {
+fun AuroraApp(
+    viewModel: NotesViewModel,
+    onTriggerBiometricAuth: (onSuccess: () -> Unit, onError: (String) -> Unit) -> Unit = { _, _ -> }
+) {
     val activeEditingNote by viewModel.activeEditingNote.collectAsState()
     val selectedTab by viewModel.selectedTab.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -79,14 +127,17 @@ fun AuroraApp(viewModel: NotesViewModel) {
             },
             bottomBar = {
                 Surface(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(24.dp),
                     tonalElevation = 8.dp,
                     color = MaterialTheme.colorScheme.surface
                 ) {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp
+                        tonalElevation = 0.dp,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         NavigationBarItem(
                             selected = selectedTab == 0,
@@ -95,7 +146,7 @@ fun AuroraApp(viewModel: NotesViewModel) {
                             label = { Text("Notes") },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = AuroraRoyalViolet,
-                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.18f)
+                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.22f)
                             )
                         )
                         NavigationBarItem(
@@ -105,7 +156,7 @@ fun AuroraApp(viewModel: NotesViewModel) {
                             label = { Text("Pinned") },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = AuroraRoyalViolet,
-                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.18f)
+                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.22f)
                             )
                         )
                         NavigationBarItem(
@@ -115,7 +166,7 @@ fun AuroraApp(viewModel: NotesViewModel) {
                             label = { Text("Trash") },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = AuroraRoyalViolet,
-                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.18f)
+                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.22f)
                             )
                         )
                         NavigationBarItem(
@@ -125,7 +176,7 @@ fun AuroraApp(viewModel: NotesViewModel) {
                             label = { Text("Settings") },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = AuroraRoyalViolet,
-                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.18f)
+                                indicatorColor = AuroraRoyalViolet.copy(alpha = 0.22f)
                             )
                         )
                     }
@@ -167,6 +218,7 @@ fun AuroraApp(viewModel: NotesViewModel) {
                     SettingsScreen(
                         onClearLogs = { viewModel.clearDiagnosticLogs() },
                         onExportLogs = { viewModel.exportDiagnosticLogs() },
+                        onTriggerBiometricAuth = onTriggerBiometricAuth,
                         modifier = Modifier.padding(paddingValues)
                     )
                 }

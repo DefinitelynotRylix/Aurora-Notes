@@ -242,7 +242,9 @@ fun NoteEditorScreen(
     Scaffold(
         topBar = {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding(),
                 color = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
             ) {
@@ -318,8 +320,8 @@ fun NoteEditorScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     FilterChip(
@@ -329,7 +331,7 @@ fun NoteEditorScreen(
                             val idx = focusedLineIndex.coerceIn(0, lines.lastIndex)
                             lines[idx] = lines[idx].copy(isBold = isBoldActive)
                         },
-                        label = { Icon(Icons.Default.FormatBold, contentDescription = "Bold", modifier = Modifier.size(18.dp)) }
+                        label = { Icon(Icons.Default.FormatBold, contentDescription = "Bold", modifier = Modifier.size(16.dp)) }
                     )
 
                     FilterChip(
@@ -339,7 +341,7 @@ fun NoteEditorScreen(
                             val idx = focusedLineIndex.coerceIn(0, lines.lastIndex)
                             lines[idx] = lines[idx].copy(isItalic = isItalicActive)
                         },
-                        label = { Icon(Icons.Default.FormatItalic, contentDescription = "Italic", modifier = Modifier.size(18.dp)) }
+                        label = { Icon(Icons.Default.FormatItalic, contentDescription = "Italic", modifier = Modifier.size(16.dp)) }
                     )
 
                     Row(

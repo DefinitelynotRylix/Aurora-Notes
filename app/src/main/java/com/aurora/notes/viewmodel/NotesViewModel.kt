@@ -131,6 +131,12 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveNote(note: Note) {
+        val cleanTitle = note.title.trim()
+        val cleanContent = note.content.replace(Regex("<[^>]*>"), "").replace("[ ]", "").replace("[x]", "").trim()
+        if (cleanTitle.isBlank() && cleanContent.isBlank()) {
+            LocalLogger.warn("NOTE", "Discarded blank note with empty title and body")
+            return
+        }
         viewModelScope.launch {
             repository.saveNote(note)
         }

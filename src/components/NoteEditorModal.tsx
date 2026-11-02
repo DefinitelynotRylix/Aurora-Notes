@@ -109,11 +109,22 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   };
 
   /**
-   * Auto-Save & Close Handler
+   * Auto-Save & Close Handler (Discards completely empty notes)
    */
   const handleAutoSaveAndClose = () => {
     if (hasSavedRef.current) return;
     hasSavedRef.current = true;
+
+    const rawContent = editorRef.current ? editorRef.current.innerHTML : note.content;
+    const cleanText = (rawContent || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+    const cleanTitle = title.trim();
+
+    // Discard note if user entered nothing
+    if (!cleanTitle && !cleanText) {
+      logger.warn('NOTE', `Discarded blank note (ID: ${note.id})`);
+      onClose();
+      return;
+    }
 
     const updated = getConstructedNote();
     onSave(updated);
@@ -397,16 +408,16 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex flex-col w-full h-full bg-white dark:bg-[#1B1524] overflow-hidden animate-fadeIn">
       {/* 
-        CLEAN FULL-SCREEN HEADER (PERFECT ALIGNMENT)
+        CLEAN FULL-SCREEN HEADER (PERFECT ALIGNMENT WITH SAFE AREA)
       */}
-      <div className="px-4 py-3 border-b border-[#EADBFC] dark:border-[#322742] flex items-center justify-between gap-3 shrink-0 bg-white/95 dark:bg-[#1B1524]/95 shadow-xs">
+      <div className="px-4 pt-3.5 pb-3 border-b border-[#EADBFC] dark:border-[#322742] flex items-center justify-between gap-3 shrink-0 bg-white/95 dark:bg-[#1B1524]/95 shadow-xs min-h-[56px]">
         <div className="flex items-center gap-2">
           {/* Back Button */}
           <button
             type="button"
             onClick={handleAutoSaveAndClose}
             aria-label="Save and return"
-            className="w-10 h-10 rounded-xl bg-white dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
+            className="w-9 h-9 rounded-xl bg-white dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
             title="Auto-Save & Close"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -470,10 +481,10 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={handleBoldClick}
             aria-label="Make text thick and bold"
-            className="w-10 h-10 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center transition-all cursor-pointer active:scale-95"
+            className="w-8.5 h-9 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
             title="Thick / Bold"
           >
-            <Bold className="w-4 h-4 stroke-[2.5]" />
+            <Bold className="w-3.5 h-3.5 stroke-[2.5]" />
           </button>
 
           {/* Italic */}
@@ -482,10 +493,10 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={handleItalicClick}
             aria-label="Make text italic"
-            className="w-10 h-10 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center transition-all cursor-pointer active:scale-95"
+            className="w-8.5 h-9 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
             title="Italic"
           >
-            <Italic className="w-4 h-4 stroke-[2.2]" />
+            <Italic className="w-3.5 h-3.5 stroke-[2.2]" />
           </button>
 
           {/* 3 Distinct Text Size Buttons */}

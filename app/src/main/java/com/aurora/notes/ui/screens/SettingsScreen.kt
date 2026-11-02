@@ -40,6 +40,7 @@ import java.util.Locale
 fun SettingsScreen(
     onClearLogs: () -> Unit,
     onExportLogs: () -> String,
+    onTriggerBiometricAuth: (onSuccess: () -> Unit, onError: (String) -> Unit) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -96,9 +97,22 @@ fun SettingsScreen(
 
                     Switch(
                         checked = isAppLockEnabled,
-                        onCheckedChange = {
-                            isAppLockEnabled = it
-                            Toast.makeText(context, if (it) "Biometric Lock Enabled" else "Biometric Lock Disabled", Toast.LENGTH_SHORT).show()
+                        onCheckedChange = { targetState ->
+                            if (targetState) {
+                                onTriggerBiometricAuth(
+                                    {
+                                        isAppLockEnabled = true
+                                        Toast.makeText(context, "Biometric Lock Activated!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    { err ->
+                                        isAppLockEnabled = false
+                                        Toast.makeText(context, "Authentication Failed: $err", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            } else {
+                                isAppLockEnabled = false
+                                Toast.makeText(context, "Biometric Lock Disabled", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     )
                 }
