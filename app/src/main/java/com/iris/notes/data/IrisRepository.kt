@@ -31,7 +31,7 @@ class IrisRepository(private val noteDao: NoteDao) {
     }
 
     suspend fun moveToTrash(id: String) {
-        noteDao.moveToTrash(id)
+        noteDao.moveToTrash(id, System.currentTimeMillis())
         LocalLogger.security("TRASH", "Moved note to trash: $id")
     }
 

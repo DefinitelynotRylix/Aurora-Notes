@@ -13,7 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckSquare
+import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
@@ -339,7 +339,7 @@ fun NoteEditorScreen(
                             // Toggle checklist on this line only
                             lines[idx] = current.copy(isChecklist = !current.isChecklist)
                         },
-                        label = { Icon(Icons.Default.CheckSquare, contentDescription = "Checklist", modifier = Modifier.size(18.dp)) }
+                        label = { Icon(Icons.Default.CheckBox, contentDescription = "Checklist", modifier = Modifier.size(18.dp)) }
                     )
                 }
             }
@@ -378,7 +378,7 @@ fun NoteEditorScreen(
                     .padding(vertical = 8.dp)
             )
 
-            Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), thickness = 0.8.dp)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), thickness = 0.8.dp)
             Spacer(modifier = Modifier.height(12.dp))
 
             // Lines Editor: Each line is rendered distinctly.

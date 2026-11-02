@@ -207,7 +207,7 @@ fun NoteCard(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), thickness = 0.8.dp)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), thickness = 0.8.dp)
             Spacer(modifier = Modifier.height(6.dp))
 
             // Footer Row: Category & Encrypted Date

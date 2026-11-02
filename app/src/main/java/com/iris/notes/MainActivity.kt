@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.iris.notes.ui.components.CipherInspectorDialog
 import com.iris.notes.ui.screens.NoteEditorScreen
 import com.iris.notes.ui.screens.NotesScreen

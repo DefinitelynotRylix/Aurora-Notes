@@ -30,7 +30,7 @@ interface NoteDao {
     suspend fun update(note: Note)
 
     @Query("UPDATE notes SET isDeleted = 1, deletedAt = :timestamp WHERE id = :id")
-    suspend fun moveToTrash(id: String, timestamp: Long = System.currentTimeMillis())
+    suspend fun moveToTrash(id: String, timestamp: Long)
 
     @Query("UPDATE notes SET isDeleted = 0, deletedAt = NULL WHERE id = :id")
     suspend fun restoreFromTrash(id: String)

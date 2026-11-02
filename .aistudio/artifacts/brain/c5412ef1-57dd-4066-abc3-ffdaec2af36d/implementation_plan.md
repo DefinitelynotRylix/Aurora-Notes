@@ -142,3 +142,15 @@ export interface LogEntry {
 2. Update `SettingsPage.tsx` to include the Local Diagnostic Logs UI section.
 3. Instrument key actions across `App.tsx`, `nativeAuth.ts`, and `crypto.ts`.
 4. Validate with `compile_applet` and `lint_applet` to ensure zero compilation or lint errors.
+
+---
+
+## 5. Android Native App & CI Build Resolution
+
+- **AAPT Launcher Icons**: Added adaptive XML vectors and fallback mipmaps across `mdpi`, `hdpi`, `xhdpi`, `xxhdpi`, `xxxhdpi` (`ic_launcher.png`, `ic_launcher_round.png`).
+- **Missing `dp` Import**: Added `import androidx.compose.ui.unit.dp` to `MainActivity.kt` for `tonalElevation = 6.dp`.
+- **Icon Typo**: Replaced nonexistent `Icons.Default.CheckSquare` with standard Android Compose `Icons.Default.CheckBox` in `NoteEditorScreen.kt`.
+- **Material 3 API Migration**: Upgraded `Divider` to `HorizontalDivider` in `NoteCard.kt` and `NoteEditorScreen.kt`.
+- **Room DAO Query Fix**: Removed default parameter in `@Dao` query `moveToTrash(id: String, timestamp: Long)` in `NoteDao.kt` to avoid synthetic `$default` resolution errors in Room KSP, and passed `System.currentTimeMillis()` from `IrisRepository.kt`.
+- **SDK Target Alignment**: Configured `compileSdk = 35` and `targetSdk = 35` in `app/build.gradle.kts` for AGP 8.8.0 stability.
+
