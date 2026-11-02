@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.sp
 import com.aurora.notes.model.Note
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun TrashScreen(
