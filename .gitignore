@@ -7,3 +7,9 @@ coverage/
 .env*
 !.env.example
 .playwright-cli/
+ios/build/
+ios/App/Pods/
+ios/App/App/public
+ios/App/App/capacitor.config.json
+ios/App/CapApp-SPM/.build/
+xcuserdata/

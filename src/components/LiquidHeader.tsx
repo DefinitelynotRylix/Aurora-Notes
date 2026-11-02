@@ -19,7 +19,7 @@ export const LiquidHeader: React.FC<LiquidHeaderProps> = ({
   onCreateNote,
 }) => {
   return (
-    <header className="sticky top-0 z-30 w-full glass-panel border-b border-[#EADBFC]/70 dark:border-[#322742]/70 px-4 sm:px-6 py-3 transition-all">
+    <header className="sticky top-0 z-30 w-full glass-panel border-b border-[#EADBFC]/70 dark:border-[#322742]/70 px-4 sm:px-6 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] transition-all">
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
         {/* Brand & Requested Text */}
         <div className="flex items-center justify-between">

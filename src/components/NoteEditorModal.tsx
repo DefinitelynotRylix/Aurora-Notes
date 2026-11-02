@@ -442,7 +442,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       {/* 
         CLEAN FULL-SCREEN HEADER (PERFECT ALIGNMENT WITH SAFE AREA)
       */}
-      <div className="px-4 pt-3.5 pb-3 border-b border-[#EADBFC] dark:border-[#322742] flex items-center justify-between gap-3 shrink-0 bg-white/95 dark:bg-[#1B1524]/95 shadow-xs min-h-[56px]">
+      <div className="px-4 pt-[calc(env(safe-area-inset-top)+0.875rem)] pb-3 border-b border-[#EADBFC] dark:border-[#322742] flex items-center justify-between gap-3 shrink-0 bg-white/95 dark:bg-[#1B1524]/95 shadow-xs min-h-[56px]">
         <div className="flex items-center gap-2">
           {/* Back Button */}
           <button
@@ -498,6 +498,9 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         <div
           ref={editorRef}
           contentEditable={true}
+          autoCorrect="off"
+          autoCapitalize="sentences"
+          spellCheck={false}
           onKeyDown={handleKeyDown}
           onKeyUp={() => requestAnimationFrame(ensureCaretVisible)}
           onInput={() => requestAnimationFrame(ensureCaretVisible)}
@@ -511,7 +514,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       {/* 
         STICKY FLOATING FORMATTING TOOLBAR (Directly above soft keyboard)
       */}
-      <div className="sticky bottom-0 z-30 p-2 sm:p-3 bg-white/95 dark:bg-[#1B1524]/95 backdrop-blur-md border-t border-[#EADBFC] dark:border-[#322742] flex items-center justify-between gap-1 overflow-x-auto custom-scrollbar shadow-lg shrink-0 max-w-3xl mx-auto w-full">
+      <div className="sticky bottom-0 z-30 p-2 sm:p-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-white/95 dark:bg-[#1B1524]/95 backdrop-blur-md border-t border-[#EADBFC] dark:border-[#322742] flex items-center justify-between gap-1 overflow-x-auto custom-scrollbar shadow-lg shrink-0 max-w-3xl mx-auto w-full">
         <div className="flex items-center gap-1.5">
           {/* Bold */}
           <button
