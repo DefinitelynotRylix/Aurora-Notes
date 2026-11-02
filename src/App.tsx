@@ -538,7 +538,7 @@ export default function App() {
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.92 }}
         aria-label="Create note"
-        className="fixed bottom-24 right-4 sm:bottom-8 sm:right-8 z-40 w-14 h-14 rounded-full bg-gradient-to-tr from-[#5925DC] via-[#7B35E8] to-[#9B51E0] dark:from-[#7839EE] dark:via-[#9D5AF5] dark:to-[#C296FD] text-white shadow-[0_8px_24px_rgba(89,37,220,0.45)] dark:shadow-[0_8px_24px_rgba(157,90,245,0.45)] border border-white/30 flex items-center justify-center cursor-pointer hover:shadow-[0_12px_32px_rgba(89,37,220,0.6)] transition-all group"
+        className="fixed bottom-[calc(env(safe-area-inset-bottom)+6rem)] right-4 sm:bottom-8 sm:right-8 z-40 w-14 h-14 rounded-full bg-gradient-to-tr from-[#5925DC] via-[#7B35E8] to-[#9B51E0] dark:from-[#7839EE] dark:via-[#9D5AF5] dark:to-[#C296FD] text-white shadow-[0_8px_24px_rgba(89,37,220,0.45)] dark:shadow-[0_8px_24px_rgba(157,90,245,0.45)] border border-white/30 flex items-center justify-center cursor-pointer hover:shadow-[0_12px_32px_rgba(89,37,220,0.6)] transition-all group"
       >
         <Plus className="w-7 h-7 stroke-[2.5] transition-transform duration-300 group-hover:rotate-90" />
       </motion.button>
