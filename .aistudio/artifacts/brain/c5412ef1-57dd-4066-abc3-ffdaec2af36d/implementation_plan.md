@@ -153,4 +153,7 @@ export interface LogEntry {
 - **Material 3 API Migration**: Upgraded `Divider` to `HorizontalDivider` in `NoteCard.kt` and `NoteEditorScreen.kt`.
 - **Room DAO Query Fix**: Removed default parameter in `@Dao` query `moveToTrash(id: String, timestamp: Long)` in `NoteDao.kt` to avoid synthetic `$default` resolution errors in Room KSP, and passed `System.currentTimeMillis()` from `IrisRepository.kt`.
 - **SDK Target Alignment**: Configured `compileSdk = 35` and `targetSdk = 35` in `app/build.gradle.kts` for AGP 8.8.0 stability.
+- **Gradle Wrapper JVM Options Fix**: In `/gradlew`, resolved `Error: Could not find or load main class "-Xmx64m"` caused by escaped literal quotes in `DEFAULT_JVM_OPTS='-Dfile.encoding=UTF-8 "-Xmx64m" "-Xms64m"'`. Reset `DEFAULT_JVM_OPTS=""` so the Java invocation directly launches `org.gradle.wrapper.GradleWrapperMain`, allowing `gradle.properties` (`org.gradle.jvmargs=-Xmx2048m`) to cleanly govern heap allocation without argument parsing corruption. Also generated companion `gradlew.bat` for Windows compatibility.
+- **Checklist & Formatting Behavior**: Verified in Compose `NoteEditorScreen.kt` and unit tests that checkboxes occupy a dedicated `-1` prefix slot (preventing typing before the box or duplicate checkboxes on a single line), pressing Enter creates a clean new line with checklist disabled (manual trigger only), and all text formatting applies seamlessly.
+
 
