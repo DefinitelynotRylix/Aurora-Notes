@@ -1,6 +1,7 @@
 package com.aurora.notes.viewmodel
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aurora.notes.data.AuroraDatabase
@@ -15,19 +16,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-import android.content.Context
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-
 class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
-    private const val PREFS_NAME = "aurora_notes_preferences"
-    private const val KEY_BIOMETRIC_LOCK = "key_biometric_lock_enabled"
+    companion object {
+        private const val PREFS_NAME = "aurora_notes_preferences"
+        private const val KEY_BIOMETRIC_LOCK = "key_biometric_lock_enabled"
+    }
 
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -93,9 +87,9 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             val q = query.trim().lowercase()
             list = list.filter { note ->
                 note.title.lowercase().contains(q) ||
-                note.content.lowercase().contains(q) ||
-                note.tags.any { it.lowercase().contains(q) } ||
-                note.checklist.any { it.text.lowercase().contains(q) }
+                    note.content.lowercase().contains(q) ||
+                    note.tags.any { it.lowercase().contains(q) } ||
+                    note.checklist.any { it.text.lowercase().contains(q) }
             }
         }
         list
@@ -111,9 +105,9 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             val q = query.trim().lowercase()
             notes.filter { note ->
                 note.title.lowercase().contains(q) ||
-                note.content.lowercase().contains(q) ||
-                note.tags.any { it.lowercase().contains(q) } ||
-                note.checklist.any { it.text.lowercase().contains(q) }
+                    note.content.lowercase().contains(q) ||
+                    note.tags.any { it.lowercase().contains(q) } ||
+                    note.checklist.any { it.text.lowercase().contains(q) }
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -152,7 +146,11 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveNote(note: Note) {
         val cleanTitle = note.title.trim()
-        val cleanContent = note.content.replace(Regex("<[^>]*>"), "").replace("[ ]", "").replace("[x]", "").trim()
+        val cleanContent = note.content
+            .replace(Regex("<[^>]*>"), "")
+            .replace("[ ]", "")
+            .replace("[x]", "")
+            .trim()
         if (cleanTitle.isBlank() && cleanContent.isBlank()) {
             LocalLogger.warn("NOTE", "Discarded blank note with empty title and body")
             return

@@ -1,27 +1,31 @@
 package com.aurora.notes
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.aurora.notes.ui.components.FloatingPillNavigationBar
 import com.aurora.notes.ui.screens.NoteEditorScreen
 import com.aurora.notes.ui.screens.NotesScreen
 import com.aurora.notes.ui.screens.SettingsScreen
@@ -78,7 +82,11 @@ class MainActivity : FragmentActivity() {
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Aurora Notes Lock")
             .setSubtitle("Verify identity to access your notes")
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+            .setAllowedAuthenticators(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                    BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
             .build()
 
         try {
@@ -88,9 +96,6 @@ class MainActivity : FragmentActivity() {
         }
     }
 }
-
-import com.aurora.notes.ui.components.FloatingPillNavigationBar
-import androidx.compose.material.icons.filled.Fingerprint
 
 @Composable
 fun AuroraApp(
@@ -104,9 +109,13 @@ fun AuroraApp(
     val isGridView by viewModel.isGridView.collectAsState()
     val filteredNotes by viewModel.filteredActiveNotes.collectAsState()
     val filteredTrashedNotes by viewModel.filteredTrashedNotes.collectAsState()
+    val allActiveNotes by viewModel.allActiveNotes.collectAsState()
 
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
     val isAppLocked by viewModel.isAppLocked.collectAsState()
+
+    val pinnedCount = remember(allActiveNotes) { allActiveNotes.count { it.isPinned } }
+    val trashCount = remember(filteredTrashedNotes) { filteredTrashedNotes.size }
 
     LaunchedEffect(isAppLocked) {
         if (isAppLocked) {
@@ -126,10 +135,10 @@ fun AuroraApp(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(24.dp),
-                contentAlignment = androidx.compose.ui.Alignment.Center
+                contentAlignment = Alignment.Center
             ) {
                 Column(
-                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Surface(
@@ -137,7 +146,7 @@ fun AuroraApp(
                         color = AuroraRoyalViolet.copy(alpha = 0.15f),
                         modifier = Modifier.size(72.dp)
                     ) {
-                        Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 Icons.Default.Fingerprint,
                                 contentDescription = null,
@@ -149,13 +158,15 @@ fun AuroraApp(
 
                     Text(
                         text = "Aurora Notes Locked",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                     )
 
                     Text(
                         text = "Authenticate with biometric fingerprint, face unlock, or device PIN to continue",
-                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                        ),
+                        textAlign = TextAlign.Center
                     )
 
                     Button(
@@ -168,7 +179,7 @@ fun AuroraApp(
                         colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
                         shape = RoundedCornerShape(16.dp)
                     ) {
-                        Text("Unlock App")
+                        Text("Unlock App", color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -188,7 +199,7 @@ fun AuroraApp(
                     FloatingActionButton(
                         onClick = { viewModel.openNewNote() },
                         containerColor = AuroraRoyalViolet,
-                        contentColor = MaterialTheme.colorScheme.surface,
+                        contentColor = Color.White,
                         shape = CircleShape
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "New Note")
@@ -198,51 +209,63 @@ fun AuroraApp(
             bottomBar = {
                 FloatingPillNavigationBar(
                     selectedTab = selectedTab,
-                    onTabSelected = { viewModel.setSelectedTab(it) }
+                    onTabSelected = { viewModel.setSelectedTab(it) },
+                    pinnedCount = pinnedCount,
+                    trashCount = trashCount
                 )
             }
         ) { paddingValues ->
-            when (selectedTab) {
-                0, 1 -> {
-                    NotesScreen(
-                        notes = filteredNotes,
-                        searchQuery = searchQuery,
-                        onSearchChange = { viewModel.setSearchQuery(it) },
-                        selectedCategory = selectedCategory,
-                        onSelectCategory = { viewModel.setSelectedCategory(it) },
-                        isGridView = isGridView,
-                        onToggleGridView = { viewModel.toggleGridView() },
-                        onSelectNote = { viewModel.openEditNote(it) },
-                        onTogglePin = { viewModel.togglePin(it) },
-                        onDeleteNote = { viewModel.moveToTrash(it) },
-                        onToggleCheckItem = { noteId, itemId -> viewModel.toggleChecklistItem(noteId, itemId) },
-                        onAddNote = { viewModel.openNewNote() },
-                        onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
-                        modifier = Modifier.padding(paddingValues)
-                    )
-                }
-                2 -> {
-                    TrashScreen(
-                        trashedNotes = filteredTrashedNotes,
-                        searchQuery = searchQuery,
-                        onSearchChange = { viewModel.setSearchQuery(it) },
-                        isGridView = isGridView,
-                        onToggleGridView = { viewModel.toggleGridView() },
-                        onRestoreNote = { viewModel.restoreFromTrash(it) },
-                        onDeletePermanently = { viewModel.deletePermanently(it) },
-                        onEmptyTrash = { viewModel.emptyTrash() },
-                        modifier = Modifier.padding(paddingValues)
-                    )
-                }
-                3 -> {
-                    SettingsScreen(
-                        isBiometricEnabled = isBiometricEnabled,
-                        onSetBiometricLock = { enabled -> viewModel.setBiometricLockEnabled(enabled) },
-                        onClearLogs = { viewModel.clearDiagnosticLogs() },
-                        onExportLogs = { viewModel.exportDiagnosticLogs() },
-                        onTriggerBiometricAuth = onTriggerBiometricAuth,
-                        modifier = Modifier.padding(paddingValues)
-                    )
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                label = "tab_content_transition"
+            ) { targetTab ->
+                when (targetTab) {
+                    0, 1 -> {
+                        NotesScreen(
+                            notes = filteredNotes,
+                            searchQuery = searchQuery,
+                            onSearchChange = { viewModel.setSearchQuery(it) },
+                            selectedCategory = selectedCategory,
+                            onSelectCategory = { viewModel.setSelectedCategory(it) },
+                            isGridView = isGridView,
+                            onToggleGridView = { viewModel.toggleGridView() },
+                            onSelectNote = { viewModel.openEditNote(it) },
+                            onTogglePin = { viewModel.togglePin(it) },
+                            onDeleteNote = { viewModel.moveToTrash(it) },
+                            onToggleCheckItem = { noteId, itemId ->
+                                viewModel.toggleChecklistItem(noteId, itemId)
+                            },
+                            onAddNote = { viewModel.openNewNote() },
+                            onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
+                            modifier = Modifier.padding(paddingValues)
+                        )
+                    }
+                    2 -> {
+                        TrashScreen(
+                            trashedNotes = filteredTrashedNotes,
+                            searchQuery = searchQuery,
+                            onSearchChange = { viewModel.setSearchQuery(it) },
+                            isGridView = isGridView,
+                            onToggleGridView = { viewModel.toggleGridView() },
+                            onRestoreNote = { viewModel.restoreFromTrash(it) },
+                            onDeletePermanently = { viewModel.deletePermanently(it) },
+                            onEmptyTrash = { viewModel.emptyTrash() },
+                            modifier = Modifier.padding(paddingValues)
+                        )
+                    }
+                    3 -> {
+                        SettingsScreen(
+                            isBiometricEnabled = isBiometricEnabled,
+                            onSetBiometricLock = { enabled ->
+                                viewModel.setBiometricLockEnabled(enabled)
+                            },
+                            onClearLogs = { viewModel.clearDiagnosticLogs() },
+                            onExportLogs = { viewModel.exportDiagnosticLogs() },
+                            onTriggerBiometricAuth = onTriggerBiometricAuth,
+                            modifier = Modifier.padding(paddingValues)
+                        )
+                    }
                 }
             }
         }

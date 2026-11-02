@@ -1,11 +1,12 @@
 package com.aurora.notes.ui.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -23,124 +24,284 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aurora.notes.ui.theme.AuroraAmethyst
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
 
 data class NavTabItem(
     val index: Int,
     val label: String,
-    val icon: ImageVector
+    val icon: ImageVector,
+    val badge: Int = 0
 )
 
 @Composable
 fun FloatingPillNavigationBar(
     selectedTab: Int,
     onTabSelected: (Int) -> Unit,
+    pinnedCount: Int = 0,
+    trashCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val items = listOf(
         NavTabItem(0, "Notes", Icons.Default.Description),
-        NavTabItem(1, "Pinned", Icons.Default.PushPin),
-        NavTabItem(2, "Trash", Icons.Default.Delete),
+        NavTabItem(1, "Pinned", Icons.Default.PushPin, badge = pinnedCount),
+        NavTabItem(2, "Trash", Icons.Default.Delete, badge = trashCount),
         NavTabItem(3, "Settings", Icons.Default.Settings)
+    )
+
+    // Leading edge and trailing edge animated positions (non-overshooting so it never jumps outside navbar)
+    val leadTabPos by animateFloatAsState(
+        targetValue = selectedTab.toFloat(),
+        animationSpec = tween(
+            durationMillis = 340,
+            easing = FastOutSlowInEasing
+        ),
+        label = "pill_lead_pos"
+    )
+
+    val trailTabPos by animateFloatAsState(
+        targetValue = selectedTab.toFloat(),
+        animationSpec = tween(
+            durationMillis = 460,
+            easing = FastOutSlowInEasing
+        ),
+        label = "pill_trail_pos"
     )
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
         Surface(
             shape = RoundedCornerShape(100.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
             tonalElevation = 12.dp,
-            shadowElevation = 16.dp,
-            border = BorderStroke(1.5.dp, AuroraRoyalViolet.copy(alpha = 0.35f)),
+            shadowElevation = 20.dp,
+            border = BorderStroke(
+                width = 1.5.dp,
+                brush = Brush.horizontalGradient(
+                    listOf(
+                        AuroraRoyalViolet.copy(alpha = 0.55f),
+                        AuroraAmethyst.copy(alpha = 0.75f),
+                        AuroraRoyalViolet.copy(alpha = 0.55f)
+                    )
+                )
+            ),
             modifier = Modifier
                 .widthIn(max = 380.dp)
                 .fillMaxWidth()
-                .height(60.dp)
+                .height(62.dp)
                 .shadow(
-                    elevation = 20.dp,
+                    elevation = 24.dp,
                     shape = RoundedCornerShape(100.dp),
-                    ambientColor = AuroraRoyalViolet.copy(alpha = 0.5f),
-                    spotColor = AuroraRoyalViolet
+                    ambientColor = AuroraRoyalViolet,
+                    spotColor = AuroraAmethyst
                 )
         ) {
-            Row(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(5.dp)
+                    .clip(RoundedCornerShape(100.dp))
             ) {
-                items.forEach { item ->
-                    val isSelected = selectedTab == item.index
+                val density = LocalDensity.current
+                val containerWidthPx = with(density) { maxWidth.toPx() }
+                val containerHeightPx = with(density) { maxHeight.toPx() }
+                val tabWidthPx = containerWidthPx / items.size.toFloat()
 
-                    val backgroundColor by animateColorAsState(
-                        targetValue = if (isSelected) AuroraRoyalViolet else Color.Transparent,
-                        animationSpec = spring(stiffness = Spring.StiffnessLow),
-                        label = "tab_bg"
-                    )
+                // Calculate clamped left and right bounds of the moving pill so it NEVER leaves [0, containerWidthPx]
+                val minTabPos = min(leadTabPos, trailTabPos).coerceIn(0f, (items.size - 1).toFloat())
+                val maxTabPos = max(leadTabPos, trailTabPos).coerceIn(0f, (items.size - 1).toFloat())
 
-                    val contentColor by animateColorAsState(
-                        targetValue = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                        label = "tab_content"
-                    )
+                val pillLeftPx = (minTabPos * tabWidthPx).coerceIn(0f, containerWidthPx - tabWidthPx)
+                val pillRightPx = ((maxTabPos * tabWidthPx) + tabWidthPx).coerceIn(pillLeftPx + tabWidthPx * 0.8f, containerWidthPx)
 
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(CircleShape)
-                            .background(backgroundColor)
-                            .then(
-                                if (isSelected) {
-                                    Modifier.border(
-                                        width = 1.dp,
-                                        brush = Brush.horizontalGradient(
-                                            listOf(
-                                                Color.White.copy(alpha = 0.4f),
-                                                Color.White.copy(alpha = 0.1f)
-                                            )
-                                        ),
-                                        shape = CircleShape
-                                    )
-                                } else Modifier
+                // Calculate how much the pill is currently in-flight between tabs (0f at rest, 1f at peak movement)
+                val stretchDelta = abs(leadTabPos - trailTabPos).coerceIn(0f, 1.2f)
+                val flightPhase = abs(leadTabPos - kotlin.math.round(leadTabPos)) * 2f // 0 at ends, 1 at midpoint
+                val pinchFactor = max(stretchDelta * 0.85f, sin(flightPhase * Math.PI.toFloat()) * 0.65f).coerceIn(0f, 1f)
+
+                // Draw the custom liquid neon purple pill with a thinner middle waist during movement
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .drawBehind {
+                            val w = (pillRightPx - pillLeftPx).coerceAtLeast(containerHeightPx)
+                            val h = containerHeightPx
+                            val r = h / 2f
+                            val left = pillLeftPx.coerceIn(0f, size.width - w)
+                            val right = (left + w).coerceAtMost(size.width)
+
+                            // Middle waist pinch inward (up to 32% from top and 32% from bottom while moving)
+                            val maxPinchPx = h * 0.30f * pinchFactor
+                            val midX = (left + right) / 2f
+
+                            val pillPath = Path().apply {
+                                // Left semicircular end cap (full height at beginning/end)
+                                arcTo(
+                                    rect = Rect(left, 0f, left + h, h),
+                                    startAngleDegrees = 90f,
+                                    sweepAngleDegrees = 180f,
+                                    forceMoveTo = false
+                                )
+                                // Top edge: pinches inward in the middle while moving
+                                quadraticBezierTo(
+                                    x1 = midX,
+                                    y1 = maxPinchPx,
+                                    x2 = right - r,
+                                    y2 = 0f
+                                )
+                                // Right semicircular end cap (full height at beginning/end)
+                                arcTo(
+                                    rect = Rect(right - h, 0f, right, h),
+                                    startAngleDegrees = 270f,
+                                    sweepAngleDegrees = 180f,
+                                    forceMoveTo = false
+                                )
+                                // Bottom edge: pinches inward in the middle while moving
+                                quadraticBezierTo(
+                                    x1 = midX,
+                                    y1 = h - maxPinchPx,
+                                    x2 = left + r,
+                                    y2 = h
+                                )
+                                close()
+                            }
+
+                            // Outer soft neon purple glow inside navbar
+                            drawPath(
+                                path = pillPath,
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        AuroraRoyalViolet.copy(alpha = 0.35f),
+                                        AuroraAmethyst.copy(alpha = 0.45f),
+                                        AuroraRoyalViolet.copy(alpha = 0.35f)
+                                    ),
+                                    startX = left,
+                                    endX = right
+                                )
                             )
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { onTabSelected(item.index) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(horizontal = 8.dp)
+
+                            // Main Neon Purple Pill Fill
+                            drawPath(
+                                path = pillPath,
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        AuroraRoyalViolet,
+                                        Color(0xFF7B35E8),
+                                        AuroraAmethyst
+                                    ),
+                                    startX = left,
+                                    endX = right
+                                )
+                            )
+
+                            // Subtle luminous inner rim highlight
+                            drawPath(
+                                path = pillPath,
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.42f),
+                                        Color.White.copy(alpha = 0.08f)
+                                    ),
+                                    startY = 0f,
+                                    endY = h
+                                ),
+                                style = Stroke(width = with(density) { 1.dp.toPx() })
+                            )
+                        }
+                )
+
+                // Symmetric 4-Column Tab Items
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    items.forEach { item ->
+                        val isSelected = selectedTab == item.index
+
+                        val contentColor by animateColorAsState(
+                            targetValue = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                            animationSpec = tween(durationMillis = 250),
+                            label = "tab_content_color"
+                        )
+
+                        val iconScale by animateFloatAsState(
+                            targetValue = if (isSelected) 1.1f else 1.0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "tab_icon_scale"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(CircleShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { onTabSelected(item.index) },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = item.icon,
-                                contentDescription = item.label,
-                                tint = contentColor,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            if (isSelected) {
-                                Spacer(modifier = Modifier.width(6.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = item.icon,
+                                    contentDescription = item.label,
+                                    tint = contentColor,
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .scale(iconScale)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = item.label,
                                     color = contentColor,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     maxLines = 1
                                 )
+                                if (item.badge > 0) {
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (isSelected) Color.White.copy(alpha = 0.28f) else AuroraRoyalViolet.copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            text = item.badge.toString(),
+                                            color = if (isSelected) Color.White else AuroraRoyalViolet,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

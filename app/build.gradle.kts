@@ -56,6 +56,19 @@ android {
         compose = true
         buildConfig = true
     }
+
+    packaging {
+        jniLibs {
+            keepDebugSymbols += "**/libandroidx.graphics.path.so"
+        }
+    }
+
+    applicationVariants.all {
+        outputs.all {
+            (this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl)?.outputFileName =
+                "Aurora Notes.apk"
+        }
+    }
 }
 
 dependencies {

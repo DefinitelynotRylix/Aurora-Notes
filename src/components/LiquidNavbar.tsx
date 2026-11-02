@@ -1,5 +1,4 @@
-import React from 'react';
-import { motion } from 'motion/react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActiveTab } from '../types';
 import { FileText, Pin, Trash2, Settings } from 'lucide-react';
 
@@ -17,6 +16,8 @@ interface NavItem {
   badge?: number;
 }
 
+const easeOutCubic = (t: number): number => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
+
 export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   activeTab,
   onChangeTab,
@@ -30,13 +31,157 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
+  const targetIndex = Math.max(
+    0,
+    items.findIndex((item) => item.id === activeTab)
+  );
+
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [trackSize, setTrackSize] = useState({ width: 320, height: 44 });
+  const [animState, setAnimState] = useState({
+    leadPos: targetIndex,
+    trailPos: targetIndex,
+  });
+
+  const animRef = useRef({
+    startLead: targetIndex,
+    startTrail: targetIndex,
+    currentLead: targetIndex,
+    currentTrail: targetIndex,
+    target: targetIndex,
+    startTime: 0,
+    rafId: 0,
+  });
+
+  useEffect(() => {
+    const updateMeasure = () => {
+      if (trackRef.current) {
+        const rect = trackRef.current.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          setTrackSize({ width: rect.width, height: rect.height });
+        }
+      }
+    };
+    updateMeasure();
+    window.addEventListener('resize', updateMeasure);
+    return () => window.removeEventListener('resize', updateMeasure);
+  }, []);
+
+  useEffect(() => {
+    const state = animRef.current;
+    if (state.target === targetIndex) return;
+
+    cancelAnimationFrame(state.rafId);
+    state.startLead = state.currentLead;
+    state.startTrail = state.currentTrail;
+    state.target = targetIndex;
+    state.startTime = performance.now();
+
+    const LEAD_DURATION = 320;
+    const TRAIL_DURATION = 450;
+
+    const tick = (now: number) => {
+      const elapsed = Math.max(0, now - state.startTime);
+      const leadProgress = easeOutCubic(elapsed / LEAD_DURATION);
+      const trailProgress = easeOutCubic(elapsed / TRAIL_DURATION);
+
+      const nextLead = Math.min(
+        items.length - 1,
+        Math.max(0, state.startLead + (state.target - state.startLead) * leadProgress)
+      );
+      const nextTrail = Math.min(
+        items.length - 1,
+        Math.max(0, state.startTrail + (state.target - state.startTrail) * trailProgress)
+      );
+
+      state.currentLead = nextLead;
+      state.currentTrail = nextTrail;
+      setAnimState({ leadPos: nextLead, trailPos: nextTrail });
+
+      if (elapsed < TRAIL_DURATION) {
+        state.rafId = requestAnimationFrame(tick);
+      } else {
+        state.currentLead = state.target;
+        state.currentTrail = state.target;
+        setAnimState({ leadPos: state.target, trailPos: state.target });
+      }
+    };
+
+    state.rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(state.rafId);
+  }, [targetIndex, items.length]);
+
+  // Compute strict non-overshooting liquid hourglass pill geometry
+  const tabCount = items.length;
+  const slotWidth = trackSize.width / tabCount;
+  const pillHeight = trackSize.height;
+  const capRadius = pillHeight / 2;
+
+  const leftEdgeRaw = Math.min(animState.leadPos, animState.trailPos) * slotWidth;
+  const rightEdgeRaw = (Math.max(animState.leadPos, animState.trailPos) + 1) * slotWidth;
+
+  const leftX = Math.max(0, Math.min(trackSize.width - pillHeight, leftEdgeRaw));
+  const rightX = Math.max(leftX + pillHeight, Math.min(trackSize.width, rightEdgeRaw));
+
+  const stretchDelta = Math.abs(animState.leadPos - animState.trailPos);
+  const stretchFactor = Math.min(1, Math.max(0, stretchDelta * 1.35));
+  // Thin waist pinch in the middle while moving between menus
+  const waistPinch = pillHeight * 0.27 * stretchFactor;
+
+  const leftCapCenterX = leftX + capRadius;
+  const rightCapCenterX = Math.max(leftCapCenterX, rightX - capRadius);
+  const midX = (leftCapCenterX + rightCapCenterX) / 2;
+
+  const pillPath = [
+    `M ${leftCapCenterX} 0`,
+    `Q ${midX} ${waistPinch} ${rightCapCenterX} 0`,
+    `A ${capRadius} ${capRadius} 0 0 1 ${rightCapCenterX} ${pillHeight}`,
+    `Q ${midX} ${pillHeight - waistPinch} ${leftCapCenterX} ${pillHeight}`,
+    `A ${capRadius} ${capRadius} 0 0 1 ${leftCapCenterX} 0`,
+    'Z',
+  ].join(' ');
+
   return (
     <nav
       aria-label="Bottom Navigation"
       className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-sm sm:max-w-md px-2 pointer-events-auto"
     >
-      <div className="glass-floating rounded-full p-1.5 flex items-center justify-between shadow-[0_16px_36px_-4px_rgba(89,37,220,0.25)] dark:shadow-[0_16px_36px_-4px_rgba(0,0,0,0.7)] border border-white/80 dark:border-white/10 bg-white/95 dark:bg-[#1B1524]/95 backdrop-blur-2xl">
-        <div className="grid grid-cols-4 w-full gap-1">
+      <div className="glass-floating rounded-full p-1.5 flex items-center justify-between shadow-[0_16px_36px_-4px_rgba(89,37,220,0.28)] dark:shadow-[0_16px_36px_-4px_rgba(0,0,0,0.75)] border border-white/80 dark:border-white/15 bg-white/95 dark:bg-[#140E21]/95 backdrop-blur-2xl overflow-hidden">
+        <div
+          ref={trackRef}
+          className="relative grid grid-cols-4 w-full rounded-full overflow-hidden"
+        >
+          {/* Strictly contained SVG Liquid Thin-Waist Pill Indicator */}
+          <svg
+            width={trackSize.width}
+            height={trackSize.height}
+            viewBox={`0 0 ${trackSize.width} ${trackSize.height}`}
+            className="absolute inset-0 pointer-events-none z-0 overflow-hidden"
+            aria-hidden="true"
+          >
+            <defs>
+              <linearGradient id="aurora-pill-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#6929F5" />
+                <stop offset="50%" stopColor="#8E42FF" />
+                <stop offset="100%" stopColor="#B86BFF" />
+              </linearGradient>
+              <filter id="aurora-pill-glow" x="-15%" y="-25%" width="130%" height="150%">
+                <feGaussianBlur stdDeviation="5" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            <path
+              d={pillPath}
+              fill="url(#aurora-pill-grad)"
+              stroke="rgba(255,255,255,0.34)"
+              strokeWidth="1"
+              filter="url(#aurora-pill-glow)"
+            />
+          </svg>
+
           {items.map((item) => {
             const isSelected = activeTab === item.id;
             const IconComponent = item.icon;
@@ -47,29 +192,15 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
                 onClick={() => onChangeTab(item.id)}
                 aria-label={item.label}
                 aria-current={isSelected ? 'page' : undefined}
-                className={`relative py-2.5 rounded-full flex items-center justify-center gap-1.5 text-xs font-semibold transition-colors duration-200 select-none focus:outline-none cursor-pointer w-full ${
+                className={`relative py-2.5 rounded-full flex items-center justify-center gap-1.5 text-xs font-semibold transition-colors duration-200 select-none focus:outline-none cursor-pointer w-full z-10 ${
                   isSelected
                     ? 'text-white'
                     : 'text-[#484455] dark:text-[#A39BAC] hover:text-[#5925DC] dark:hover:text-[#C296FD]'
                 }`}
               >
-                {/* Glowing Purple Active Pill Indicator */}
-                {isSelected && (
-                  <motion.div
-                    layoutId="nav-liquid-circle"
-                    className="absolute inset-0 rounded-full bg-gradient-to-r from-[#5925DC] via-[#7B35E8] to-[#9B51E0] dark:from-[#7839EE] dark:via-[#9D5AF5] dark:to-[#C296FD] shadow-[0_0_18px_rgba(157,90,245,0.65)] border border-white/30 z-0"
-                    transition={{
-                      type: 'spring',
-                      stiffness: 450,
-                      damping: 30,
-                    }}
-                  />
-                )}
-
-                {/* Icon & Label */}
                 <span className="relative z-10 flex items-center justify-center gap-1">
                   <IconComponent
-                    className={`w-4 h-4 transition-transform ${
+                    className={`w-4 h-4 transition-transform duration-200 ${
                       isSelected ? 'scale-110' : 'group-hover:scale-105'
                     }`}
                   />
