@@ -2,6 +2,7 @@ package com.aurora.notes.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -33,6 +34,7 @@ import com.aurora.notes.ui.theme.AuroraRoyalViolet
 @Composable
 fun NotesScreen(
     notes: List<Note>,
+    userTags: List<String> = emptyList(),
     searchQuery: String,
     onSearchChange: (String) -> Unit,
     selectedCategory: String,
@@ -44,22 +46,68 @@ fun NotesScreen(
     onDeleteNote: (String) -> Unit,
     onToggleCheckItem: (String, String) -> Unit,
     onAddNote: () -> Unit,
+    onCreateTag: (String) -> Unit = {},
     onDeleteTag: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val categories = listOf("All", "General", "Ideas", "Personal", "Work")
-    val allTags = remember(notes) {
-        notes.flatMap { it.tags }.distinct().sorted()
+    // Combine persisted user-created tags + any tags present on notes (excluding any legacy defaults)
+    val createdTags = remember(userTags, notes) {
+        val fromNotes = notes.flatMap { it.tags }
+        (userTags + fromNotes)
+            .map { it.trim().removePrefix("#").trim() }
+            .filter { it.isNotBlank() && !it.equals("All", ignoreCase = true) }
+            .distinctBy { it.lowercase() }
     }
-    var selectedTagFilter by remember { mutableStateOf<String?>(null) }
+
+    var showCreateTagDialog by remember { mutableStateOf(false) }
+    var newTagName by remember { mutableStateOf("") }
     var pendingDeleteTag by remember { mutableStateOf<String?>(null) }
 
-    val displayedNotes = remember(notes, selectedTagFilter) {
-        if (selectedTagFilter == null) {
-            notes
-        } else {
-            notes.filter { it.tags.contains(selectedTagFilter) }
-        }
+    if (showCreateTagDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showCreateTagDialog = false
+                newTagName = ""
+            },
+            title = {
+                Text("Create New Tag", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                OutlinedTextField(
+                    value = newTagName,
+                    onValueChange = { newTagName = it },
+                    placeholder = { Text("Tag name...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val clean = newTagName.trim().removePrefix("#").trim()
+                        if (clean.isNotBlank() && !clean.equals("All", ignoreCase = true)) {
+                            onCreateTag(clean)
+                            onSelectCategory(clean)
+                        }
+                        newTagName = ""
+                        showCreateTagDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
+                ) {
+                    Text("Create", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showCreateTagDialog = false
+                        newTagName = ""
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     if (pendingDeleteTag != null) {
@@ -68,7 +116,7 @@ fun NotesScreen(
             title = { Text("Delete Tag #${pendingDeleteTag}?") },
             text = {
                 Text(
-                    "Deleting this tag will only remove the tag itself and will NOT delete any notes. All notes under #${pendingDeleteTag} will return to a regular tag-less state.",
+                    "Deleting #${pendingDeleteTag} will remove the tag and return any notes under it back into All without deleting the notes.",
                     fontSize = 13.sp
                 )
             },
@@ -78,8 +126,8 @@ fun NotesScreen(
                         val tag = pendingDeleteTag
                         pendingDeleteTag = null
                         if (tag != null) {
-                            if (selectedTagFilter == tag) {
-                                selectedTagFilter = null
+                            if (selectedCategory.equals(tag, ignoreCase = true)) {
+                                onSelectCategory("All")
                             }
                             onDeleteTag?.invoke(tag)
                         }
@@ -176,45 +224,84 @@ fun NotesScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Category & Tag Filter Pills (Long-press any #tag pill to delete it)
+        // Tag Filter Bar:
+        // [All] and [+ Create Tag] stay anchored on the left; newly created tags appear to the right.
+        // Long-pressing any created tag opens the Delete Tag option.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            categories.forEach { cat ->
-                val isSelected = selectedTagFilter == null && selectedCategory.equals(cat, ignoreCase = true)
-                FilterChip(
-                    selected = isSelected,
-                    onClick = {
-                        selectedTagFilter = null
-                        onSelectCategory(cat)
-                    },
-                    label = {
-                        Text(
-                            text = cat,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    shape = RoundedCornerShape(12.dp)
+            // 1. "All" Button (Always first on the left)
+            val isAllSelected = selectedCategory.equals("All", ignoreCase = true)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (isAllSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.surface,
+                border = BorderStroke(
+                    1.dp,
+                    if (isAllSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                ),
+                modifier = Modifier.clickable {
+                    onSelectCategory("All")
+                }
+            ) {
+                Text(
+                    text = "All",
+                    fontSize = 12.sp,
+                    fontWeight = if (isAllSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isAllSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                 )
             }
 
-            allTags.forEach { tag ->
-                val isTagSelected = selectedTagFilter == tag
+            // 2. "+ Create Tag" Button (Always second on the left, stays in place)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = AuroraRoyalViolet.copy(alpha = 0.10f),
+                border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.45f)),
+                modifier = Modifier.clickable {
+                    showCreateTagDialog = true
+                }
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Create Tag",
+                        tint = AuroraRoyalViolet,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Create Tag",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AuroraRoyalViolet
+                    )
+                }
+            }
+
+            // 3. User-Created Tags (Appear on the right side; long-tap to delete)
+            createdTags.forEach { tag ->
+                val isTagSelected = selectedCategory.equals(tag, ignoreCase = true)
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = if (isTagSelected) AuroraRoyalViolet else AuroraRoyalViolet.copy(alpha = 0.1f),
+                    color = if (isTagSelected) AuroraRoyalViolet else AuroraRoyalViolet.copy(alpha = 0.10f),
                     border = BorderStroke(
                         1.dp,
                         if (isTagSelected) AuroraRoyalViolet else AuroraRoyalViolet.copy(alpha = 0.35f)
                     ),
                     modifier = Modifier.combinedClickable(
                         onClick = {
-                            selectedTagFilter = if (isTagSelected) null else tag
+                            if (isTagSelected) {
+                                onSelectCategory("All")
+                            } else {
+                                onSelectCategory(tag)
+                            }
                         },
                         onLongClick = {
                             pendingDeleteTag = tag
@@ -235,7 +322,7 @@ fun NotesScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // Notes Grid / List
-        if (displayedNotes.isEmpty()) {
+        if (notes.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -262,7 +349,7 @@ fun NotesScreen(
                 contentPadding = PaddingValues(bottom = 96.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(displayedNotes, key = { it.id }) { note ->
+                items(notes, key = { it.id }) { note ->
                     NoteCard(
                         note = note,
                         onClick = { onSelectNote(note) },

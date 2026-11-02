@@ -16,7 +16,11 @@ interface NavItem {
   badge?: number;
 }
 
-const easeOutCubic = (t: number): number => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
+// Smooth fluid cubic-out easing
+const easeFluidGlide = (t: number): number => {
+  const clamped = Math.min(1, Math.max(0, t));
+  return 1 - Math.pow(1 - clamped, 3.2);
+};
 
 export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   activeTab,
@@ -77,13 +81,15 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     state.target = targetIndex;
     state.startTime = performance.now();
 
-    const LEAD_DURATION = 320;
-    const TRAIL_DURATION = 450;
+    // Fluid durations so the leading edge glides out first (stretching the pill)
+    // and the trailing edge smoothly catches up to restore the original pill size
+    const LEAD_DURATION = 420;
+    const TRAIL_DURATION = 720;
 
     const tick = (now: number) => {
       const elapsed = Math.max(0, now - state.startTime);
-      const leadProgress = easeOutCubic(elapsed / LEAD_DURATION);
-      const trailProgress = easeOutCubic(elapsed / TRAIL_DURATION);
+      const leadProgress = easeFluidGlide(elapsed / LEAD_DURATION);
+      const trailProgress = easeFluidGlide(elapsed / TRAIL_DURATION);
 
       const nextLead = Math.min(
         items.length - 1,
@@ -111,7 +117,6 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     return () => cancelAnimationFrame(state.rafId);
   }, [targetIndex, items.length]);
 
-  // Compute strict non-overshooting liquid hourglass pill geometry
   const tabCount = items.length;
   const slotWidth = trackSize.width / tabCount;
   const pillHeight = trackSize.height;
@@ -124,9 +129,8 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   const rightX = Math.max(leftX + pillHeight, Math.min(trackSize.width, rightEdgeRaw));
 
   const stretchDelta = Math.abs(animState.leadPos - animState.trailPos);
-  const stretchFactor = Math.min(1, Math.max(0, stretchDelta * 1.35));
-  // Thin waist pinch in the middle while moving between menus
-  const waistPinch = pillHeight * 0.27 * stretchFactor;
+  const stretchFactor = stretchDelta / (stretchDelta + 0.55);
+  const waistPinch = pillHeight * 0.28 * stretchFactor;
 
   const leftCapCenterX = leftX + capRadius;
   const rightCapCenterX = Math.max(leftCapCenterX, rightX - capRadius);
@@ -151,7 +155,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
           ref={trackRef}
           className="relative grid grid-cols-4 w-full rounded-full overflow-hidden"
         >
-          {/* Strictly contained SVG Liquid Thin-Waist Pill Indicator */}
+          {/* Fluid Stretching & Thin-Waist SVG Pill Indicator */}
           <svg
             width={trackSize.width}
             height={trackSize.height}
@@ -192,7 +196,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
                 onClick={() => onChangeTab(item.id)}
                 aria-label={item.label}
                 aria-current={isSelected ? 'page' : undefined}
-                className={`relative py-2.5 rounded-full flex items-center justify-center gap-1.5 text-xs font-semibold transition-colors duration-200 select-none focus:outline-none cursor-pointer w-full z-10 ${
+                className={`relative py-2.5 rounded-full flex items-center justify-center gap-1.5 text-xs font-semibold transition-colors duration-300 select-none focus:outline-none cursor-pointer w-full z-10 ${
                   isSelected
                     ? 'text-white'
                     : 'text-[#484455] dark:text-[#A39BAC] hover:text-[#5925DC] dark:hover:text-[#C296FD]'
@@ -200,8 +204,8 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
               >
                 <span className="relative z-10 flex items-center justify-center gap-1">
                   <IconComponent
-                    className={`w-4 h-4 transition-transform duration-200 ${
-                      isSelected ? 'scale-110' : 'group-hover:scale-105'
+                    className={`w-4 h-4 transition-transform duration-300 ${
+                      isSelected ? 'scale-105' : 'group-hover:scale-105'
                     }`}
                   />
                   <span className="hidden sm:inline text-[11px] font-medium">{item.label}</span>

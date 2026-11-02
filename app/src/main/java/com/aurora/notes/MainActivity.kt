@@ -6,15 +6,22 @@ import androidx.activity.viewModels
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +30,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.aurora.notes.ui.components.FloatingPillNavigationBar
@@ -110,9 +120,11 @@ fun AuroraApp(
     val filteredNotes by viewModel.filteredActiveNotes.collectAsState()
     val filteredTrashedNotes by viewModel.filteredTrashedNotes.collectAsState()
     val allActiveNotes by viewModel.allActiveNotes.collectAsState()
+    val userTags by viewModel.userTags.collectAsState()
 
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
     val isAppLocked by viewModel.isAppLocked.collectAsState()
+    val isWelcomeOpen by viewModel.isWelcomeOpen.collectAsState()
 
     val pinnedCount = remember(allActiveNotes) { allActiveNotes.count { it.isPinned } }
     val trashCount = remember(filteredTrashedNotes) { filteredTrashedNotes.size }
@@ -187,12 +199,25 @@ fun AuroraApp(
     } else if (activeEditingNote != null) {
         NoteEditorScreen(
             note = activeEditingNote!!,
+            userTags = userTags,
             onSaveAndClose = { updatedNote ->
                 viewModel.saveNote(updatedNote)
                 viewModel.closeEditor()
+            },
+            onDiscardAndClose = {
+                viewModel.closeEditor()
+            },
+            onDeleteTagGlobal = { tag ->
+                viewModel.deleteTagAndDetachFromNotes(tag)
             }
         )
     } else {
+        if (isWelcomeOpen) {
+            WelcomeTourDialog(
+                onDismiss = { viewModel.dismissWelcome() }
+            )
+        }
+
         Scaffold(
             floatingActionButton = {
                 if (selectedTab == 0 || selectedTab == 1) {
@@ -217,13 +242,16 @@ fun AuroraApp(
         ) { paddingValues ->
             AnimatedContent(
                 targetState = selectedTab,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
+                },
                 label = "tab_content_transition"
             ) { targetTab ->
                 when (targetTab) {
                     0, 1 -> {
                         NotesScreen(
                             notes = filteredNotes,
+                            userTags = userTags,
                             searchQuery = searchQuery,
                             onSearchChange = { viewModel.setSearchQuery(it) },
                             selectedCategory = selectedCategory,
@@ -237,6 +265,7 @@ fun AuroraApp(
                                 viewModel.toggleChecklistItem(noteId, itemId)
                             },
                             onAddNote = { viewModel.openNewNote() },
+                            onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
                             onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
                             modifier = Modifier.padding(paddingValues)
                         )
@@ -260,10 +289,192 @@ fun AuroraApp(
                             onSetBiometricLock = { enabled ->
                                 viewModel.setBiometricLockEnabled(enabled)
                             },
+                            onOpenWelcomeTour = { viewModel.reopenWelcome() },
                             onClearLogs = { viewModel.clearDiagnosticLogs() },
                             onExportLogs = { viewModel.exportDiagnosticLogs() },
                             onTriggerBiometricAuth = onTriggerBiometricAuth,
                             modifier = Modifier.padding(paddingValues)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WelcomeTourDialog(
+    onDismiss: () -> Unit
+) {
+    var currentPage by remember { mutableStateOf(0) }
+
+    val titles = listOf(
+        "Welcome to Aurora Notes",
+        "100% Local-Only Privacy",
+        "Custom Tags & Fast Editor",
+        "Native Biometric Lock"
+    )
+    val subtitles = listOf(
+        "Atmospheric Minimalism Meets Speed",
+        "Your Notes Never Leave Your Device",
+        "Create Tags & Style Text On The Fly",
+        "Protected by Android Device Security"
+    )
+    val descriptions = listOf(
+        "Aurora Notes is crafted for distraction-free writing with fluid liquid navigation, instant search, and zero cloud bloat.",
+        "All notes, checklists, and tags are stored strictly inside your device's local SQLite storage with zero external servers or telemetry.",
+        "Tap '+ Create Tag' next to 'All' to organize notes your way, long-press any tag to delete it cleanly, and toggle Medium or Large text sizing as you type.",
+        "Enable Biometric & App Lock in Settings to require your phone's native fingerprint, face unlock, or PIN whenever Aurora Notes opens."
+    )
+    val icons = listOf(
+        Icons.Default.AutoAwesome,
+        Icons.Default.CheckCircle,
+        Icons.Default.Tag,
+        Icons.Default.Lock
+    )
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.5.dp, AuroraRoyalViolet.copy(alpha = 0.45f)),
+            tonalElevation = 12.dp,
+            shadowElevation = 24.dp,
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 420.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = AuroraRoyalViolet.copy(alpha = 0.14f),
+                    modifier = Modifier.size(60.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = icons[currentPage],
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "STEP ${currentPage + 1} OF ${titles.size}",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AuroraRoyalViolet
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = titles[currentPage],
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp
+                    ),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = subtitles[currentPage],
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.background,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = descriptions[currentPage],
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
+                        ),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Page Indicator Dots
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    for (i in titles.indices) {
+                        Box(
+                            modifier = Modifier
+                                .height(7.dp)
+                                .width(if (i == currentPage) 22.dp else 7.dp)
+                                .background(
+                                    color = if (i == currentPage) AuroraRoyalViolet else AuroraRoyalViolet.copy(alpha = 0.25f),
+                                    shape = CircleShape
+                                )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (currentPage > 0) {
+                        OutlinedButton(
+                            onClick = { currentPage-- },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Previous", fontSize = 12.sp)
+                        }
+                    } else {
+                        TextButton(onClick = onDismiss) {
+                            Text("Skip", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (currentPage < titles.lastIndex) {
+                                currentPage++
+                            } else {
+                                onDismiss()
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
+                    ) {
+                        Text(
+                            text = if (currentPage < titles.lastIndex) "Next" else "Get Started",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
                         )
                     }
                 }

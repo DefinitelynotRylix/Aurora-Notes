@@ -8,6 +8,8 @@ import com.aurora.notes.data.AuroraDatabase
 import com.aurora.notes.data.AuroraRepository
 import com.aurora.notes.model.Note
 import com.aurora.notes.util.LocalLogger
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,9 +23,12 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val PREFS_NAME = "aurora_notes_preferences"
         private const val KEY_BIOMETRIC_LOCK = "key_biometric_lock_enabled"
+        private const val KEY_WELCOME_SEEN = "key_welcome_tour_seen_v1"
+        private const val KEY_USER_TAGS = "key_user_created_tags_v1"
     }
 
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val gson = Gson()
 
     private val repository: AuroraRepository
 
@@ -51,6 +56,12 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAppLocked = MutableStateFlow(prefs.getBoolean(KEY_BIOMETRIC_LOCK, false))
     val isAppLocked = _isAppLocked.asStateFlow()
 
+    private val _isWelcomeOpen = MutableStateFlow(!prefs.getBoolean(KEY_WELCOME_SEEN, false))
+    val isWelcomeOpen = _isWelcomeOpen.asStateFlow()
+
+    private val _userTags = MutableStateFlow<List<String>>(loadSavedTags())
+    val userTags = _userTags.asStateFlow()
+
     init {
         val noteDao = AuroraDatabase.getDatabase(application).noteDao()
         repository = AuroraRepository(noteDao)
@@ -70,6 +81,21 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         LocalLogger.security("APP", "Aurora Notes initialized with local Room SQLite storage")
     }
 
+    private fun loadSavedTags(): List<String> {
+        val json = prefs.getString(KEY_USER_TAGS, null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<String>>() {}.type
+            gson.fromJson<List<String>>(json, type) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun persistUserTags(tags: List<String>) {
+        _userTags.value = tags
+        prefs.edit().putString(KEY_USER_TAGS, gson.toJson(tags)).apply()
+    }
+
     val filteredActiveNotes: StateFlow<List<Note>> = combine(
         allActiveNotes,
         _searchQuery,
@@ -81,7 +107,10 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             list = list.filter { it.isPinned }
         }
         if (category != "All") {
-            list = list.filter { it.category.equals(category, ignoreCase = true) }
+            list = list.filter { note ->
+                note.tags.any { it.equals(category, ignoreCase = true) } ||
+                    note.category.equals(category, ignoreCase = true)
+            }
         }
         if (query.isNotBlank()) {
             val q = query.trim().lowercase()
@@ -128,11 +157,33 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         _isGridView.value = !_isGridView.value
     }
 
+    fun dismissWelcome() {
+        prefs.edit().putBoolean(KEY_WELCOME_SEEN, true).apply()
+        _isWelcomeOpen.value = false
+    }
+
+    fun reopenWelcome() {
+        _isWelcomeOpen.value = true
+    }
+
+    fun addUserTag(rawTag: String) {
+        val clean = rawTag.trim().removePrefix("#").trim()
+        if (clean.isBlank() || clean.equals("All", ignoreCase = true)) return
+        val current = _userTags.value
+        if (current.none { it.equals(clean, ignoreCase = true) }) {
+            persistUserTags(current + clean)
+            LocalLogger.security("TAGS", "Created user tag '$clean'")
+        }
+    }
+
     fun openNewNote() {
+        val activeTag = _selectedCategory.value
+        val initialTags = if (activeTag != "All" && activeTag.isNotBlank()) listOf(activeTag) else emptyList()
         _activeEditingNote.value = Note(
             title = "",
             content = "",
-            category = if (_selectedCategory.value == "All") "General" else _selectedCategory.value
+            tags = initialTags,
+            category = if (activeTag != "All") activeTag else ""
         )
     }
 
@@ -151,12 +202,35 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             .replace("[ ]", "")
             .replace("[x]", "")
             .trim()
-        if (cleanTitle.isBlank() && cleanContent.isBlank()) {
+        val hasChecklistContent = note.checklist.any { it.text.trim().isNotBlank() }
+
+        if (cleanTitle.isBlank() && cleanContent.isBlank() && !hasChecklistContent) {
             LocalLogger.warn("NOTE", "Discarded blank note with empty title and body")
             return
         }
+
+        val finalNote = note.copy(
+            title = cleanTitle.ifBlank { "Untitled Note" }
+        )
+
+        // Ensure any tags attached to the note are also registered in userTags
+        if (finalNote.tags.isNotEmpty()) {
+            val current = _userTags.value.toMutableList()
+            var changed = false
+            finalNote.tags.forEach { t ->
+                val clean = t.trim().removePrefix("#")
+                if (clean.isNotBlank() && current.none { it.equals(clean, ignoreCase = true) }) {
+                    current.add(clean)
+                    changed = true
+                }
+            }
+            if (changed) {
+                persistUserTags(current)
+            }
+        }
+
         viewModelScope.launch {
-            repository.saveNote(note)
+            repository.saveNote(finalNote)
         }
     }
 
@@ -223,15 +297,30 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteTagAndDetachFromNotes(tagToDelete: String) {
+        val updatedUserTags = _userTags.value.filterNot { it.equals(tagToDelete, ignoreCase = true) }
+        persistUserTags(updatedUserTags)
+
+        if (_selectedCategory.value.equals(tagToDelete, ignoreCase = true)) {
+            _selectedCategory.value = "All"
+        }
+
         viewModelScope.launch {
             val activeNotes = allActiveNotes.value
             activeNotes.forEach { note ->
-                if (note.tags.contains(tagToDelete)) {
-                    val updatedTags = note.tags.filter { it != tagToDelete }
-                    repository.saveNote(note.copy(tags = updatedTags))
+                val hasTag = note.tags.any { it.equals(tagToDelete, ignoreCase = true) }
+                val hasCat = note.category.equals(tagToDelete, ignoreCase = true)
+                if (hasTag || hasCat) {
+                    val updatedTags = note.tags.filterNot { it.equals(tagToDelete, ignoreCase = true) }
+                    val updatedCat = if (hasCat) (updatedTags.firstOrNull() ?: "") else note.category
+                    repository.saveNote(
+                        note.copy(
+                            tags = updatedTags,
+                            category = updatedCat
+                        )
+                    )
                 }
             }
-            LocalLogger.security("TAGS", "Deleted tag '$tagToDelete' and detached it from all associated notes.")
+            LocalLogger.security("TAGS", "Deleted tag '$tagToDelete' and returned associated notes to All.")
         }
     }
 }

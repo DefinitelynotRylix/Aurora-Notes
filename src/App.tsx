@@ -39,15 +39,15 @@ export default function App() {
   // Active navigation tab
   const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
 
-  // Custom user pins (categories)
+  // Custom user tags - starts completely empty in the base app
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_CATEGORIES_KEY);
+      const stored = localStorage.getItem('aurora_user_tags_v2');
       if (stored) return JSON.parse(stored);
     } catch {
       // fallback
     }
-    return ['Work', 'Personal', 'Ideas'];
+    return [];
   });
 
   // Notes state - starts completely fresh and empty
@@ -168,13 +168,14 @@ export default function App() {
     }
   };
 
-  // Custom Category Pins Management
+  // User Tags Management
   const handleAddCategory = (newCat: string) => {
-    if (!customCategories.includes(newCat)) {
-      const updated = [...customCategories, newCat];
+    const clean = newCat.trim().replace(/^#/, '').trim();
+    if (clean && clean.toLowerCase() !== 'all' && !customCategories.includes(clean)) {
+      const updated = [...customCategories, clean];
       setCustomCategories(updated);
       try {
-        localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(updated));
+        localStorage.setItem('aurora_user_tags_v2', JSON.stringify(updated));
       } catch {
         // ignore
       }
@@ -185,21 +186,42 @@ export default function App() {
     const updated = customCategories.filter((c) => c !== catToRemove);
     setCustomCategories(updated);
     try {
-      localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(updated));
+      localStorage.setItem('aurora_user_tags_v2', JSON.stringify(updated));
     } catch {
       // ignore
     }
+    if (selectedCategory.toLowerCase() === catToRemove.toLowerCase()) {
+      setSelectedCategory('All');
+    }
+    // Return any notes under the deleted tag back to All
+    const updatedNotes = notes.map((n) => {
+      const hadTag = n.tags?.some((t) => t.toLowerCase() === catToRemove.toLowerCase());
+      const hadCat = n.category?.toLowerCase() === catToRemove.toLowerCase();
+      if (hadTag || hadCat) {
+        const remainingTags = (n.tags || []).filter(
+          (t) => t.toLowerCase() !== catToRemove.toLowerCase()
+        );
+        return {
+          ...n,
+          tags: remainingTags,
+          category: hadCat ? remainingTags[0] || '' : n.category,
+        };
+      }
+      return n;
+    });
+    persistNotes(updatedNotes);
   };
 
   // Note CRUD operations
   const handleCreateNote = () => {
+    const initialTag = selectedCategory !== 'All' ? selectedCategory : '';
     const newNote: Note = {
       id: 'note-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       title: '',
       content: '',
       checklist: [],
-      tags: [],
-      category: selectedCategory !== 'All' && selectedCategory !== 'Pinned' ? selectedCategory : 'General',
+      tags: initialTag ? [initialTag] : [],
+      category: initialTag,
       isPinned: activeTab === 'pinned',
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -319,11 +341,14 @@ export default function App() {
       );
     }
 
-    // Category filter: "All", "Pinned", or custom categories
-    if (selectedCategory === 'Pinned') {
-      result = result.filter((n) => n.isPinned);
-    } else if (selectedCategory !== 'All') {
-      result = result.filter((n) => n.category.toLowerCase() === selectedCategory.toLowerCase());
+    // Tag filter: "All" or user-created tag
+    if (selectedCategory !== 'All') {
+      const target = selectedCategory.toLowerCase();
+      result = result.filter(
+        (n) =>
+          n.tags?.some((t) => t.toLowerCase() === target) ||
+          n.category?.toLowerCase() === target
+      );
     }
 
     // Ensure pinned notes are ALWAYS strictly at the top, preserving user's order
@@ -336,10 +361,14 @@ export default function App() {
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {
       All: activeNotes.length,
-      Pinned: activeNotes.filter((n) => n.isPinned).length,
     };
     customCategories.forEach((cat) => {
-      counts[cat] = activeNotes.filter((n) => n.category.toLowerCase() === cat.toLowerCase()).length;
+      const target = cat.toLowerCase();
+      counts[cat] = activeNotes.filter(
+        (n) =>
+          n.tags?.some((t) => t.toLowerCase() === target) ||
+          n.category?.toLowerCase() === target
+      ).length;
     });
     return counts;
   }, [activeNotes, customCategories]);

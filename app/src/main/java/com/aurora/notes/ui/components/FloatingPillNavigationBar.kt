@@ -1,7 +1,6 @@
 package com.aurora.notes.ui.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -18,9 +17,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,7 +39,6 @@ import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sin
 
 data class NavTabItem(
     val index: Int,
@@ -66,21 +62,23 @@ fun FloatingPillNavigationBar(
         NavTabItem(3, "Settings", Icons.Default.Settings)
     )
 
-    // Leading edge and trailing edge animated positions (non-overshooting so it never jumps outside navbar)
+    // Critically damped (non-bouncy) dual springs:
+    // The leading edge glides out smoothly while the trailing edge follows more gently,
+    // causing the pill to fluidly stretch out across menus before contracting back to its original size.
     val leadTabPos by animateFloatAsState(
         targetValue = selectedTab.toFloat(),
-        animationSpec = tween(
-            durationMillis = 340,
-            easing = FastOutSlowInEasing
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = 210f
         ),
         label = "pill_lead_pos"
     )
 
     val trailTabPos by animateFloatAsState(
         targetValue = selectedTab.toFloat(),
-        animationSpec = tween(
-            durationMillis = 460,
-            easing = FastOutSlowInEasing
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = 85f
         ),
         label = "pill_trail_pos"
     )
@@ -129,19 +127,17 @@ fun FloatingPillNavigationBar(
                 val containerHeightPx = with(density) { maxHeight.toPx() }
                 val tabWidthPx = containerWidthPx / items.size.toFloat()
 
-                // Calculate clamped left and right bounds of the moving pill so it NEVER leaves [0, containerWidthPx]
+                // Strictly clamp left and right edges inside [0, containerWidthPx]
                 val minTabPos = min(leadTabPos, trailTabPos).coerceIn(0f, (items.size - 1).toFloat())
                 val maxTabPos = max(leadTabPos, trailTabPos).coerceIn(0f, (items.size - 1).toFloat())
 
                 val pillLeftPx = (minTabPos * tabWidthPx).coerceIn(0f, containerWidthPx - tabWidthPx)
-                val pillRightPx = ((maxTabPos * tabWidthPx) + tabWidthPx).coerceIn(pillLeftPx + tabWidthPx * 0.8f, containerWidthPx)
+                val pillRightPx = ((maxTabPos * tabWidthPx) + tabWidthPx).coerceIn(pillLeftPx + tabWidthPx, containerWidthPx)
 
-                // Calculate how much the pill is currently in-flight between tabs (0f at rest, 1f at peak movement)
-                val stretchDelta = abs(leadTabPos - trailTabPos).coerceIn(0f, 1.2f)
-                val flightPhase = abs(leadTabPos - kotlin.math.round(leadTabPos)) * 2f // 0 at ends, 1 at midpoint
-                val pinchFactor = max(stretchDelta * 0.85f, sin(flightPhase * Math.PI.toFloat()) * 0.65f).coerceIn(0f, 1f)
+                // Continuous, smooth stretch-based waist pinch (0 when at rest, peaks smoothly while stretched)
+                val stretchDelta = abs(leadTabPos - trailTabPos)
+                val pinchFactor = (stretchDelta / (stretchDelta + 0.55f)).coerceIn(0f, 1f)
 
-                // Draw the custom liquid neon purple pill with a thinner middle waist during movement
                 Spacer(
                     modifier = Modifier
                         .fillMaxSize()
@@ -152,33 +148,33 @@ fun FloatingPillNavigationBar(
                             val left = pillLeftPx.coerceIn(0f, size.width - w)
                             val right = (left + w).coerceAtMost(size.width)
 
-                            // Middle waist pinch inward (up to 32% from top and 32% from bottom while moving)
-                            val maxPinchPx = h * 0.30f * pinchFactor
+                            // Middle waist pinches inward while stretched, then relaxes to 0 at rest
+                            val maxPinchPx = h * 0.28f * pinchFactor
                             val midX = (left + right) / 2f
 
                             val pillPath = Path().apply {
-                                // Left semicircular end cap (full height at beginning/end)
+                                // Left semicircular end cap
                                 arcTo(
                                     rect = Rect(left, 0f, left + h, h),
                                     startAngleDegrees = 90f,
                                     sweepAngleDegrees = 180f,
                                     forceMoveTo = false
                                 )
-                                // Top edge: pinches inward in the middle while moving
+                                // Top edge: smoothly pinches inward at the middle waist while stretching
                                 quadraticBezierTo(
                                     x1 = midX,
                                     y1 = maxPinchPx,
                                     x2 = right - r,
                                     y2 = 0f
                                 )
-                                // Right semicircular end cap (full height at beginning/end)
+                                // Right semicircular end cap
                                 arcTo(
                                     rect = Rect(right - h, 0f, right, h),
                                     startAngleDegrees = 270f,
                                     sweepAngleDegrees = 180f,
                                     forceMoveTo = false
                                 )
-                                // Bottom edge: pinches inward in the middle while moving
+                                // Bottom edge: smoothly pinches inward at the middle waist while stretching
                                 quadraticBezierTo(
                                     x1 = midX,
                                     y1 = h - maxPinchPx,
@@ -242,15 +238,15 @@ fun FloatingPillNavigationBar(
 
                         val contentColor by animateColorAsState(
                             targetValue = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                            animationSpec = tween(durationMillis = 250),
+                            animationSpec = tween(durationMillis = 280),
                             label = "tab_content_color"
                         )
 
                         val iconScale by animateFloatAsState(
-                            targetValue = if (isSelected) 1.1f else 1.0f,
+                            targetValue = if (isSelected) 1.08f else 1.0f,
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
+                                stiffness = Spring.StiffnessLow
                             ),
                             label = "tab_icon_scale"
                         )

@@ -231,7 +231,7 @@ fun NoteCard(
                         title = { Text("Delete Tag #${pendingDeleteTag}?") },
                         text = {
                             Text(
-                                "Deleting this tag will not delete your notes. Notes under #${pendingDeleteTag} will simply become regular tag-less notes.",
+                                "Deleting this tag will not delete your notes. Notes under #${pendingDeleteTag} will return to All.",
                                 fontSize = 13.sp
                             )
                         },
@@ -264,17 +264,21 @@ fun NoteCard(
                     note.tags.take(3).forEach { tag ->
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.background,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
+                            color = AuroraRoyalViolet.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.25f)),
                             modifier = Modifier.combinedClickable(
-                                onClick = {},
+                                onClick = { onClick() },
                                 onLongClick = { pendingDeleteTag = tag }
                             )
                         ) {
                             Text(
                                 text = "#$tag",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AuroraRoyalViolet
+                                ),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                             )
                         }
                     }
@@ -285,28 +289,12 @@ fun NoteCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), thickness = 0.8.dp)
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Footer Row: Category & Updated Date
+            // Footer Row: Updated Date
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = AuroraRoyalViolet.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.2f))
-                ) {
-                    Text(
-                        text = note.category.ifBlank { "General" },
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = AuroraRoyalViolet
-                        ),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                    )
-                }
-
                 Text(
                     text = formattedDate,
                     style = MaterialTheme.typography.labelSmall.copy(

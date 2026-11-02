@@ -11,31 +11,37 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,7 +49,9 @@ import com.aurora.notes.model.ChecklistItem
 import com.aurora.notes.model.Note
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
-import java.util.UUID
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlin.math.min
 
 enum class TextSizeMode {
     SMALL,
@@ -59,126 +67,208 @@ data class StyledCharSpan(
     val isItalic: Boolean
 )
 
-data class EditorLine(
-    val id: String = UUID.randomUUID().toString(),
-    val text: String = "",
-    val isChecklist: Boolean = false,
-    val isChecked: Boolean = false,
-    val isBullet: Boolean = false,
-    val isBold: Boolean = false,
-    val isItalic: Boolean = false,
-    val sizeMode: TextSizeMode = TextSizeMode.SMALL,
-    val spans: List<StyledCharSpan> = emptyList()
-)
+private val spanGson = Gson()
+
+private fun parseSpansJson(json: String, maxLen: Int): List<StyledCharSpan> {
+    if (json.isBlank()) return emptyList()
+    return try {
+        val type = object : TypeToken<List<StyledCharSpan>>() {}.type
+        val raw: List<StyledCharSpan> = spanGson.fromJson(json, type) ?: emptyList()
+        mergeSpans(
+            raw.mapNotNull { sp ->
+                val s = sp.start.coerceIn(0, maxLen)
+                val e = sp.end.coerceIn(0, maxLen)
+                if (s < e) sp.copy(start = s, end = e) else null
+            }
+        )
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun mergeSpans(spans: List<StyledCharSpan>): List<StyledCharSpan> {
+    if (spans.isEmpty()) return emptyList()
+    val sorted = spans.filter { it.start < it.end }.sortedBy { it.start }
+    if (sorted.isEmpty()) return emptyList()
+    val result = ArrayList<StyledCharSpan>(sorted.size)
+    var current = sorted[0]
+    for (i in 1 until sorted.size) {
+        val next = sorted[i]
+        if (next.start <= current.end &&
+            next.sizeMode == current.sizeMode &&
+            next.isBold == current.isBold &&
+            next.isItalic == current.isItalic
+        ) {
+            current = current.copy(end = maxOf(current.end, next.end))
+        } else {
+            result.add(current)
+            current = next
+        }
+    }
+    result.add(current)
+    return result
+}
+
+private fun applyTextEditToSpans(
+    oldText: String,
+    newText: String,
+    oldSpans: List<StyledCharSpan>,
+    activeSizeMode: TextSizeMode,
+    isBoldActive: Boolean,
+    isItalicActive: Boolean
+): List<StyledCharSpan> {
+    if (newText.isEmpty()) return emptyList()
+    if (oldText == newText) return oldSpans
+
+    val minLen = min(oldText.length, newText.length)
+    var prefixLen = 0
+    while (prefixLen < minLen && oldText[prefixLen] == newText[prefixLen]) {
+        prefixLen++
+    }
+
+    var suffixLen = 0
+    while (
+        suffixLen < (oldText.length - prefixLen) &&
+        suffixLen < (newText.length - prefixLen) &&
+        oldText[oldText.length - 1 - suffixLen] == newText[newText.length - 1 - suffixLen]
+    ) {
+        suffixLen++
+    }
+
+    val delStart = prefixLen
+    val delEnd = oldText.length - suffixLen
+    val insStart = prefixLen
+    val insEnd = newText.length - suffixLen
+    val delta = newText.length - oldText.length
+
+    val adjusted = ArrayList<StyledCharSpan>(oldSpans.size + 2)
+    for (sp in oldSpans) {
+        when {
+            sp.end <= delStart -> adjusted.add(sp)
+            sp.start >= delEnd -> adjusted.add(sp.copy(start = sp.start + delta, end = sp.end + delta))
+            else -> {
+                if (sp.start < delStart) {
+                    adjusted.add(sp.copy(end = delStart))
+                }
+                if (sp.end > delEnd) {
+                    adjusted.add(sp.copy(start = insEnd, end = sp.end + delta))
+                }
+            }
+        }
+    }
+
+    // Only add a span for newly typed text if a non-default style is active
+    if (insEnd > insStart && (activeSizeMode != TextSizeMode.SMALL || isBoldActive || isItalicActive)) {
+        adjusted.add(
+            StyledCharSpan(
+                start = insStart,
+                end = insEnd,
+                sizeMode = activeSizeMode,
+                isBold = isBoldActive,
+                isItalic = isItalicActive
+            )
+        )
+    }
+
+    return mergeSpans(adjusted)
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun NoteEditorScreen(
     note: Note,
+    userTags: List<String> = emptyList(),
     onSaveAndClose: (Note) -> Unit,
+    onDiscardAndClose: () -> Unit = {},
+    onDeleteTagGlobal: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    var title by remember { mutableStateOf(note.title) }
-    var category by remember { mutableStateOf(note.category.ifBlank { "General" }) }
-    var isPinned by remember { mutableStateOf(note.isPinned) }
-    val tags = remember { mutableStateListOf(*note.tags.toTypedArray()) }
+    var title by remember(note.id) { mutableStateOf(note.title) }
+    var isPinned by remember(note.id) { mutableStateOf(note.isPinned) }
+    val tags = remember(note.id) { mutableStateListOf(*note.tags.toTypedArray()) }
+    val checklistItems = remember(note.id) { mutableStateListOf(*note.checklist.toTypedArray()) }
+
     var newTagInput by remember { mutableStateOf("") }
+    var newChecklistInput by remember { mutableStateOf("") }
     var showDoneDetailsDialog by remember { mutableStateOf(false) }
+    var showAddChecklistDialog by remember { mutableStateOf(false) }
     var pendingDeleteTag by remember { mutableStateOf<String?>(null) }
 
+    // Default size is SMALL (normal), and NO size button is highlighted by default
     var isBoldActive by remember { mutableStateOf(false) }
     var isItalicActive by remember { mutableStateOf(false) }
     var activeSizeMode by remember { mutableStateOf(TextSizeMode.SMALL) }
 
-    val lines = remember {
-        mutableStateListOf<EditorLine>().apply {
-            if (note.content.isBlank()) {
-                add(EditorLine(text = ""))
-            } else {
-                note.content.lines().forEach { lineText ->
-                    val isChecked = lineText.startsWith("[x] ")
-                    val isUnchecked = lineText.startsWith("[ ] ")
-                    val isChecklist = isChecked || isUnchecked
-                    val isBullet = lineText.startsWith("• ")
-                    val cleaned = when {
-                        isChecked -> lineText.removePrefix("[x] ")
-                        isUnchecked -> lineText.removePrefix("[ ] ")
-                        isBullet -> lineText.removePrefix("• ")
-                        else -> lineText
-                    }
-                    add(
-                        EditorLine(
-                            text = cleaned,
-                            isChecklist = isChecklist,
-                            isChecked = isChecked,
-                            isBullet = isBullet,
-                            spans = if (cleaned.isNotEmpty()) {
-                                listOf(
-                                    StyledCharSpan(
-                                        start = 0,
-                                        end = cleaned.length,
-                                        sizeMode = TextSizeMode.SMALL,
-                                        isBold = false,
-                                        isItalic = false
-                                    )
-                                )
-                            } else emptyList()
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    var focusedLineIndex by remember { mutableStateOf(0) }
-    var shouldRequestFocusOnActiveLine by remember { mutableStateOf(false) }
-    val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
-
-    LaunchedEffect(focusedLineIndex, shouldRequestFocusOnActiveLine) {
-        if (shouldRequestFocusOnActiveLine) {
-            val targetLine = lines.getOrNull(focusedLineIndex)
-            if (targetLine != null) {
-                val requester = focusRequesters.getOrPut(targetLine.id) { FocusRequester() }
-                try {
-                    requester.requestFocus()
-                } catch (_: Exception) {
-                }
-            }
-            shouldRequestFocusOnActiveLine = false
-        }
-    }
-
-    fun constructUpdatedNote(): Note {
-        val serializedContent = lines.joinToString("\n") { line ->
-            when {
-                line.isChecklist && line.isChecked -> "[x] ${line.text}"
-                line.isChecklist -> "[ ] ${line.text}"
-                line.isBullet -> "• ${line.text}"
-                else -> line.text
-            }
-        }
-
-        val checklistItems = lines.filter { it.isChecklist }.map { line ->
-            ChecklistItem(
-                id = line.id,
-                text = line.text,
-                completed = line.isChecked
+    var bodyValue by remember(note.id) {
+        mutableStateOf(
+            TextFieldValue(
+                text = note.content,
+                selection = TextRange(note.content.length)
             )
-        }
-
-        return note.copy(
-            title = title.trim().ifBlank { "Untitled Note" },
-            content = serializedContent,
-            checklist = checklistItems,
-            tags = tags.toList(),
-            category = category,
-            isPinned = isPinned,
-            updatedAt = System.currentTimeMillis()
         )
     }
 
+    var charSpans by remember(note.id) {
+        mutableStateOf(parseSpansJson(note.styleSpansJson, note.content.length))
+    }
+
+    // VisualTransformation keeps IME typing 100% lag-free and allows native Enter new lines
+    val richVisualTransformation = remember(charSpans) {
+        VisualTransformation { text ->
+            val annotated = buildAnnotatedString {
+                append(text.text)
+                val len = text.text.length
+                for (span in charSpans) {
+                    val s = span.start.coerceIn(0, len)
+                    val e = span.end.coerceIn(0, len)
+                    if (s < e) {
+                        val fontSize = when (span.sizeMode) {
+                            TextSizeMode.SMALL -> 15.sp
+                            TextSizeMode.MEDIUM -> 19.sp
+                            TextSizeMode.LARGE -> 24.sp
+                        }
+                        addStyle(
+                            style = SpanStyle(
+                                fontSize = fontSize,
+                                fontWeight = if (span.isBold) FontWeight.Bold else FontWeight.Normal,
+                                fontStyle = if (span.isItalic) FontStyle.Italic else FontStyle.Normal
+                            ),
+                            start = s,
+                            end = e
+                        )
+                    }
+                }
+            }
+            TransformedText(annotated, OffsetMapping.Identity)
+        }
+    }
+
+    fun handleExitEditor() {
+        val cleanTitle = title.trim()
+        val cleanBody = bodyValue.text.trim()
+        val validChecklists = checklistItems.filter { it.text.trim().isNotEmpty() }
+
+        // If user created a note and typed nothing in title, body, or checklist, do not save it
+        if (cleanTitle.isEmpty() && cleanBody.isEmpty() && validChecklists.isEmpty()) {
+            onDiscardAndClose()
+            return
+        }
+
+        val updatedNote = note.copy(
+            title = cleanTitle,
+            content = bodyValue.text,
+            styleSpansJson = if (charSpans.isEmpty()) "" else spanGson.toJson(charSpans),
+            checklist = validChecklists,
+            tags = tags.toList(),
+            category = tags.firstOrNull() ?: "",
+            isPinned = isPinned,
+            updatedAt = System.currentTimeMillis()
+        )
+        onSaveAndClose(updatedNote)
+    }
+
     BackHandler {
-        onSaveAndClose(constructUpdatedNote())
+        handleExitEditor()
     }
 
     if (pendingDeleteTag != null) {
@@ -187,15 +277,19 @@ fun NoteEditorScreen(
             title = { Text("Delete Tag #${pendingDeleteTag}?") },
             text = {
                 Text(
-                    "Remove #${pendingDeleteTag} from this note? The note itself will not be deleted.",
+                    "Remove #${pendingDeleteTag} from your tags? Your notes will not be deleted and will return to All.",
                     fontSize = 13.sp
                 )
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        pendingDeleteTag?.let { tags.remove(it) }
+                        val tag = pendingDeleteTag
                         pendingDeleteTag = null
+                        if (tag != null) {
+                            tags.remove(tag)
+                            onDeleteTagGlobal?.invoke(tag)
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
                 ) {
@@ -204,6 +298,42 @@ fun NoteEditorScreen(
             },
             dismissButton = {
                 OutlinedButton(onClick = { pendingDeleteTag = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showAddChecklistDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddChecklistDialog = false },
+            title = { Text("Add Checklist Item", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                OutlinedTextField(
+                    value = newChecklistInput,
+                    onValueChange = { newChecklistInput = it },
+                    placeholder = { Text("Task description...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val clean = newChecklistInput.trim()
+                        if (clean.isNotEmpty()) {
+                            checklistItems.add(ChecklistItem(text = clean, completed = false))
+                            newChecklistInput = ""
+                        }
+                        showAddChecklistDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
+                ) {
+                    Text("Add Item", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddChecklistDialog = false }) {
                     Text("Cancel")
                 }
             }
@@ -231,51 +361,51 @@ fun NoteEditorScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    OutlinedTextField(
-                        value = category,
-                        onValueChange = { category = it },
-                        label = { Text("Category") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
                     Text(
-                        "Tags (Tap or long-press a tag to delete)",
+                        "Tags (Long-press a tag to delete)",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold
                     )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        tags.forEach { tag ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = AuroraRoyalViolet.copy(alpha = 0.12f),
-                                border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.35f)),
-                                modifier = Modifier.combinedClickable(
-                                    onClick = { pendingDeleteTag = tag },
-                                    onLongClick = { pendingDeleteTag = tag }
-                                )
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+
+                    // Existing user tags for quick toggle + note's current tags
+                    val combinedTags = remember(userTags, tags.size) {
+                        (userTags + tags).distinct()
+                    }
+                    if (combinedTags.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            combinedTags.forEach { tag ->
+                                val isAttached = tags.any { it.equals(tag, ignoreCase = true) }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isAttached) AuroraRoyalViolet else AuroraRoyalViolet.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.4f)),
+                                    modifier = Modifier.combinedClickable(
+                                        onClick = {
+                                            if (isAttached) {
+                                                tags.removeAll { it.equals(tag, ignoreCase = true) }
+                                            } else {
+                                                tags.add(tag)
+                                            }
+                                        },
+                                        onLongClick = { pendingDeleteTag = tag }
+                                    )
                                 ) {
-                                    Text(
-                                        text = "#$tag",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = AuroraRoyalViolet
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "✕",
-                                        fontSize = 11.sp,
-                                        color = AuroraDangerRed
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = "#$tag",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (isAttached) Color.White else AuroraRoyalViolet
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -288,14 +418,14 @@ fun NoteEditorScreen(
                         OutlinedTextField(
                             value = newTagInput,
                             onValueChange = { newTagInput = it },
-                            placeholder = { Text("New tag...", fontSize = 11.sp) },
+                            placeholder = { Text("Create new tag...", fontSize = 11.sp) },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
                         Button(
                             onClick = {
-                                val clean = newTagInput.trim().removePrefix("#")
-                                if (clean.isNotBlank() && !tags.contains(clean)) {
+                                val clean = newTagInput.trim().removePrefix("#").trim()
+                                if (clean.isNotBlank() && tags.none { it.equals(clean, ignoreCase = true) }) {
                                     tags.add(clean)
                                     newTagInput = ""
                                 }
@@ -323,7 +453,7 @@ fun NoteEditorScreen(
                 Button(
                     onClick = {
                         showDoneDetailsDialog = false
-                        onSaveAndClose(constructUpdatedNote())
+                        handleExitEditor()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
                 ) {
@@ -359,30 +489,31 @@ fun NoteEditorScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         IconButton(
-                            onClick = { onSaveAndClose(constructUpdatedNote()) },
+                            onClick = { handleExitEditor() },
                             modifier = Modifier.size(38.dp)
                         ) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Save and Close")
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                         }
 
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.background,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                            modifier = Modifier.clickable { showDoneDetailsDialog = true }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    Icons.Default.Folder,
+                                    Icons.Default.Tag,
                                     contentDescription = null,
                                     tint = AuroraRoyalViolet,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = category,
+                                    text = if (tags.isNotEmpty()) "#${tags.first()}" else "Add Tag",
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 11.sp
@@ -420,10 +551,10 @@ fun NoteEditorScreen(
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 6.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Narrower Bold Button
+                    // Narrower Bold Toggle Button
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = if (isBoldActive) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
@@ -433,7 +564,7 @@ fun NoteEditorScreen(
                         ),
                         modifier = Modifier
                             .height(34.dp)
-                            .width(34.dp)
+                            .width(32.dp)
                             .clickable {
                                 isBoldActive = !isBoldActive
                             }
@@ -448,7 +579,7 @@ fun NoteEditorScreen(
                         }
                     }
 
-                    // Narrower Italic Button
+                    // Narrower Italic Toggle Button
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = if (isItalicActive) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
@@ -458,7 +589,7 @@ fun NoteEditorScreen(
                         ),
                         modifier = Modifier
                             .height(34.dp)
-                            .width(34.dp)
+                            .width(32.dp)
                             .clickable {
                                 isItalicActive = !isItalicActive
                             }
@@ -473,7 +604,10 @@ fun NoteEditorScreen(
                         }
                     }
 
-                    // Text Sizing Buttons (Applies only to newly typed text or empty line)
+                    // Text Sizing Buttons:
+                    // Default is Small (neither Medium nor Large is enabled by default).
+                    // Tapping Medium toggles Medium on/off (reverting to Small when turned off).
+                    // Tapping Large toggles Large on/off (reverting to Small when turned off).
                     Row(
                         modifier = Modifier
                             .background(
@@ -484,24 +618,13 @@ fun NoteEditorScreen(
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         TextSizeButton(
-                            label = "Small",
-                            selected = activeSizeMode == TextSizeMode.SMALL,
-                            onClick = {
-                                activeSizeMode = TextSizeMode.SMALL
-                                val idx = focusedLineIndex.coerceIn(0, lines.lastIndex)
-                                if (lines[idx].text.isEmpty()) {
-                                    lines[idx] = lines[idx].copy(sizeMode = TextSizeMode.SMALL)
-                                }
-                            }
-                        )
-                        TextSizeButton(
                             label = "Medium",
                             selected = activeSizeMode == TextSizeMode.MEDIUM,
                             onClick = {
-                                activeSizeMode = TextSizeMode.MEDIUM
-                                val idx = focusedLineIndex.coerceIn(0, lines.lastIndex)
-                                if (lines[idx].text.isEmpty()) {
-                                    lines[idx] = lines[idx].copy(sizeMode = TextSizeMode.MEDIUM)
+                                activeSizeMode = if (activeSizeMode == TextSizeMode.MEDIUM) {
+                                    TextSizeMode.SMALL
+                                } else {
+                                    TextSizeMode.MEDIUM
                                 }
                             }
                         )
@@ -509,49 +632,107 @@ fun NoteEditorScreen(
                             label = "Large",
                             selected = activeSizeMode == TextSizeMode.LARGE,
                             onClick = {
-                                activeSizeMode = TextSizeMode.LARGE
-                                val idx = focusedLineIndex.coerceIn(0, lines.lastIndex)
-                                if (lines[idx].text.isEmpty()) {
-                                    lines[idx] = lines[idx].copy(sizeMode = TextSizeMode.LARGE)
+                                activeSizeMode = if (activeSizeMode == TextSizeMode.LARGE) {
+                                    TextSizeMode.SMALL
+                                } else {
+                                    TextSizeMode.LARGE
                                 }
                             }
                         )
                     }
 
-                    FilterChip(
-                        selected = lines.getOrNull(focusedLineIndex)?.isBullet == true,
-                        onClick = {
-                            val idx = focusedLineIndex.coerceIn(0, lines.lastIndex)
-                            val current = lines[idx]
-                            lines[idx] = current.copy(isBullet = !current.isBullet)
-                        },
-                        label = { Icon(Icons.Default.FormatListBulleted, contentDescription = "Bullet List", modifier = Modifier.size(16.dp)) }
-                    )
+                    // Insert Bullet on Current Line
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
+                        modifier = Modifier
+                            .height(34.dp)
+                            .width(36.dp)
+                            .clickable {
+                                val text = bodyValue.text
+                                val cursor = bodyValue.selection.start.coerceIn(0, text.length)
+                                val lineStart = text.lastIndexOf('\n', (cursor - 1).coerceAtLeast(0)).let {
+                                    if (it == -1) 0 else it + 1
+                                }
+                                val hasBullet = text.startsWith("• ", lineStart)
+                                val newText = if (hasBullet) {
+                                    text.removeRange(lineStart, lineStart + 2)
+                                } else {
+                                    text.substring(0, lineStart) + "• " + text.substring(lineStart)
+                                }
+                                val newCursor = if (hasBullet) {
+                                    (cursor - 2).coerceAtLeast(lineStart)
+                                } else {
+                                    cursor + 2
+                                }
+                                charSpans = applyTextEditToSpans(
+                                    oldText = text,
+                                    newText = newText,
+                                    oldSpans = charSpans,
+                                    activeSizeMode = TextSizeMode.SMALL,
+                                    isBoldActive = false,
+                                    isItalicActive = false
+                                )
+                                bodyValue = TextFieldValue(
+                                    text = newText,
+                                    selection = TextRange(newCursor.coerceIn(0, newText.length))
+                                )
+                            }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.FormatListBulleted,
+                                contentDescription = "Bullet List",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
 
-                    val isLineChecklist = lines.getOrNull(focusedLineIndex)?.isChecklist == true
-                    FilterChip(
-                        selected = isLineChecklist,
-                        onClick = {
-                            val idx = focusedLineIndex.coerceIn(0, lines.lastIndex)
-                            val current = lines[idx]
-                            lines[idx] = current.copy(isChecklist = !current.isChecklist)
-                        },
-                        label = { Icon(Icons.Default.CheckBox, contentDescription = "Checklist", modifier = Modifier.size(16.dp)) }
-                    )
+                    // Add Interactive Checklist Item
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (checklistItems.isNotEmpty()) AuroraRoyalViolet.copy(alpha = 0.12f) else Color.Transparent,
+                        border = BorderStroke(
+                            1.dp,
+                            if (checklistItems.isNotEmpty()) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                        ),
+                        modifier = Modifier
+                            .height(34.dp)
+                            .width(36.dp)
+                            .clickable {
+                                showAddChecklistDialog = true
+                            }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.CheckBox,
+                                contentDescription = "Add Checklist Item",
+                                tint = if (checklistItems.isNotEmpty()) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
     ) { innerPadding ->
         Column(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            // Note Title Input
             BasicTextField(
                 value = title,
                 onValueChange = { title = it },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Next
+                ),
                 textStyle = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
@@ -577,192 +758,118 @@ fun NoteEditorScreen(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), thickness = 0.8.dp)
             Spacer(modifier = Modifier.height(12.dp))
 
-            lines.forEachIndexed { index, line ->
-                val requester = focusRequesters.getOrPut(line.id) { FocusRequester() }
-                val baseFontSize = when (line.sizeMode) {
-                    TextSizeMode.SMALL -> 14.sp
-                    TextSizeMode.MEDIUM -> 18.sp
-                    TextSizeMode.LARGE -> 22.sp
-                }
-                val textDecoration = if (line.isChecklist && line.isChecked) TextDecoration.LineThrough else TextDecoration.None
-                val textColor = if (line.isChecklist && line.isChecked) {
-                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
-                } else {
-                    MaterialTheme.colorScheme.onBackground
-                }
-
-                // Build AnnotatedString so only newly typed characters get the new size/bold/italic
-                val annotatedText = remember(line.text, line.spans, line.sizeMode) {
-                    buildAnnotatedString {
-                        append(line.text)
-                        line.spans.forEach { span ->
-                            val s = span.start.coerceIn(0, line.text.length)
-                            val e = span.end.coerceIn(0, line.text.length)
-                            if (s < e) {
-                                val spanSize = when (span.sizeMode) {
-                                    TextSizeMode.SMALL -> 14.sp
-                                    TextSizeMode.MEDIUM -> 18.sp
-                                    TextSizeMode.LARGE -> 22.sp
-                                }
-                                addStyle(
-                                    style = SpanStyle(
-                                        fontSize = spanSize,
-                                        fontWeight = if (span.isBold) FontWeight.Bold else FontWeight.Normal,
-                                        fontStyle = if (span.isItalic) FontStyle.Italic else FontStyle.Normal
-                                    ),
-                                    start = s,
-                                    end = e
+            // Interactive Checklist Section (if any checklist items exist)
+            if (checklistItems.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    checklistItems.forEachIndexed { idx, item ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Checkbox(
+                                checked = item.completed,
+                                onCheckedChange = { checked ->
+                                    checklistItems[idx] = item.copy(completed = checked)
+                                },
+                                colors = CheckboxDefaults.colors(checkedColor = AuroraRoyalViolet),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = item.text,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontSize = 14.sp,
+                                    textDecoration = if (item.completed) TextDecoration.LineThrough else TextDecoration.None,
+                                    color = if (item.completed) {
+                                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
+                                    } else {
+                                        MaterialTheme.colorScheme.onBackground
+                                    }
+                                ),
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { checklistItems.removeAt(idx) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Remove item",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
                                 )
                             }
                         }
                     }
-                }
-
-                var textFieldValue by remember(line.id) {
-                    mutableStateOf(
-                        TextFieldValue(
-                            annotatedString = annotatedText,
-                            selection = TextRange(line.text.length)
-                        )
-                    )
-                }
-
-                // Keep TextFieldValue synced with annotatedText
-                val currentFieldValue = textFieldValue.copy(annotatedString = annotatedText)
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 3.dp)
-                        .clickable {
-                            focusedLineIndex = index
-                            shouldRequestFocusOnActiveLine = true
-                        },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (line.isChecklist) {
-                        Checkbox(
-                            checked = line.isChecked,
-                            onCheckedChange = { checked ->
-                                lines[index] = lines[index].copy(isChecked = checked)
-                            },
-                            colors = CheckboxDefaults.colors(checkedColor = AuroraRoyalViolet),
-                            modifier = Modifier
-                                .size(24.dp)
-                                .padding(end = 6.dp)
-                        )
-                    } else if (line.isBullet) {
-                        Text(
-                            text = "•",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AuroraRoyalViolet,
-                            modifier = Modifier.padding(horizontal = 6.dp)
-                        )
+                    TextButton(
+                        onClick = { showAddChecklistDialog = true },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp), tint = AuroraRoyalViolet)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add checklist item", fontSize = 12.sp, color = AuroraRoyalViolet)
                     }
-
-                    BasicTextField(
-                        value = currentFieldValue,
-                        onValueChange = { newValue ->
-                            focusedLineIndex = index
-                            val newText = newValue.text
-                            if (newText.contains("\n")) {
-                                val parts = newText.split("\n", limit = 2)
-                                val firstPart = parts[0]
-                                val secondPart = parts.getOrNull(1) ?: ""
-
-                                val updatedSpans = line.spans.mapNotNull { sp ->
-                                    if (sp.start >= firstPart.length) null
-                                    else sp.copy(end = sp.end.coerceAtMost(firstPart.length))
-                                }
-
-                                lines[index] = line.copy(
-                                    text = firstPart,
-                                    spans = updatedSpans
-                                )
-                                textFieldValue = TextFieldValue(
-                                    text = firstPart,
-                                    selection = TextRange(firstPart.length)
-                                )
-
-                                val newLine = EditorLine(
-                                    text = secondPart,
-                                    isChecklist = false,
-                                    isBullet = false,
-                                    isBold = isBoldActive,
-                                    isItalic = isItalicActive,
-                                    sizeMode = activeSizeMode,
-                                    spans = if (secondPart.isNotEmpty()) {
-                                        listOf(
-                                            StyledCharSpan(
-                                                start = 0,
-                                                end = secondPart.length,
-                                                sizeMode = activeSizeMode,
-                                                isBold = isBoldActive,
-                                                isItalic = isItalicActive
-                                            )
-                                        )
-                                    } else emptyList()
-                                )
-                                lines.add(index + 1, newLine)
-                                focusedLineIndex = index + 1
-                                shouldRequestFocusOnActiveLine = true
-                            } else {
-                                val oldLen = line.text.length
-                                val newLen = newText.length
-                                val updatedSpans = if (newLen > oldLen) {
-                                    // Append span only for newly typed characters
-                                    line.spans + StyledCharSpan(
-                                        start = oldLen,
-                                        end = newLen,
-                                        sizeMode = activeSizeMode,
-                                        isBold = isBoldActive,
-                                        isItalic = isItalicActive
-                                    )
-                                } else {
-                                    line.spans.mapNotNull { sp ->
-                                        if (sp.start >= newLen) null
-                                        else sp.copy(end = sp.end.coerceAtMost(newLen))
-                                    }
-                                }
-
-                                lines[index] = line.copy(
-                                    text = newText,
-                                    spans = updatedSpans
-                                )
-                                textFieldValue = newValue
-                            }
-                        },
-                        textStyle = TextStyle(
-                            fontSize = baseFontSize,
-                            textDecoration = textDecoration,
-                            color = textColor
-                        ),
-                        cursorBrush = SolidColor(AuroraRoyalViolet),
-                        decorationBox = { innerTextField ->
-                            if (line.text.isEmpty() && index == 0 && lines.size == 1) {
-                                Text(
-                                    text = "Start typing your note here...",
-                                    style = TextStyle(
-                                        fontSize = 14.sp,
-                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
-                                    )
-                                )
-                            }
-                            innerTextField()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .focusRequester(requester)
-                            .onFocusChanged { focusState ->
-                                if (focusState.isFocused) {
-                                    focusedLineIndex = index
-                                }
-                            }
-                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f), thickness = 0.6.dp)
                 }
             }
+
+            // Unified Multiline Note Body Editor (Zero lag, native Enter new lines, per-character sizing)
+            BasicTextField(
+                value = bodyValue,
+                onValueChange = { newValue ->
+                    val oldText = bodyValue.text
+                    val newText = newValue.text
+                    if (oldText != newText) {
+                        charSpans = applyTextEditToSpans(
+                            oldText = oldText,
+                            newText = newText,
+                            oldSpans = charSpans,
+                            activeSizeMode = activeSizeMode,
+                            isBoldActive = isBoldActive,
+                            isItalicActive = isItalicActive
+                        )
+                    }
+                    bodyValue = newValue
+                },
+                singleLine = false,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Default
+                ),
+                visualTransformation = richVisualTransformation,
+                textStyle = TextStyle(
+                    fontSize = 15.sp,
+                    lineHeight = 23.sp,
+                    color = MaterialTheme.colorScheme.onBackground
+                ),
+                cursorBrush = SolidColor(AuroraRoyalViolet),
+                decorationBox = { innerTextField ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 360.dp)
+                    ) {
+                        if (bodyValue.text.isEmpty()) {
+                            Text(
+                                text = "Start typing your note here...",
+                                style = TextStyle(
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
+                                )
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 360.dp)
+            )
         }
     }
 }
@@ -775,7 +882,7 @@ private fun TextSizeButton(
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = if (selected) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
+        color = if (selected) AuroraRoyalViolet.copy(alpha = 0.16f) else Color.Transparent,
         border = if (selected) BorderStroke(1.dp, AuroraRoyalViolet) else null,
         modifier = Modifier.clickable { onClick() }
     ) {
@@ -784,7 +891,7 @@ private fun TextSizeButton(
             fontSize = 11.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = if (selected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         )
     }
 }

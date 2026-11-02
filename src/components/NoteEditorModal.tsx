@@ -116,7 +116,11 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     hasSavedRef.current = true;
 
     const rawContent = editorRef.current ? editorRef.current.innerHTML : note.content;
-    const cleanText = (rawContent || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+    const cleanText = (rawContent || '')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\u200B/g, '')
+      .trim();
     const cleanTitle = title.trim();
 
     // Discard note if user entered nothing
@@ -169,8 +173,15 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     document.execCommand('insertUnorderedList', false);
   };
 
-  const handleSelectSize = (targetMode: 'small' | 'medium' | 'large') => {
-    setTextSizeMode(targetMode);
+  const handleSelectSize = (clickedMode: 'small' | 'medium' | 'large') => {
+    // Tapping Medium or Large again toggles it off and returns to normal small size
+    const nextMode: 'small' | 'medium' | 'large' =
+      clickedMode !== 'small' && textSizeMode === clickedMode ? 'small' : clickedMode;
+
+    setTextSizeMode(nextMode);
+
+    if (!editorRef.current) return;
+    editorRef.current.focus();
 
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
@@ -180,43 +191,23 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       medium: '1.25rem',
       large: '1.65rem',
     };
-    const targetSize = sizePxMap[targetMode];
+    const targetSize = sizePxMap[nextMode];
 
-    if (!selection.isCollapsed) {
-      const range = selection.getRangeAt(0);
-      const fontSpan = document.createElement('span');
-      fontSpan.style.fontSize = targetSize;
-      fontSpan.style.lineHeight = '1.35';
+    const range = selection.getRangeAt(0);
+    const fontSpan = document.createElement('span');
+    fontSpan.style.fontSize = targetSize;
+    fontSpan.style.lineHeight = '1.35';
+    const zwsp = document.createTextNode('\u200B');
+    fontSpan.appendChild(zwsp);
 
-      try {
-        const content = range.extractContents();
-        fontSpan.appendChild(content);
-        range.insertNode(fontSpan);
+    range.collapse(false);
+    range.insertNode(fontSpan);
 
-        selection.removeAllRanges();
-        const newRange = document.createRange();
-        newRange.selectNodeContents(fontSpan);
-        selection.addRange(newRange);
-      } catch {
-        const execSizeMap = { small: '3', medium: '5', large: '6' };
-        document.execCommand('fontSize', false, execSizeMap[targetMode]);
-      }
-    } else {
-      const range = selection.getRangeAt(0);
-      const fontSpan = document.createElement('span');
-      fontSpan.style.fontSize = targetSize;
-      fontSpan.style.lineHeight = '1.35';
-      const zwsp = document.createTextNode('\u200B');
-      fontSpan.appendChild(zwsp);
-
-      range.insertNode(fontSpan);
-
-      const newRange = document.createRange();
-      newRange.setStart(fontSpan, 1);
-      newRange.setEnd(fontSpan, 1);
-      selection.removeAllRanges();
-      selection.addRange(newRange);
-    }
+    const newRange = document.createRange();
+    newRange.setStart(zwsp, 1);
+    newRange.setEnd(zwsp, 1);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
   };
 
   const createChecklistLine = (initialContent?: Node | string): HTMLDivElement => {
@@ -499,28 +490,14 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
             <Italic className="w-3.5 h-3.5 stroke-[2.2]" />
           </button>
 
-          {/* 3 Distinct Text Size Buttons */}
+          {/* Text Size Toggle Buttons (Default is Small; tapping active Medium or Large turns it off back to Small) */}
           <div className="flex items-center p-0.5 rounded-2xl bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742]">
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => handleSelectSize('small')}
-              aria-label="Set text size to Small"
-              className={`h-9 px-2.5 rounded-xl text-xs transition-all cursor-pointer ${
-                textSizeMode === 'small'
-                  ? 'bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] shadow-xs font-bold border border-[#D6BBFB] dark:border-[#7D49D4]'
-                  : 'text-[#484455] dark:text-[#A39BAC] font-medium hover:text-[#1E1A24] dark:hover:text-white'
-              }`}
-            >
-              Small
-            </button>
-
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
               onClick={() => handleSelectSize('medium')}
-              aria-label="Set text size to Medium"
-              className={`h-9 px-2.5 rounded-xl text-xs transition-all cursor-pointer flex items-center gap-1 ${
+              aria-label="Toggle Medium text size"
+              className={`h-9 px-3 rounded-xl text-xs transition-all cursor-pointer flex items-center gap-1 ${
                 textSizeMode === 'medium'
                   ? 'bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] shadow-xs font-bold border border-[#D6BBFB] dark:border-[#7D49D4]'
                   : 'text-[#484455] dark:text-[#A39BAC] font-medium hover:text-[#1E1A24] dark:hover:text-white'
@@ -534,8 +511,8 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => handleSelectSize('large')}
-              aria-label="Set text size to Large"
-              className={`h-9 px-2.5 rounded-xl text-xs transition-all cursor-pointer flex items-center gap-1 ${
+              aria-label="Toggle Large text size"
+              className={`h-9 px-3 rounded-xl text-xs transition-all cursor-pointer flex items-center gap-1 ${
                 textSizeMode === 'large'
                   ? 'bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] shadow-xs font-bold border border-[#D6BBFB] dark:border-[#7D49D4]'
                   : 'text-[#484455] dark:text-[#A39BAC] font-medium hover:text-[#1E1A24] dark:hover:text-white'
