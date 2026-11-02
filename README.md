@@ -1,9 +1,6 @@
 # Aurora Notes — Native Android (Jetpack Compose)
 
-Aurora Notes is a privacy-first,+
-
-+
-local-only note-taking app built natively for Android using **Kotlin** and **Jetpack Compose**.
+Aurora Notes is a privacy-first, local-only note-taking app built natively for Android using **Kotlin** and **Jetpack Compose**.
 
 ## Architecture & Features
 
