@@ -44,24 +44,11 @@ fun NotesScreen(
 ) {
     val categories = listOf("All", "General", "Security", "Ideas", "Personal", "Work")
 
-    Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onAddNote,
-                containerColor = IrisRoyalViolet,
-                contentColor = MaterialTheme.colorScheme.surface,
-                shape = CircleShape
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "New Note")
-            }
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 14.dp)
-        ) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 14.dp)
+    ) {
             Spacer(modifier = Modifier.height(8.dp))
 
             // Search Bar & Grid/List Toggle
@@ -101,6 +88,17 @@ fun NotesScreen(
                     Icon(
                         imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
                         contentDescription = "Toggle View Layout"
+                    )
+                }
+
+                IconButton(
+                    onClick = onAddNote,
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "New Note",
+                        tint = IrisRoyalViolet
                     )
                 }
             }
@@ -174,5 +172,4 @@ fun NotesScreen(
                 }
             }
         }
-    }
 }

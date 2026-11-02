@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Note } from '../types';
 import {
   Pin,
@@ -13,7 +13,7 @@ interface NoteCardProps {
   note: Note;
   onSelect: (note: Note) => void;
   onTogglePin: (id: string, e: React.MouseEvent) => void;
-  onDelete: (id: string, e: React.MouseEvent) => void;
+  onDelete: (id: string, e?: React.MouseEvent | React.TouchEvent | null) => void;
   onToggleCheckItem: (noteId: string, itemId: string, e: React.MouseEvent) => void;
   onInspectCipher: (note: Note, e: React.MouseEvent) => void;
   isGridView: boolean;
@@ -30,6 +30,78 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   animateMovement,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isHolding, setIsHolding] = useState(false);
+
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startPosRef = useRef<{ x: number; y: number } | null>(null);
+  const isLongPressTriggeredRef = useRef(false);
+
+  const cancelHold = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    setIsHolding(false);
+  };
+
+  const startHold = (clientX: number, clientY: number) => {
+    isLongPressTriggeredRef.current = false;
+    startPosRef.current = { x: clientX, y: clientY };
+    setIsHolding(true);
+
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      isLongPressTriggeredRef.current = true;
+      setIsHolding(false);
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate(50);
+        } catch {
+          // ignore
+        }
+      }
+      setShowDeleteConfirm(true);
+    }, 450);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    startHold(e.clientX, e.clientY);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!startPosRef.current) return;
+    const dx = Math.abs(e.clientX - startPosRef.current.x);
+    const dy = Math.abs(e.clientY - startPosRef.current.y);
+    if (dx > 10 || dy > 10) {
+      cancelHold();
+    }
+  };
+
+  const handlePointerUp = () => {
+    cancelHold();
+  };
+
+  const handlePointerCancel = () => {
+    cancelHold();
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (isLongPressTriggeredRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      isLongPressTriggeredRef.current = false;
+      return;
+    }
+    onSelect(note);
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    cancelHold();
+    setShowDeleteConfirm(true);
+  };
 
   const formattedDate = new Intl.DateTimeFormat('en-US', {
     month: 'short',
@@ -45,21 +117,33 @@ export const NoteCard: React.FC<NoteCardProps> = ({
       return note.content.replace(/<[^>]*>/g, '');
     }
   }, [note.content]);
+
   return (
-    <div
-      onClick={() => onSelect(note)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect(note);
-        }
-      }}
-      className={`glass-card rounded-xl sm:rounded-2xl p-3 sm:p-3.5 cursor-pointer relative group flex flex-col justify-between select-none focus:outline-none focus:ring-2 focus:ring-[#5925DC]/30 active:scale-[0.98] ${
-        animateMovement ? 'transition-all duration-300 ease-out' : ''
-      }`}
-    >
+    <>
+      <div
+        onClick={handleClick}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onContextMenu={handleContextMenu}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelect(note);
+          } else if (e.key === 'Delete' || e.key === 'Backspace') {
+            e.preventDefault();
+            setShowDeleteConfirm(true);
+          }
+        }}
+        className={`glass-card rounded-xl sm:rounded-2xl p-3 sm:p-3.5 cursor-pointer relative group flex flex-col justify-between select-none focus:outline-none focus:ring-2 focus:ring-[#5925DC]/30 active:scale-[0.98] ${
+          isHolding ? 'scale-[0.97] ring-2 ring-rose-400/50 shadow-md transition-transform duration-150' : ''
+        } ${
+          animateMovement ? 'transition-all duration-300 ease-out' : ''
+        }`}
+      >
       <div>
         {/* Top Header: Title, Pin, Lock & Actions */}
         <div className="flex items-start justify-between gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
@@ -221,5 +305,65 @@ export const NoteCard: React.FC<NoteCardProps> = ({
         </div>
       </div>
     </div>
+
+    {/* Long Press Delete Confirmation Dialog */}
+    {showDeleteConfirm && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in"
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowDeleteConfirm(false);
+        }}
+      >
+        <div
+          className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] shadow-[0_20px_50px_rgba(0,0,0,0.35)] p-5 space-y-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-bold text-sm text-[#1E1A24] dark:text-[#F7EEFC]">
+                Delete Note?
+              </h3>
+              <p className="text-xs text-[#797487] dark:text-[#A39BAC] truncate">
+                {note.title ? `"${note.title}"` : 'Untitled Note'}
+              </p>
+            </div>
+          </div>
+
+          <p className="text-xs text-[#484455] dark:text-[#A39BAC] leading-relaxed">
+            Move this note to Trash? You can restore it later or empty the trash permanently.
+          </p>
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDeleteConfirm(false);
+              }}
+              className="px-3.5 py-2 rounded-xl text-xs font-semibold text-[#484455] dark:text-[#A39BAC] hover:bg-[#FAF8FB] dark:hover:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDeleteConfirm(false);
+                onDelete(note.id, e);
+              }}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 active:scale-95 transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Move to Trash</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 };

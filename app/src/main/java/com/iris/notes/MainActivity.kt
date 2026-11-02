@@ -6,7 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.PushPin
@@ -65,6 +67,18 @@ fun IrisApp(viewModel: NotesViewModel) {
         )
     } else {
         Scaffold(
+            floatingActionButton = {
+                if (selectedTab == 0 || selectedTab == 1) {
+                    FloatingActionButton(
+                        onClick = { viewModel.openNewNote() },
+                        containerColor = IrisRoyalViolet,
+                        contentColor = MaterialTheme.colorScheme.surface,
+                        shape = CircleShape
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "New Note")
+                    }
+                }
+            },
             bottomBar = {
                 NavigationBar(
                     containerColor = MaterialTheme.colorScheme.surface,

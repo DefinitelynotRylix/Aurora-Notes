@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, LayoutGrid, List } from 'lucide-react';
+import { Search, LayoutGrid, List, Plus } from 'lucide-react';
 
 interface LiquidHeaderProps {
   searchQuery: string;
@@ -7,6 +7,7 @@ interface LiquidHeaderProps {
   isGridView: boolean;
   onToggleGridView: () => void;
   noteCount: number;
+  onCreateNote?: () => void;
 }
 
 export const LiquidHeader: React.FC<LiquidHeaderProps> = ({
@@ -15,6 +16,7 @@ export const LiquidHeader: React.FC<LiquidHeaderProps> = ({
   isGridView,
   onToggleGridView,
   noteCount,
+  onCreateNote,
 }) => {
   return (
     <header className="sticky top-0 z-30 w-full glass-panel border-b border-[#EADBFC]/70 dark:border-[#322742]/70 px-4 sm:px-6 py-3 transition-all">
@@ -40,12 +42,22 @@ export const LiquidHeader: React.FC<LiquidHeaderProps> = ({
             </div>
           </div>
 
-          {/* Mobile View Toggle */}
+          {/* Mobile Actions: New Note & View Toggle */}
           <div className="flex items-center gap-1.5 md:hidden">
+            {onCreateNote && (
+              <button
+                onClick={onCreateNote}
+                aria-label="Create new note"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-semibold shadow-xs active:scale-95 transition-all cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span className="text-[11px]">New</span>
+              </button>
+            )}
             <button
               onClick={onToggleGridView}
               aria-label={isGridView ? 'Switch to single column view' : 'Switch to grid view'}
-              className="p-2 rounded-xl bg-white/80 dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] text-[#484455] dark:text-[#A39BAC]"
+              className="p-2 rounded-xl bg-white/80 dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] text-[#484455] dark:text-[#A39BAC] active:scale-95 transition-all"
             >
               {isGridView ? <List className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
             </button>
@@ -76,7 +88,7 @@ export const LiquidHeader: React.FC<LiquidHeaderProps> = ({
           </div>
 
           {/* Desktop View Switcher */}
-          <div className="hidden md:flex items-center">
+          <div className="hidden md:flex items-center gap-1.5">
             <button
               onClick={onToggleGridView}
               aria-label={isGridView ? 'Switch to single column view' : 'Switch to grid view'}
@@ -85,6 +97,16 @@ export const LiquidHeader: React.FC<LiquidHeaderProps> = ({
             >
               {isGridView ? <List className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
             </button>
+            {onCreateNote && (
+              <button
+                onClick={onCreateNote}
+                aria-label="Create new note"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-semibold shadow-xs hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>New Note</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
