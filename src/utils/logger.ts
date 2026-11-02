@@ -9,8 +9,8 @@ export interface LogEntry {
   details?: string;
 }
 
-const STORAGE_LOGS_KEY = 'iris_local_logs_v1';
-const STORAGE_LOGGING_ENABLED_KEY = 'iris_local_logging_enabled_v1';
+const STORAGE_LOGS_KEY = 'aurora_local_logs_v1';
+const STORAGE_LOGGING_ENABLED_KEY = 'aurora_local_logging_enabled_v1';
 const MAX_LOG_ENTRIES = 250;
 
 class LocalLogger {
@@ -129,7 +129,7 @@ class LocalLogger {
   public exportLogsAsText(): string {
     const header = [
       '================================================================',
-      '                     IRIS NOTES DIAGNOSTIC LOG                  ',
+      '                     AURORA NOTES DIAGNOSTIC LOG                  ',
       '================================================================',
       `Export Timestamp : ${new Date().toISOString()}`,
       `App Environment  : Local-Only (Zero Telemetry)`,

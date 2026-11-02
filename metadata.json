@@ -1,5 +1,5 @@
 {
-  "name": "Iris Vault",
+  "name": "Aurora Notes",
   "description": "Local Only Privacy Focused Note Taking App built with Jetpack Compose and local Room SQLite storage.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

@@ -1,9 +1,9 @@
-package com.iris.notes.data
+package com.aurora.notes.data
 
 import androidx.room.TypeConverter
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import com.iris.notes.model.ChecklistItem
+import com.aurora.notes.model.ChecklistItem
 
 class Converters {
     private val gson = Gson()

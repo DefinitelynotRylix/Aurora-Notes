@@ -1,4 +1,4 @@
-package com.iris.notes.ui.components
+package com.aurora.notes.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -7,14 +7,10 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
-import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,14 +18,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.iris.notes.model.Note
-import com.iris.notes.ui.theme.IrisDangerRed
-import com.iris.notes.ui.theme.IrisRoyalViolet
+import com.aurora.notes.model.Note
+import com.aurora.notes.ui.theme.AuroraDangerRed
+import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -41,7 +38,6 @@ fun NoteCard(
     onClick: () -> Unit,
     onTogglePin: () -> Unit,
     onDelete: () -> Unit,
-    onInspectCipher: () -> Unit,
     onToggleCheckItem: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -50,7 +46,6 @@ fun NoteCard(
 
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
-    // Helper to strip HTML tags for clean preview
     val plainTextPreview = note.content
         .replace(Regex("<[^>]*>"), "")
         .replace("&nbsp;", " ")
@@ -63,7 +58,7 @@ fun NoteCard(
                 Icon(
                     imageVector = Icons.Outlined.Delete,
                     contentDescription = null,
-                    tint = IrisDangerRed
+                    tint = AuroraDangerRed
                 )
             },
             title = {
@@ -83,7 +78,7 @@ fun NoteCard(
                         showDeleteConfirmDialog = false
                         onDelete()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = IrisDangerRed)
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
                 ) {
                     Text("Delete")
                 }
@@ -135,25 +130,13 @@ fun NoteCard(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
-                        onClick = onInspectCipher,
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Key,
-                            contentDescription = "Inspect Cipher",
-                            tint = IrisRoyalViolet,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-
-                    IconButton(
                         onClick = onTogglePin,
                         modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
                             imageVector = if (note.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                             contentDescription = if (note.isPinned) "Unpin" else "Pin",
-                            tint = if (note.isPinned) IrisRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                            tint = if (note.isPinned) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -165,7 +148,7 @@ fun NoteCard(
                         Icon(
                             imageVector = Icons.Outlined.Delete,
                             contentDescription = "Delete",
-                            tint = IrisDangerRed.copy(alpha = 0.7f),
+                            tint = AuroraDangerRed.copy(alpha = 0.7f),
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -174,7 +157,7 @@ fun NoteCard(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Body Preview (Clean plain text)
+            // Body Preview
             if (plainTextPreview.isNotBlank()) {
                 Text(
                     text = plainTextPreview,
@@ -202,8 +185,7 @@ fun NoteCard(
                                 .clickable { onToggleCheckItem(item.id) }
                         ) {
                             Box(
-                                modifier = Modifier
-                                    .size(14.dp),
+                                modifier = Modifier.size(14.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Checkbox(
@@ -264,7 +246,7 @@ fun NoteCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), thickness = 0.8.dp)
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Footer Row: Category & Encrypted Date
+            // Footer Row: Category & Updated Date
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -272,36 +254,27 @@ fun NoteCard(
             ) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = IrisRoyalViolet.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, IrisRoyalViolet.copy(alpha = 0.2f))
+                    color = AuroraRoyalViolet.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.2f))
                 ) {
                     Text(
                         text = note.category.ifBlank { "General" },
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = IrisRoyalViolet
+                            color = AuroraRoyalViolet
                         ),
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Encrypted",
-                        tint = IrisRoyalViolet,
-                        modifier = Modifier.size(10.dp)
+                Text(
+                    text = formattedDate,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = formattedDate,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                    )
-                }
+                )
             }
         }
     }

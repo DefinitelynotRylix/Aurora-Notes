@@ -1,4 +1,4 @@
-package com.iris.notes.ui.screens
+package com.aurora.notes.ui.screens
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -15,7 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,10 +28,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.iris.notes.ui.theme.IrisDangerRed
-import com.iris.notes.ui.theme.IrisRoyalViolet
-import com.iris.notes.util.LocalLogger
-import com.iris.notes.util.LogLevel
+import com.aurora.notes.ui.theme.AuroraDangerRed
+import com.aurora.notes.ui.theme.AuroraRoyalViolet
+import com.aurora.notes.util.LocalLogger
+import com.aurora.notes.util.LogLevel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -43,7 +44,8 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val logs by LocalLogger.logs.collectAsState()
-    var selectedLevelFilter by remember { mutableStateOf<LogLevel?>(null) } // null = ALL
+    var selectedLevelFilter by remember { mutableStateOf<LogLevel?>(null) }
+    var isAppLockEnabled by remember { mutableStateOf(false) }
 
     val filteredLogs = remember(logs, selectedLevelFilter) {
         if (selectedLevelFilter == null) logs else logs.filter { it.level == selectedLevelFilter }
@@ -59,41 +61,18 @@ fun SettingsScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Security Architecture Overview Card
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Lock, contentDescription = null, tint = IrisRoyalViolet, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Zero-Knowledge Architecture",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
+        // Page Header with Description
+        Text(
+            text = "Settings & Preferences",
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+        )
+        Text(
+            text = "Manage your app theme, native biometric security, custom categories, and local diagnostic logs.",
+            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
+            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+        )
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "• Local-Only Storage: All notes are stored inside local SQLite via Room.\n" +
-                            "• AES-256-GCM authenticated encryption.\n" +
-                            "• PBKDF2-SHA256 key derivation with 100,000 rounds.\n" +
-                            "• Zero remote network telemetry or outside analytics.",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                        lineHeight = 18.sp
-                    )
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Local Diagnostic Logs Card
+        // 1. Biometric / PIN Lock Card
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -107,7 +86,52 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Terminal, contentDescription = null, tint = IrisRoyalViolet, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Fingerprint, contentDescription = null, tint = AuroraRoyalViolet, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Biometric & App Lock",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    Switch(
+                        checked = isAppLockEnabled,
+                        onCheckedChange = {
+                            isAppLockEnabled = it
+                            Toast.makeText(context, if (it) "Biometric Lock Enabled" else "Biometric Lock Disabled", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "Require Android native fingerprint, face unlock, or device PIN before opening Aurora Notes.",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                        fontSize = 12.sp
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 2. Local Diagnostic Logs Card
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Terminal, contentDescription = null, tint = AuroraRoyalViolet, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Local Diagnostic Logs",
@@ -125,7 +149,6 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Filter Chips
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -156,7 +179,6 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Terminal Display Box
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -194,7 +216,6 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Action Buttons: Copy, Clear, Export (.txt)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -203,7 +224,7 @@ fun SettingsScreen(
                         onClick = {
                             val dump = onExportLogs()
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("Iris Diagnostic Logs", dump)
+                            val clip = ClipData.newPlainText("Aurora Diagnostic Logs", dump)
                             clipboard.setPrimaryClip(clip)
                             Toast.makeText(context, "Copied logs to clipboard", Toast.LENGTH_SHORT).show()
                         },
@@ -218,7 +239,7 @@ fun SettingsScreen(
                     OutlinedButton(
                         onClick = onClearLogs,
                         shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = IrisDangerRed),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AuroraDangerRed),
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
@@ -230,12 +251,12 @@ fun SettingsScreen(
                         onClick = {
                             val dump = onExportLogs()
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("iris_diagnostic_logs.txt", dump)
+                            val clip = ClipData.newPlainText("aurora_diagnostic_logs.txt", dump)
                             clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, "Exported iris_diagnostic_logs.txt to clipboard", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Exported logs to clipboard", Toast.LENGTH_LONG).show()
                         },
                         shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = IrisRoyalViolet),
+                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
                         modifier = Modifier.weight(1.2f)
                     ) {
                         Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))

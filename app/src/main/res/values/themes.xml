@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.IrisVault" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.AuroraNotes" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@color/iris_background_light</item>
         <item name="android:navigationBarColor">@color/iris_background_light</item>
     </style>

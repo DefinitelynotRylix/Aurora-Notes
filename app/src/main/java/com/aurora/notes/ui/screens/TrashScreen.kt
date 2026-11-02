@@ -1,4 +1,4 @@
-package com.iris.notes.ui.screens
+package com.aurora.notes.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
@@ -22,12 +22,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.iris.notes.model.Note
-import com.iris.notes.ui.theme.IrisDangerRed
-import com.iris.notes.ui.theme.IrisRoyalViolet
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.aurora.notes.model.Note
+import com.aurora.notes.ui.theme.AuroraDangerRed
+import com.aurora.notes.ui.theme.AuroraRoyalViolet
 
 @Composable
 fun TrashScreen(
@@ -46,11 +43,11 @@ fun TrashScreen(
     if (showEmptyConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showEmptyConfirmDialog = false },
-            icon = { Icon(Icons.Default.DeleteForever, contentDescription = null, tint = IrisDangerRed) },
+            icon = { Icon(Icons.Default.DeleteForever, contentDescription = null, tint = AuroraDangerRed) },
             title = { Text("Permanently Empty Trash?") },
             text = {
                 Text(
-                    "This will irreversibly shred and wipe all ${trashedNotes.size} notes from your encrypted local storage. This action cannot be undone.",
+                    "This will permanently delete all ${trashedNotes.size} notes from your local device storage. This action cannot be undone.",
                     fontSize = 13.sp
                 )
             },
@@ -60,7 +57,7 @@ fun TrashScreen(
                         onEmptyTrash()
                         showEmptyConfirmDialog = false
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = IrisDangerRed)
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
                 ) {
                     Text("Yes, Empty All")
                 }
@@ -80,7 +77,6 @@ fun TrashScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Banner Header
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -109,18 +105,17 @@ fun TrashScreen(
                     if (trashedNotes.isNotEmpty()) {
                         Button(
                             onClick = { showEmptyConfirmDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = IrisDangerRed.copy(alpha = 0.12f)),
+                            colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed.copy(alpha = 0.12f)),
                             shape = RoundedCornerShape(12.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Icon(Icons.Default.Delete, contentDescription = null, tint = IrisDangerRed, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Delete, contentDescription = null, tint = AuroraDangerRed, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Empty Trash", color = IrisDangerRed, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Empty Trash", color = AuroraDangerRed, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
 
-                // Search in Trash
                 if (trashedNotes.isNotEmpty() || searchQuery.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
@@ -145,7 +140,6 @@ fun TrashScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Grid/List toggle row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -170,7 +164,6 @@ fun TrashScreen(
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // Trashed items grid
         if (trashedNotes.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -266,9 +259,9 @@ private fun TrashedNoteCard(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     modifier = Modifier.height(32.dp)
                 ) {
-                    Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(14.dp), tint = IrisRoyalViolet)
+                    Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(14.dp), tint = AuroraRoyalViolet)
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Restore", fontSize = 11.sp, color = IrisRoyalViolet)
+                    Text("Restore", fontSize = 11.sp, color = AuroraRoyalViolet)
                 }
 
                 Spacer(modifier = Modifier.width(6.dp))
@@ -277,7 +270,7 @@ private fun TrashedNoteCard(
                     onClick = onDeletePermanent,
                     modifier = Modifier.size(32.dp)
                 ) {
-                    Icon(Icons.Default.DeleteForever, contentDescription = "Purge", tint = IrisDangerRed, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.DeleteForever, contentDescription = "Purge", tint = AuroraDangerRed, modifier = Modifier.size(16.dp))
                 }
             }
         }

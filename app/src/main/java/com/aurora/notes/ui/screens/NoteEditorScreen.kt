@@ -1,4 +1,4 @@
-package com.iris.notes.ui.screens
+package com.aurora.notes.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -14,11 +14,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
@@ -33,11 +32,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.iris.notes.model.ChecklistItem
-import com.iris.notes.model.Note
-import com.iris.notes.ui.theme.IrisBorderDark
-import com.iris.notes.ui.theme.IrisBorderLight
-import com.iris.notes.ui.theme.IrisRoyalViolet
+import com.aurora.notes.model.ChecklistItem
+import com.aurora.notes.model.Note
+import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import java.util.UUID
 
 enum class TextSizeMode {
@@ -46,7 +43,6 @@ enum class TextSizeMode {
     LARGE
 }
 
-// Internal representation of an editor line in Jetpack Compose
 data class EditorLine(
     val id: String = UUID.randomUUID().toString(),
     var text: String = "",
@@ -63,7 +59,6 @@ data class EditorLine(
 fun NoteEditorScreen(
     note: Note,
     onSaveAndClose: (Note) -> Unit,
-    onInspectCipher: (Note) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var title by remember { mutableStateOf(note.title) }
@@ -71,13 +66,12 @@ fun NoteEditorScreen(
     var isPinned by remember { mutableStateOf(note.isPinned) }
     val tags = remember { mutableStateListOf(*note.tags.toTypedArray()) }
     var newTagInput by remember { mutableStateOf("") }
+    var showDoneDetailsDialog by remember { mutableStateOf(false) }
 
-    // Active formatting states on the toolbar
     var isBoldActive by remember { mutableStateOf(false) }
     var isItalicActive by remember { mutableStateOf(false) }
     var activeSizeMode by remember { mutableStateOf(TextSizeMode.SMALL) }
 
-    // Convert note content to reactive lines
     val lines = remember {
         mutableStateListOf<EditorLine>().apply {
             if (note.content.isBlank()) {
@@ -138,12 +132,113 @@ fun NoteEditorScreen(
         )
     }
 
-    // Auto-save on Android back gesture or back button
     BackHandler {
         onSaveAndClose(constructUpdatedNote())
     }
 
-    // 100% Maximized Full-Screen Layout
+    if (showDoneDetailsDialog) {
+        AlertDialog(
+            onDismissRequest = { showDoneDetailsDialog = false },
+            title = {
+                Text(text = "Save Note Details", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Title") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = category,
+                        onValueChange = { category = it },
+                        label = { Text("Category") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text("Tags", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        tags.forEach { tag ->
+                            InputChip(
+                                selected = false,
+                                onClick = { tags.remove(tag) },
+                                label = { Text("#$tag", fontSize = 11.sp) },
+                                trailingIcon = { Text("✕", fontSize = 10.sp) }
+                            )
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = newTagInput,
+                            onValueChange = { newTagInput = it },
+                            placeholder = { Text("New tag...", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = {
+                                val clean = newTagInput.trim().removePrefix("#")
+                                if (clean.isNotBlank() && !tags.contains(clean)) {
+                                    tags.add(clean)
+                                    newTagInput = ""
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text("Add")
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Pin note to top", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Switch(
+                            checked = isPinned,
+                            onCheckedChange = { isPinned = it }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDoneDetailsDialog = false
+                        onSaveAndClose(constructUpdatedNote())
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
+                ) {
+                    Text("Save Note")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDoneDetailsDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             Surface(
@@ -162,7 +257,6 @@ fun NoteEditorScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Back Arrow -> Auto-Save
                         IconButton(
                             onClick = { onSaveAndClose(constructUpdatedNote()) },
                             modifier = Modifier.size(38.dp)
@@ -170,7 +264,6 @@ fun NoteEditorScreen(
                             Icon(Icons.Default.ArrowBack, contentDescription = "Save and Close")
                         }
 
-                        // Category Pill
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.background,
@@ -183,7 +276,7 @@ fun NoteEditorScreen(
                                 Icon(
                                     Icons.Default.Folder,
                                     contentDescription = null,
-                                    tint = IrisRoyalViolet,
+                                    tint = AuroraRoyalViolet,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -196,54 +289,27 @@ fun NoteEditorScreen(
                                 )
                             }
                         }
-
-                        // Pin Toggle
-                        IconButton(
-                            onClick = { isPinned = !isPinned },
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                                contentDescription = "Pin Note",
-                                tint = if (isPinned) IrisRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                            )
-                        }
                     }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Button(
+                        onClick = { showDoneDetailsDialog = true },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                     ) {
-                        // Cipher Inspector
-                        OutlinedButton(
-                            onClick = { onInspectCipher(constructUpdatedNote()) },
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Cipher", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-
-                        // Done Button
-                        Button(
-                            onClick = { onSaveAndClose(constructUpdatedNote()) },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = IrisRoyalViolet),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Done", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Done", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         },
         bottomBar = {
-            // STICKY KEYBOARD TOOLBAR
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .imePadding(),
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 8.dp,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
@@ -256,7 +322,6 @@ fun NoteEditorScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Thick / Bold
                     FilterChip(
                         selected = isBoldActive,
                         onClick = {
@@ -267,7 +332,6 @@ fun NoteEditorScreen(
                         label = { Icon(Icons.Default.FormatBold, contentDescription = "Bold", modifier = Modifier.size(18.dp)) }
                     )
 
-                    // Italic
                     FilterChip(
                         selected = isItalicActive,
                         onClick = {
@@ -278,7 +342,6 @@ fun NoteEditorScreen(
                         label = { Icon(Icons.Default.FormatItalic, contentDescription = "Italic", modifier = Modifier.size(18.dp)) }
                     )
 
-                    // 3 Distinct Text Size Buttons
                     Row(
                         modifier = Modifier
                             .background(
@@ -317,7 +380,6 @@ fun NoteEditorScreen(
                         )
                     }
 
-                    // Outline Bullet List
                     FilterChip(
                         selected = lines.getOrNull(focusedLineIndex)?.isBullet == true,
                         onClick = {
@@ -328,15 +390,12 @@ fun NoteEditorScreen(
                         label = { Icon(Icons.Default.FormatListBulleted, contentDescription = "Bullet List", modifier = Modifier.size(18.dp)) }
                     )
 
-                    // Checklist Button:
-                    // Only 1 checkbox per line at -1 position. Toggling enables/disables on the current line only.
                     val isLineChecklist = lines.getOrNull(focusedLineIndex)?.isChecklist == true
                     FilterChip(
                         selected = isLineChecklist,
                         onClick = {
                             val idx = focusedLineIndex.coerceIn(0, lines.lastIndex)
                             val current = lines[idx]
-                            // Toggle checklist on this line only
                             lines[idx] = current.copy(isChecklist = !current.isChecklist)
                         },
                         label = { Icon(Icons.Default.CheckBox, contentDescription = "Checklist", modifier = Modifier.size(18.dp)) }
@@ -352,7 +411,6 @@ fun NoteEditorScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // Note Title Input
             BasicTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -360,7 +418,7 @@ fun NoteEditorScreen(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 ),
-                cursorBrush = SolidColor(IrisRoyalViolet),
+                cursorBrush = SolidColor(AuroraRoyalViolet),
                 decorationBox = { innerTextField ->
                     if (title.isEmpty()) {
                         Text(
@@ -381,8 +439,6 @@ fun NoteEditorScreen(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), thickness = 0.8.dp)
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Lines Editor: Each line is rendered distinctly.
-            // Checkbox stays strictly at the -1 prefix. Characters cannot be typed before it.
             lines.forEachIndexed { index, line ->
                 val fontSize = when (line.sizeMode) {
                     TextSizeMode.SMALL -> 14.sp
@@ -405,14 +461,13 @@ fun NoteEditorScreen(
                         .clickable { focusedLineIndex = index },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Protected -1 Character Slot: Checkbox or Bullet
                     if (line.isChecklist) {
                         Checkbox(
                             checked = line.isChecked,
                             onCheckedChange = { checked ->
                                 lines[index] = lines[index].copy(isChecked = checked)
                             },
-                            colors = CheckboxDefaults.colors(checkedColor = IrisRoyalViolet),
+                            colors = CheckboxDefaults.colors(checkedColor = AuroraRoyalViolet),
                             modifier = Modifier
                                 .size(24.dp)
                                 .padding(end = 6.dp)
@@ -422,22 +477,18 @@ fun NoteEditorScreen(
                             text = "•",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
-                            color = IrisRoyalViolet,
+                            color = AuroraRoyalViolet,
                             modifier = Modifier.padding(horizontal = 6.dp)
                         )
                     }
 
-                    // Editable Text Container (Cursor is strictly after the -1 prefix)
                     BasicTextField(
                         value = line.text,
                         onValueChange = { newText ->
                             focusedLineIndex = index
-                            // Handle Enter inside line:
-                            // Pressing Enter does NOT delete the checkbox, and creates a NEW plain line with checklist disabled
                             if (newText.contains("\n")) {
                                 val parts = newText.split("\n", limit = 2)
                                 lines[index] = line.copy(text = parts[0])
-                                // New line is standard plain text with checklist disabled
                                 val newLine = EditorLine(
                                     text = parts.getOrNull(1) ?: "",
                                     isChecklist = false,
@@ -459,7 +510,7 @@ fun NoteEditorScreen(
                             textDecoration = textDecoration,
                             color = textColor
                         ),
-                        cursorBrush = SolidColor(IrisRoyalViolet),
+                        cursorBrush = SolidColor(AuroraRoyalViolet),
                         decorationBox = { innerTextField ->
                             if (line.text.isEmpty() && index == 0 && lines.size == 1) {
                                 Text(
@@ -478,45 +529,6 @@ fun NoteEditorScreen(
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Tags Section
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                tags.forEach { tag ->
-                    InputChip(
-                        selected = false,
-                        onClick = { tags.remove(tag) },
-                        label = { Text("#$tag", fontSize = 11.sp) },
-                        trailingIcon = { Text("✕", fontSize = 10.sp) }
-                    )
-                }
-
-                OutlinedTextField(
-                    value = newTagInput,
-                    onValueChange = { input ->
-                        if (input.endsWith(",") || input.endsWith("\n")) {
-                            val clean = input.trim().removeSuffix(",").removePrefix("#")
-                            if (clean.isNotBlank() && !tags.contains(clean)) {
-                                tags.add(clean)
-                            }
-                            newTagInput = ""
-                        } else {
-                            newTagInput = input
-                        }
-                    },
-                    placeholder = { Text("Add tag...", fontSize = 11.sp) },
-                    singleLine = true,
-                    textStyle = TextStyle(fontSize = 11.sp),
-                    modifier = Modifier.width(110.dp)
-                )
-            }
         }
     }
 }
@@ -529,15 +541,15 @@ private fun TextSizeButton(
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = if (selected) IrisRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
-        border = if (selected) BorderStroke(1.dp, IrisRoyalViolet) else null,
+        color = if (selected) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
+        border = if (selected) BorderStroke(1.dp, AuroraRoyalViolet) else null,
         modifier = Modifier.clickable { onClick() }
     ) {
         Text(
             text = label,
             fontSize = 11.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) IrisRoyalViolet else MaterialTheme.colorScheme.onSurface,
+            color = if (selected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
         )
     }

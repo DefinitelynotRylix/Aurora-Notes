@@ -87,7 +87,7 @@ export const TrashView: React.FC<TrashViewProps> = ({
                   ? '1 item in trash'
                   : `${trashedNotes.length} items in trash`}
                 {' • '}
-                Stored strictly in local encrypted memory
+                Stored strictly in local device memory
               </p>
             </div>
           </div>
@@ -181,7 +181,7 @@ export const TrashView: React.FC<TrashViewProps> = ({
                 Permanently empty trash?
               </h3>
               <p className="text-xs text-[#797487] dark:text-[#A39BAC] mb-5 leading-relaxed">
-                This will irreversibly shred and wipe all {trashedNotes.length} notes from your encrypted local storage. This action cannot be undone.
+                This will irreversibly delete all {trashedNotes.length} notes from your local device storage. This action cannot be undone.
               </p>
               <div className="flex gap-2">
                 <button

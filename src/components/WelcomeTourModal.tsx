@@ -3,7 +3,6 @@ import {
   Sparkles,
   ShieldCheck,
   CheckCircle2,
-  Lock,
   CheckSquare,
   Smartphone,
   Trash2,
@@ -28,26 +27,26 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
   const pages = [
     {
       id: 'welcome',
-      title: 'Welcome to Iris Notes',
-      subtitle: 'Tactile Minimalism Meets Liquid Glass',
+      title: 'Welcome to Aurora Notes',
+      subtitle: 'Tactile Minimalism Meets Modern Design',
       icon: <Sparkles className="w-6 h-6 text-[#5925DC] dark:text-[#C296FD]" />,
       badge: 'Design Philosophy',
       content: (
         <div className="space-y-4">
           <p className="text-sm text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            Iris Notes is an atmospheric, serene digital stationery experience designed for deep, uninterrupted thought and confidential journaling.
+            Aurora Notes is an atmospheric, serene digital note-taking experience designed for deep, uninterrupted thought and fast organization.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] shadow-xs">
               <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">Atmospheric Canvas</span>
               <p className="text-[#797487] dark:text-[#A39BAC] leading-normal">
-                Soft, soothing canvas with royal violet and radiant amethyst tones calibrated for long writing sessions.
+                Soft canvas with royal violet and radiant amethyst accents calibrated for long writing sessions.
               </p>
             </div>
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] shadow-xs">
-              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">Liquid Glass Island</span>
+              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">Liquid Navigation</span>
               <p className="text-[#797487] dark:text-[#A39BAC] leading-normal">
-                Translucent navigation with fluid continuous pill indicators and quick actions.
+                Floating navigation with continuous active indicators and quick action buttons.
               </p>
             </div>
           </div>
@@ -64,27 +63,27 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
     },
     {
       id: 'local-privacy',
-      title: 'Zero Network Egress & Air-Gapped Storage',
+      title: 'Local-Only Storage',
       subtitle: 'Your Data Never Leaves Your Device',
       icon: <ShieldCheck className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />,
       badge: 'Local-Only Architecture',
       content: (
         <div className="space-y-4">
           <p className="text-sm text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            Unlike cloud note apps that synchronize private thoughts to external servers, Iris Notes is strictly air-gapped:
+            Unlike cloud note apps that synchronize private thoughts to external servers, Aurora Notes is strictly local:
           </p>
           <div className="space-y-2.5">
             <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Zero Network Calls: No servers, no tracking, and zero internet permissions required.</span>
+              <span>Zero Network Overhead: No cloud tracking or external server dependencies.</span>
             </div>
             <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Zero Cloud Telemetry: No analytics beacons, no tracking cookies, and no telemetry logging.</span>
+              <span>Zero Cloud Telemetry: No tracking cookies or remote telemetry logging.</span>
             </div>
             <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Direct Device Storage: Plain local storage protected behind your device security lock.</span>
+              <span>Direct Device Storage: Plain local storage protected behind your phone security.</span>
             </div>
           </div>
         </div>
@@ -99,7 +98,7 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
       content: (
         <div className="space-y-4">
           <p className="text-sm text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            Secure access to Iris Notes directly through your Android device's native lock screen:
+            Secure access to Aurora Notes directly through your Android device's native lock screen:
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742]">
@@ -109,7 +108,7 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
               </p>
             </div>
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742]">
-              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">No Custom App Passwords</span>
+              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">No Custom Passwords</span>
               <p className="text-[#797487] dark:text-[#A39BAC]">
                 No need to memorize another password—your phone's native security gatekeeper handles verification.
               </p>
@@ -129,8 +128,8 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
           <p className="text-sm text-[#484455] dark:text-[#C5BECD] leading-relaxed">
             Effortlessly organize your thoughts with custom category pins, smooth pinned note prioritization, and interactive checklists:
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs text-center">
-            <div className="p-3 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-center">
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742]">
               <div className="w-8 h-8 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] flex items-center justify-center mx-auto mb-2">
                 <CheckSquare className="w-4 h-4" />
               </div>
@@ -139,16 +138,7 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
                 Smooth checkboxes with real-time strike-through transitions.
               </p>
             </div>
-            <div className="p-3 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742]">
-              <div className="w-8 h-8 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] flex items-center justify-center mx-auto mb-2">
-                <Lock className="w-4 h-4" />
-              </div>
-              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-0.5">AES-256-GCM</span>
-              <p className="text-[11px] text-[#797487] dark:text-[#A39BAC]">
-                Local authenticated encryption protecting every character in memory.
-              </p>
-            </div>
-            <div className="p-3 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742]">
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742]">
               <div className="w-8 h-8 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] flex items-center justify-center mx-auto mb-2">
                 <Trash2 className="w-4 h-4" />
               </div>
@@ -186,8 +176,8 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
 
           <button
             onClick={onClose}
-            aria-label="Close welcome explanation tour"
-            className="p-1.5 rounded-xl text-[#797487] dark:text-[#A39BAC] hover:text-[#1E1A24] dark:hover:text-[#F7EEFC] hover:bg-[#FAF8FB] dark:hover:bg-[#120E17] transition-all"
+            aria-label="Close welcome tour"
+            className="p-1.5 rounded-xl text-[#797487] dark:text-[#A39BAC] hover:text-[#1E1A24] dark:hover:text-[#F7EEFC] hover:bg-[#FAF8FB] dark:hover:bg-[#120E17] transition-all cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -205,14 +195,13 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
 
         {/* Footer Navigation */}
         <div className="glass-panel px-6 py-4 border-t border-[#EADBFC] dark:border-[#322742] flex items-center justify-between gap-3">
-          {/* Pagination dots */}
           <div className="flex items-center gap-1.5">
             {pages.map((_, i) => (
               <button
                 key={i}
                 onClick={() => setCurrentPage(i)}
                 aria-label={`Go to slide ${i + 1}`}
-                className={`h-2 rounded-full transition-all ${
+                className={`h-2 rounded-full transition-all cursor-pointer ${
                   currentPage === i
                     ? 'w-6 bg-[#5925DC] dark:bg-[#9D5AF5]'
                     : 'w-2 bg-[#EADBFC] dark:bg-[#322742] hover:bg-[#D6BBFB]'
@@ -221,13 +210,12 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
             ))}
           </div>
 
-          {/* Action buttons */}
           <div className="flex items-center gap-2">
             {currentPage > 0 && (
               <button
                 type="button"
                 onClick={() => setCurrentPage((prev) => prev - 1)}
-                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-[#484455] dark:text-[#C5BECD] hover:text-[#1E1A24] dark:hover:text-[#F7EEFC] hover:bg-[#FAF8FB] dark:hover:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] transition-all flex items-center gap-1"
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-[#484455] dark:text-[#C5BECD] hover:text-[#1E1A24] dark:hover:text-[#F7EEFC] hover:bg-[#FAF8FB] dark:hover:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] transition-all flex items-center gap-1 cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Previous</span>
@@ -238,7 +226,7 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
               <button
                 type="button"
                 onClick={() => setCurrentPage((prev) => prev + 1)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#5925DC] hover:bg-[#4c1fc4] text-white shadow-xs flex items-center gap-1.5 transition-all active:scale-95"
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#5925DC] hover:bg-[#4c1fc4] text-white shadow-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
               >
                 <span>Next Feature</span>
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -247,9 +235,9 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-[#5925DC] to-[#9B51E0] hover:from-[#4c1fc4] hover:to-[#8c42d3] text-white shadow-[0_4px_16px_rgba(89,37,220,0.3)] flex items-center gap-2 transition-all active:scale-95"
+                className="px-5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-[#5925DC] to-[#9B51E0] hover:from-[#4c1fc4] hover:to-[#8c42d3] text-white shadow-[0_4px_16px_rgba(89,37,220,0.3)] flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
               >
-                <span>Enter Iris Notes</span>
+                <span>Enter Aurora Notes</span>
                 <ArrowRight className="w-4 h-4 stroke-[2.5]" />
               </button>
             )}

@@ -1,4 +1,4 @@
-package com.iris.notes.ui.theme
+package com.aurora.notes.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

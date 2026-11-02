@@ -3,8 +3,8 @@
  * Uses Android's native biometric (fingerprint/face) or system PIN/pattern lock screen.
  */
 
-const NATIVE_CREDENTIAL_ID_KEY = 'iris_native_cred_id_v1';
-const NATIVE_LOCK_ENABLED_KEY = 'iris_native_lock_enabled_v1';
+const NATIVE_CREDENTIAL_ID_KEY = 'aurora_native_cred_id_v1';
+const NATIVE_LOCK_ENABLED_KEY = 'aurora_native_lock_enabled_v1';
 
 export function isNativeLockEnabled(): boolean {
   try {
@@ -64,13 +64,13 @@ export async function registerNativeDeviceLock(): Promise<{ success: boolean; er
       publicKey: {
         challenge,
         rp: {
-          name: 'Iris Secure Notes',
+          name: 'Aurora Notes',
           id: window.location.hostname,
         },
         user: {
           id: userId,
-          name: 'iris-user',
-          displayName: 'Iris User',
+          name: 'aurora-user',
+          displayName: 'Aurora User',
         },
         pubKeyCredParams: [
           { alg: -7, type: 'public-key' },   // ES256

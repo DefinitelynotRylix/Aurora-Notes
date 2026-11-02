@@ -12,30 +12,10 @@ export interface Note {
   tags: string[];
   category: string;
   isPinned: boolean;
-  isEncrypted: boolean;
   isDeleted?: boolean;
   deletedAt?: number;
   createdAt: number;
   updatedAt: number;
-}
-
-export interface EncryptedVaultPayload {
-  version: number;
-  salt: string;
-  iv: string;
-  verifier: string;
-  ciphertext: string;
-  updatedAt: number;
-  noteCount: number;
-}
-
-export interface VaultConfig {
-  isInitialized: boolean;
-  isUnlocked: boolean;
-  autoLockMinutes: number;
-  duressCode?: string;
-  salt?: string;
-  verifier?: string;
 }
 
 export type ThemeOption = 'light' | 'dark' | 'system';

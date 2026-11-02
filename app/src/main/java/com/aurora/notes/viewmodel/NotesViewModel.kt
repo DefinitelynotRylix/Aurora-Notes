@@ -1,13 +1,12 @@
-package com.iris.notes.viewmodel
+package com.aurora.notes.viewmodel
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.iris.notes.data.IrisDatabase
-import com.iris.notes.data.IrisRepository
-import com.iris.notes.model.Note
-import com.iris.notes.security.CryptoManager
-import com.iris.notes.util.LocalLogger
+import com.aurora.notes.data.AuroraDatabase
+import com.aurora.notes.data.AuroraRepository
+import com.aurora.notes.model.Note
+import com.aurora.notes.util.LocalLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +17,7 @@ import kotlinx.coroutines.launch
 
 class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: IrisRepository
+    private val repository: AuroraRepository
 
     val allActiveNotes: StateFlow<List<Note>>
     val allTrashedNotes: StateFlow<List<Note>>
@@ -35,15 +34,12 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeEditingNote = MutableStateFlow<Note?>(null)
     val activeEditingNote = _activeEditingNote.asStateFlow()
 
-    private val _inspectingCipherNote = MutableStateFlow<Note?>(null)
-    val inspectingCipherNote = _inspectingCipherNote.asStateFlow()
-
     private val _isGridView = MutableStateFlow(true)
     val isGridView = _isGridView.asStateFlow()
 
     init {
-        val noteDao = IrisDatabase.getDatabase(application, viewModelScope).noteDao()
-        repository = IrisRepository(noteDao)
+        val noteDao = AuroraDatabase.getDatabase(application).noteDao()
+        repository = AuroraRepository(noteDao)
 
         allActiveNotes = repository.activeNotes.stateIn(
             viewModelScope,
@@ -57,10 +53,9 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             emptyList()
         )
 
-        LocalLogger.security("APP", "Iris Vault initialized with local Room SQLite storage")
+        LocalLogger.security("APP", "Aurora Notes initialized with local Room SQLite storage")
     }
 
-    // Filtered active notes based on Search and Category
     val filteredActiveNotes: StateFlow<List<Note>> = combine(
         allActiveNotes,
         _searchQuery,
@@ -86,7 +81,6 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         list
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Filtered trashed notes based on Search in Trash
     val filteredTrashedNotes: StateFlow<List<Note>> = combine(
         allTrashedNotes,
         _searchQuery
@@ -176,14 +170,6 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.emptyTrash()
         }
-    }
-
-    fun inspectCipher(note: Note) {
-        _inspectingCipherNote.value = note
-    }
-
-    fun closeCipherInspector() {
-        _inspectingCipherNote.value = null
     }
 
     fun clearDiagnosticLogs() {

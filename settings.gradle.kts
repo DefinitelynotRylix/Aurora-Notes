@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "iris-vault"
+rootProject.name = "aurora-notes"
 include(":app")

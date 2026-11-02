@@ -25,12 +25,12 @@ export const LiquidHeader: React.FC<LiquidHeaderProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] flex items-center justify-center text-white shadow-[0_4px_14px_rgba(89,37,220,0.3)] shrink-0">
-              <span className="font-bold text-lg tracking-tight font-serif italic">I</span>
+              <span className="font-bold text-lg tracking-tight font-serif italic">A</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="font-bold text-lg tracking-tight text-[#1E1A24] dark:text-[#F7EEFC]">
-                  Iris
+                  Aurora
                 </h1>
                 <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742]">
                   Notes
@@ -70,7 +70,7 @@ export const LiquidHeader: React.FC<LiquidHeaderProps> = ({
             <Search className="w-4 h-4 text-[#797487] dark:text-[#A39BAC] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              aria-label="Search encrypted notes"
+              aria-label="Search notes"
               placeholder={`Search ${noteCount} notes...`}
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}

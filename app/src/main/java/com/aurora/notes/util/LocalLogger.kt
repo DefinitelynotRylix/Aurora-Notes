@@ -1,4 +1,4 @@
-package com.iris.notes.util
+package com.aurora.notes.util
 
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,7 +24,7 @@ data class LogEntry(
 
 object LocalLogger {
     private const val MAX_ENTRIES = 250
-    private const val TAG = "IRIS_DIAGNOSTICS"
+    private const val TAG = "AURORA_DIAGNOSTICS"
 
     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
@@ -77,7 +77,7 @@ object LocalLogger {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
         val sb = StringBuilder()
         sb.append("================================================================================\n")
-        sb.append("IRIS NOTES LOCAL DIAGNOSTIC LOG DUMP\n")
+        sb.append("AURORA NOTES LOCAL DIAGNOSTIC LOG DUMP\n")
         sb.append("Generated At: ").append(dateFormat.format(Date())).append("\n")
         sb.append("Total Entries: ").append(_logs.value.size).append("\n")
         sb.append("Privacy Policy: Zero-Telemetry / 100% Local Device Storage Only\n")

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Note, ThemeOption, ActiveTab } from './types';
-import { DEFAULT_SEED_NOTES } from './services/storage';
 import { LiquidHeader } from './components/LiquidHeader';
 import { CategoryFilterBar } from './components/CategoryFilterBar';
 import { NoteCard } from './components/NoteCard';
@@ -9,17 +8,15 @@ import { LiquidNavbar } from './components/LiquidNavbar';
 import { TrashView } from './components/TrashView';
 import { NoteEditorModal } from './components/NoteEditorModal';
 import { SettingsPage } from './components/SettingsPage';
-import { CipherInspectorModal } from './components/CipherInspectorModal';
 import { WelcomeTourModal } from './components/WelcomeTourModal';
-import { deriveKey, generateSalt } from './utils/crypto';
 import { isNativeLockEnabled, verifyWithAndroidNativeLock } from './utils/nativeAuth';
 import { logger } from './utils/logger';
 import { FileText, Plus, Fingerprint, Smartphone } from 'lucide-react';
 
-const STORAGE_NOTES_KEY = 'iris_local_notes_v1';
-const STORAGE_CATEGORIES_KEY = 'iris_custom_categories_v1';
-const STORAGE_THEME_KEY = 'iris_theme_v1';
-const STORAGE_WELCOME_KEY = 'iris_notes_welcome_seen_v1';
+const STORAGE_NOTES_KEY = 'aurora_local_notes_v1';
+const STORAGE_CATEGORIES_KEY = 'aurora_custom_categories_v1';
+const STORAGE_THEME_KEY = 'aurora_theme_v1';
+const STORAGE_WELCOME_KEY = 'aurora_notes_welcome_seen_v1';
 
 export default function App() {
   // Theme state
@@ -53,10 +50,7 @@ export default function App() {
     return ['Work', 'Personal', 'Ideas'];
   });
 
-  // Ephemeral master key in memory
-  const [masterKey, setMasterKey] = useState<CryptoKey | null>(null);
-
-  // Notes state
+  // Notes state - starts completely fresh and empty
   const [notes, setNotes] = useState<Note[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_NOTES_KEY);
@@ -66,7 +60,7 @@ export default function App() {
     } catch (e) {
       console.warn('Could not read notes from localStorage', e);
     }
-    return DEFAULT_SEED_NOTES;
+    return [];
   });
 
   // Active vs Trashed note partitions
@@ -78,7 +72,6 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [isGridView, setIsGridView] = useState(true);
   const [activeNote, setActiveNote] = useState<Note | null>(null);
-  const [cipherInspectorNote, setCipherInspectorNote] = useState<Note | null>(null);
 
   // Track the most recently pinned note id to animate only its move to top
   const [lastPinnedId, setLastPinnedId] = useState<string | null>(null);
@@ -162,23 +155,7 @@ export default function App() {
     }
   };
 
-  // Initialize local memory encryption key
-  useEffect(() => {
-    let isMounted = true;
-    const initKey = async () => {
-      try {
-        const salt = generateSalt(16);
-        const key = await deriveKey('iris_local_privacy_vault', salt, 5000);
-        if (isMounted) setMasterKey(key);
-      } catch (err) {
-        console.error('Failed to initialize local key', err);
-      }
-    };
-    initKey();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+
 
   // Save notes locally
   const persistNotes = (updated: Note[]) => {
@@ -224,7 +201,6 @@ export default function App() {
       tags: [],
       category: selectedCategory !== 'All' && selectedCategory !== 'Pinned' ? selectedCategory : 'General',
       isPinned: activeTab === 'pinned',
-      isEncrypted: true,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -429,8 +405,8 @@ export default function App() {
             onOpenWelcomeTour={() => setIsWelcomeOpen(true)}
             onWipeData={() => {
               localStorage.removeItem(STORAGE_NOTES_KEY);
-              setNotes(DEFAULT_SEED_NOTES);
-              logger.security('STORAGE', 'User initiated full local storage notes wipe');
+              setNotes([]);
+              logger.security('STORAGE', 'User wiped local storage notes');
             }}
           />
         ) : activeTab === 'trash' ? (
@@ -502,10 +478,6 @@ export default function App() {
                       onTogglePin={handleTogglePin}
                       onDelete={handleDeleteNote}
                       onToggleCheckItem={handleToggleCheckItem}
-                      onInspectCipher={(inspectNote, e) => {
-                        e.stopPropagation();
-                        setCipherInspectorNote(inspectNote);
-                      }}
                     />
                   );
                 })}
@@ -543,18 +515,6 @@ export default function App() {
             customCategories={customCategories}
             onSave={handleSaveActiveNote}
             onClose={() => setActiveNote(null)}
-            onInspectCipher={(inspectNote) => setCipherInspectorNote(inspectNote)}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Cryptographic Cipher Inspector Modal with smooth glide-in */}
-      <AnimatePresence>
-        {cipherInspectorNote && (
-          <CipherInspectorModal
-            note={cipherInspectorNote}
-            masterKey={masterKey}
-            onClose={() => setCipherInspectorNote(null)}
           />
         )}
       </AnimatePresence>

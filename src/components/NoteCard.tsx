@@ -15,7 +15,6 @@ interface NoteCardProps {
   onTogglePin: (id: string, e: React.MouseEvent) => void;
   onDelete: (id: string, e?: React.MouseEvent | React.TouchEvent | null) => void;
   onToggleCheckItem: (noteId: string, itemId: string, e: React.MouseEvent) => void;
-  onInspectCipher: (note: Note, e: React.MouseEvent) => void;
   isGridView: boolean;
   animateMovement: boolean;
 }
@@ -26,7 +25,6 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   onTogglePin,
   onDelete,
   onToggleCheckItem,
-  onInspectCipher,
   animateMovement,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
@@ -187,16 +185,6 @@ export const NoteCard: React.FC<NoteCardProps> = ({
                   <button
                     onClick={(e) => {
                       setShowMenu(false);
-                      onInspectCipher(note, e);
-                    }}
-                    className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center gap-1.5"
-                  >
-                    <Binary className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
-                    <span>View AES Cipher</span>
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      setShowMenu(false);
                       onTogglePin(note.id, e);
                     }}
                     className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center gap-1.5"
@@ -300,7 +288,6 @@ export const NoteCard: React.FC<NoteCardProps> = ({
         </div>
 
         <div className="flex items-center gap-1 text-[#797487] dark:text-[#A39BAC] text-[10px] font-medium shrink-0">
-          <Lock className="w-2.5 h-2.5 text-[#5925DC] dark:text-[#C296FD]" />
           <span>{formattedDate}</span>
         </div>
       </div>

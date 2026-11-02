@@ -1,4 +1,4 @@
-package com.iris.notes.ui.theme
+package com.aurora.notes.ui.theme
 
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -12,33 +12,33 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = IrisRoyalViolet,
-    secondary = IrisAmethyst,
-    tertiary = IrisLightPurple,
-    background = IrisBackgroundDark,
-    surface = IrisSurfaceDark,
-    onPrimary = IrisSurfaceLight,
-    onSecondary = IrisSurfaceLight,
-    onBackground = IrisTextPrimaryDark,
-    onSurface = IrisTextPrimaryDark,
-    outline = IrisBorderDark
+    primary = AuroraRoyalViolet,
+    secondary = AuroraAmethyst,
+    tertiary = AuroraLightPurple,
+    background = AuroraBackgroundDark,
+    surface = AuroraSurfaceDark,
+    onPrimary = AuroraSurfaceLight,
+    onSecondary = AuroraSurfaceLight,
+    onBackground = AuroraTextPrimaryDark,
+    onSurface = AuroraTextPrimaryDark,
+    outline = AuroraBorderDark
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = IrisRoyalViolet,
-    secondary = IrisAmethyst,
-    tertiary = IrisLightPurple,
-    background = IrisBackgroundLight,
-    surface = IrisSurfaceLight,
-    onPrimary = IrisSurfaceLight,
-    onSecondary = IrisSurfaceLight,
-    onBackground = IrisTextPrimaryLight,
-    onSurface = IrisTextPrimaryLight,
-    outline = IrisBorderLight
+    primary = AuroraRoyalViolet,
+    secondary = AuroraAmethyst,
+    tertiary = AuroraLightPurple,
+    background = AuroraBackgroundLight,
+    surface = AuroraSurfaceLight,
+    onPrimary = AuroraSurfaceLight,
+    onSecondary = AuroraSurfaceLight,
+    onBackground = AuroraTextPrimaryLight,
+    onSurface = AuroraTextPrimaryLight,
+    outline = AuroraBorderLight
 )
 
 @Composable
-fun IrisTheme(
+fun AuroraTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
@@ -59,4 +59,12 @@ fun IrisTheme(
         typography = Typography,
         content = content
     )
+}
+
+@Composable
+fun IrisTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit
+) {
+    AuroraTheme(darkTheme = darkTheme, content = content)
 }

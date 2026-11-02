@@ -1,10 +1,10 @@
-package com.iris.notes.data
+package com.aurora.notes.data
 
-import com.iris.notes.model.Note
-import com.iris.notes.util.LocalLogger
+import com.aurora.notes.model.Note
+import com.aurora.notes.util.LocalLogger
 import kotlinx.coroutines.flow.Flow
 
-class IrisRepository(private val noteDao: NoteDao) {
+class AuroraRepository(private val noteDao: NoteDao) {
 
     val activeNotes: Flow<List<Note>> = noteDao.getActiveNotes()
     val trashedNotes: Flow<List<Note>> = noteDao.getTrashedNotes()

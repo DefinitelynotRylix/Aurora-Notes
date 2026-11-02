@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.iris.notes"
+    namespace = "com.aurora.notes"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.iris.notes"
+        applicationId = "com.aurora.notes"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -75,8 +75,8 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-    // Security & Crypto
-    implementation(libs.androidx.security.crypto)
+    // Android Biometric Auth
+    implementation(libs.androidx.biometric)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.gson)
 }

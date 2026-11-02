@@ -1,4 +1,4 @@
-package com.iris.notes.data
+package com.aurora.notes.data
 
 import androidx.room.Dao
 import androidx.room.Delete
@@ -6,7 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
-import com.iris.notes.model.Note
+import com.aurora.notes.model.Note
 import kotlinx.coroutines.flow.Flow
 
 @Dao
