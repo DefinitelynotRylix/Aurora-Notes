@@ -3,6 +3,9 @@
     <cache-path
         name="shared_notes"
         path="shared_notes/" />
+    <cache-path
+        name="apk_updates"
+        path="apk_updates/" />
     <files-path
         name="exported_notes"
         path="exported_notes/" />

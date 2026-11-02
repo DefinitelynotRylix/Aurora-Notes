@@ -14,7 +14,10 @@ import {
   Terminal,
   Copy,
   Sliders,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw,
+  ShieldAlert,
+  CheckCircle2
 } from 'lucide-react';
 import {
   isNativeLockEnabled,
@@ -24,6 +27,24 @@ import {
   isNativePlatformAuthenticatorAvailable
 } from '../utils/nativeAuth';
 import { logger, LogEntry, LogLevel } from '../utils/logger';
+
+const APP_VERSION = '1.2.0';
+const APP_BUILD_CODE = 100;
+const REPO_STORAGE_KEY = 'aurora-github-repo-slug-v1';
+
+function compareSemver(remoteVer: string, localVer: string): number {
+  const cleanR = remoteVer.trim().replace(/^[vV]/, '');
+  const cleanL = localVer.trim().replace(/^[vV]/, '');
+  const rParts = cleanR.split(/[^0-9]+/).filter(Boolean).map(Number);
+  const lParts = cleanL.split(/[^0-9]+/).filter(Boolean).map(Number);
+  const len = Math.max(rParts.length, lParts.length);
+  for (let i = 0; i < len; i++) {
+    const r = rParts[i] || 0;
+    const l = lParts[i] || 0;
+    if (r !== l) return r > l ? 1 : -1;
+  }
+  return 0;
+}
 
 interface SettingsPageProps {
   currentTheme: ThemeOption;
@@ -49,6 +70,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [newCatInput, setNewCatInput] = useState('');
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
 
+  // App Version & Self-Update State
+  const [repoSlug, setRepoSlug] = useState<string>(() => {
+    return localStorage.getItem(REPO_STORAGE_KEY) || '';
+  });
+  const [showRepoInput, setShowRepoInput] = useState<boolean>(() => !localStorage.getItem(REPO_STORAGE_KEY));
+  const [isScanningUpdate, setIsScanningUpdate] = useState(false);
+  const [isPullingUpdate, setIsPullingUpdate] = useState(false);
+  const [pullProgress, setPullProgress] = useState(0);
+  const [updateStatus, setUpdateStatus] = useState<{
+    type: 'uptodate' | 'available' | 'error';
+    message: string;
+    latestVersion?: string;
+    apkUrl?: string;
+  } | null>(null);
+
   // Local Diagnostic Logger State
   const [logs, setLogs] = useState<LogEntry[]>(() => logger.getLogs());
   const [logFilter, setLogFilter] = useState<'ALL' | LogLevel>('ALL');
@@ -71,6 +107,103 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     { id: 'light', label: 'Light Mode', icon: Sun, desc: 'Warm mauve canvas with royal violet accents' },
     { id: 'dark', label: 'Dark Mode', icon: Moon, desc: 'Obsidian mauve canvas with luminous amethyst accents' },
   ];
+
+  const handleScanForUpdates = async () => {
+    if (isScanningUpdate || isPullingUpdate) return;
+    const cleanRepo = repoSlug
+      .trim()
+      .replace(/^https?:\/\/github\.com\//i, '')
+      .replace(/^\/+|\/+$/g, '');
+
+    if (cleanRepo && cleanRepo.includes('/')) {
+      localStorage.setItem(REPO_STORAGE_KEY, cleanRepo);
+      setRepoSlug(cleanRepo);
+      setShowRepoInput(false);
+    }
+
+    setIsScanningUpdate(true);
+    setUpdateStatus(null);
+    logger.security('UPDATE', `Scanning GitHub Releases for updates (installed v${APP_VERSION})`);
+
+    if (!cleanRepo || !cleanRepo.includes('/')) {
+      setIsScanningUpdate(false);
+      setUpdateStatus({
+        type: 'uptodate',
+        latestVersion: APP_VERSION,
+        message: `Aurora Notes is at the latest version (v${APP_VERSION}). Enter your GitHub owner/Aurora-Notes repository slug if you want to check a custom release feed.`,
+      });
+      return;
+    }
+
+    try {
+      const resp = await fetch(`https://api.github.com/repos/${cleanRepo}/releases/latest`, {
+        headers: { Accept: 'application/vnd.github+json' },
+      });
+
+      if (!resp.ok) {
+        setIsScanningUpdate(false);
+        setUpdateStatus({
+          type: 'uptodate',
+          latestVersion: APP_VERSION,
+          message: `You are running the latest version (v${APP_VERSION}). No newer release found on ${cleanRepo}.`,
+        });
+        return;
+      }
+
+      const data = await resp.json();
+      const rawTag = String(data.tag_name || '').trim();
+      const latestVer = rawTag.replace(/^[vV]/, '') || APP_VERSION;
+      const assets = Array.isArray(data.assets) ? data.assets : [];
+      const apkAsset = assets.find((a: { name?: string; browser_download_url?: string }) =>
+        String(a?.name || '').toLowerCase().endsWith('.apk')
+      );
+
+      setIsScanningUpdate(false);
+
+      if (compareSemver(latestVer, APP_VERSION) <= 0) {
+        logger.security('UPDATE', `App is up to date (v${APP_VERSION})`);
+        setUpdateStatus({
+          type: 'uptodate',
+          latestVersion: latestVer,
+          message: `Aurora Notes is up to date! You are on the latest version (v${APP_VERSION}).`,
+        });
+      } else {
+        const downloadUrl = apkAsset?.browser_download_url || data.html_url || '';
+        logger.security('UPDATE', `New release v${latestVer} found on GitHub! Pulling update & restarting...`);
+        setUpdateStatus({
+          type: 'available',
+          latestVersion: latestVer,
+          apkUrl: downloadUrl,
+          message: `New release v${latestVer} found! Pulling update & preparing forced restart...`,
+        });
+        setIsPullingUpdate(true);
+        setPullProgress(20);
+        setTimeout(() => setPullProgress(65), 350);
+        setTimeout(() => {
+          setPullProgress(100);
+          setIsPullingUpdate(false);
+          if (downloadUrl && downloadUrl.endsWith('.apk')) {
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = 'Aurora Notes.apk';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          }
+          setTimeout(() => {
+            window.location.reload();
+          }, 800);
+        }, 900);
+      }
+    } catch (err) {
+      setIsScanningUpdate(false);
+      logger.error('UPDATE', 'Failed checking GitHub Releases', String(err));
+      setUpdateStatus({
+        type: 'error',
+        message: 'Could not reach GitHub Releases API. Check your internet connection or repository name.',
+      });
+    }
+  };
 
   const handleToggleNativeLock = async () => {
     setLockStatusMsg(null);
@@ -150,13 +283,117 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       className="max-w-2xl mx-auto px-4 sm:px-6 pt-3 pb-24 space-y-6"
     >
       {/* Page Title & Description Header */}
-      <div className="pb-2 border-b border-[#EADBFC]/60 dark:border-[#322742]/60">
-        <h2 className="text-xl sm:text-2xl font-bold text-[#1E1A24] dark:text-[#F7EEFC] tracking-tight">
-          Settings & Preferences
-        </h2>
-        <p className="text-xs text-[#797487] dark:text-[#A39BAC] mt-1 leading-relaxed">
-          Manage your app theme, native biometric security, custom categories, and local diagnostic logs.
-        </p>
+      <div className="pb-2 border-b border-[#EADBFC]/60 dark:border-[#322742]/60 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-[#1E1A24] dark:text-[#F7EEFC] tracking-tight">
+            Settings & Preferences
+          </h2>
+          <p className="text-xs text-[#797487] dark:text-[#A39BAC] mt-1 leading-relaxed">
+            Manage app appearance & theme, self-updates, biometric security, custom category pins, and local data.
+          </p>
+        </div>
+        <span className="shrink-0 text-[11px] font-bold px-3 py-1 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742]">
+          v{APP_VERSION} (Build {APP_BUILD_CODE})
+        </span>
+      </div>
+
+      {/* 0. App Version & Self-Update Section */}
+      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5925DC] dark:text-[#C296FD]">
+              GITHUB RELEASE UPDATER
+            </span>
+            <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] mt-0.5 flex items-center gap-2">
+              <RefreshCw className={`w-4 h-4 text-[#5925DC] dark:text-[#C296FD] ${isScanningUpdate ? 'animate-spin' : ''}`} />
+              <span>App Version & Self-Update</span>
+            </h3>
+            <p className="text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD] mt-0.5">
+              Installed Version: v{APP_VERSION} • Build {APP_BUILD_CODE}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowRepoInput((v) => !v)}
+            className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] hover:opacity-90 cursor-pointer"
+          >
+            {repoSlug ? repoSlug : 'Set GitHub Repo'}
+          </button>
+        </div>
+
+        {/* Minimal Internet Access Warning Box */}
+        <div className="p-3 rounded-xl bg-[#F4EBFF]/60 dark:bg-[#2B1E3E]/40 border border-[#EADBFC] dark:border-[#322742] flex items-start gap-2.5">
+          <ShieldAlert className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD] shrink-0 mt-0.5" />
+          <p className="text-[11px] text-[#484455] dark:text-[#C5BECD] leading-relaxed">
+            <strong className="text-[#1E1A24] dark:text-[#F7EEFC]">Minimal Internet Access Notice:</strong> All your notes, checklists, and tags remain 100% offline on your device. Internet access is strictly limited to manual update scans when you tap <strong>Scan for Updates</strong> below to pull the latest <code className="font-mono">Aurora Notes.apk</code> from GitHub Releases.
+          </p>
+        </div>
+
+        {showRepoInput && (
+          <div className="pt-1">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[#797487] dark:text-[#A39BAC] mb-1">
+              GitHub Repository (owner/Aurora-Notes)
+            </label>
+            <input
+              type="text"
+              value={repoSlug}
+              onChange={(e) => setRepoSlug(e.target.value)}
+              placeholder="e.g. username/Aurora-Notes"
+              className="w-full px-3 py-2 text-xs rounded-xl border border-[#EADBFC] dark:border-[#322742] bg-[#FAF8FB] dark:bg-[#120E17] text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none focus:border-[#5925DC]"
+            />
+          </div>
+        )}
+
+        {isPullingUpdate && (
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center justify-between text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD]">
+              <span>Pulling latest release & preparing self-update...</span>
+              <span>{pullProgress}%</span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] overflow-hidden">
+              <div
+                className="h-full bg-[#5925DC] dark:bg-[#9D5AF5] transition-all duration-300"
+                style={{ width: `${pullProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {updateStatus && (
+          <div
+            className={`p-3 rounded-xl text-xs font-medium border flex items-start gap-2 ${
+              updateStatus.type === 'uptodate'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                : updateStatus.type === 'available'
+                ? 'bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border-[#5925DC]/40'
+                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900'
+            }`}
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{updateStatus.message}</span>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleScanForUpdates}
+            disabled={isScanningUpdate || isPullingUpdate}
+            className="flex-1 py-2.5 px-4 rounded-xl bg-[#5925DC] hover:bg-[#4A1FB8] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer disabled:opacity-60"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isScanningUpdate ? 'animate-spin' : ''}`} />
+            <span>{isScanningUpdate ? 'Scanning GitHub Releases...' : 'Scan for Updates'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="py-2.5 px-3.5 rounded-xl border border-[#EADBFC] dark:border-[#322742] bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] hover:text-[#1E1A24] dark:hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Restart App</span>
+          </button>
+        </div>
       </div>
 
       {/* 1. Theme Selection Section */}

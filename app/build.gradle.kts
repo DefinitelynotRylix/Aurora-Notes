@@ -17,6 +17,7 @@ if ((!persistentKeystoreFile.exists() || persistentKeystoreFile.length() == 0L) 
 val ghRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
 val computedVersionCode = if (ghRunNumber != null) 100 + ghRunNumber else 100
 val computedVersionName = if (ghRunNumber != null) "1.2.$ghRunNumber" else "1.2.0"
+val ghRepository = System.getenv("GITHUB_REPOSITORY") ?: ""
 
 android {
     namespace = "com.aurora.notes"
@@ -28,6 +29,8 @@ android {
         targetSdk = 35
         versionCode = computedVersionCode
         versionName = computedVersionName
+
+        buildConfigField("String", "GITHUB_REPO", "\"$ghRepository\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

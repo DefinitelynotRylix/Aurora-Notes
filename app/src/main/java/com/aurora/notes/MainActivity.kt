@@ -1,6 +1,7 @@
 package com.aurora.notes
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.biometric.BiometricManager
@@ -51,6 +52,14 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent?.getBooleanExtra("extra_updated_restarted", false) == true) {
+            intent?.removeExtra("extra_updated_restarted")
+            Toast.makeText(
+                this,
+                "Aurora Notes updated & restarted (v${BuildConfig.VERSION_NAME})",
+                Toast.LENGTH_LONG
+            ).show()
+        }
         setContent {
             val themeMode by viewModel.themeMode.collectAsState()
             val systemDark = isSystemInDarkTheme()
@@ -327,19 +336,19 @@ private fun WelcomeTourDialog(
 
     val titles = listOf(
         "Welcome to Aurora Notes",
-        "100% Local-Only Privacy",
+        "Local-First & Minimal Internet",
         "Custom Tags & Fast Editor",
         "Native Biometric Lock"
     )
     val subtitles = listOf(
         "Atmospheric Minimalism Meets Speed",
-        "Your Notes Never Leave Your Device",
+        "Notes Stay Offline • Internet Only for Updates",
         "Create Tags & Style Text On The Fly",
         "Protected by Android Device Security"
     )
     val descriptions = listOf(
         "Aurora Notes is crafted for distraction-free writing with fluid liquid navigation, instant search, and zero cloud bloat.",
-        "All notes, checklists, and tags are stored strictly inside your device's local SQLite storage with zero external servers or telemetry.",
+        "All notes, checklists, and tags are stored 100% locally in your phone's SQLite database. Internet permission is kept strictly minimal and is only used when you manually scan for GitHub Release updates in Settings.",
         "Tap '+ Create Tag' next to 'All' to organize notes your way, long-press any tag to delete it cleanly, and toggle Medium or Large text sizing as you type.",
         "Enable Biometric & App Lock in Settings to require your phone's native fingerprint, face unlock, or PIN whenever Aurora Notes opens."
     )

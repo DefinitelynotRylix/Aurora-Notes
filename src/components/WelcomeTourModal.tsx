@@ -63,27 +63,27 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
     },
     {
       id: 'local-privacy',
-      title: 'Local-Only Storage',
-      subtitle: 'Your Data Never Leaves Your Device',
+      title: 'Local-First Storage & Minimal Internet',
+      subtitle: 'Notes Stay 100% Offline • Internet Only For Updates',
       icon: <ShieldCheck className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />,
-      badge: 'Local-Only Architecture',
+      badge: 'Privacy & Minimal Permissions',
       content: (
         <div className="space-y-4">
           <p className="text-sm text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            Unlike cloud note apps that synchronize private thoughts to external servers, Aurora Notes is strictly local:
+            All of your notes, checklists, and custom tags are stored strictly on your device. Internet access is kept minimal and is used exclusively when you manually scan for app updates:
           </p>
           <div className="space-y-2.5">
             <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Zero Network Overhead: No cloud tracking or external server dependencies.</span>
+              <span>100% Offline Notes: Your notes and tags never leave your phone&apos;s local SQLite storage.</span>
             </div>
             <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Zero Cloud Telemetry: No tracking cookies or remote telemetry logging.</span>
+              <span>Minimal Internet Permission: Only used when you tap &ldquo;Scan for Updates&rdquo; in Settings to pull GitHub Releases.</span>
             </div>
             <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Direct Device Storage: Plain local storage protected behind your phone security.</span>
+              <span>Zero Background Traffic or Telemetry: No analytics, cloud sync, or background network calls.</span>
             </div>
           </div>
         </div>

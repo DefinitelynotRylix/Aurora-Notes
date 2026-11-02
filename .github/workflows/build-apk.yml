@@ -1,11 +1,15 @@
-name: Build Android APK
+name: Build & Release Android APK
 
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  release:
+    types: [ published, created, edited ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,7 +17,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build & Test Android APK
+    name: Build & Publish Aurora Notes APK
     runs-on: ubuntu-latest
 
     steps:
@@ -45,12 +49,56 @@ jobs:
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew || true
 
-      - name: Build Debug APK
+      - name: Build APK
         run: ./gradlew assembleDebug --stacktrace
 
-      - name: Upload Debug APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Aurora Notes
-          path: app/build/outputs/apk/debug/Aurora Notes.apk
-          retention-days: 14
+      - name: Publish APK to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK_PATH="app/build/outputs/apk/debug/Aurora Notes.apk"
+          VERSION_TAG="v1.2.${{ github.run_number }}"
+
+          if [ ! -f "$APK_PATH" ]; then
+            echo "Error: APK not found at $APK_PATH"
+            exit 1
+          fi
+
+          # 1. If triggered by creating/publishing a Release on GitHub UI
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TARGET_TAG="${{ github.event.release.tag_name }}"
+            echo "Uploading Aurora Notes.apk to Release $TARGET_TAG..."
+            gh release upload "$TARGET_TAG" "$APK_PATH#Aurora Notes.apk" --clobber
+            exit 0
+          fi
+
+          # 2. If triggered by pushing a version tag (e.g. v1.0.0)
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TARGET_TAG="${GITHUB_REF#refs/tags/}"
+            if gh release view "$TARGET_TAG" >/dev/null 2>&1; then
+              echo "Uploading Aurora Notes.apk to existing tag release $TARGET_TAG..."
+              gh release upload "$TARGET_TAG" "$APK_PATH#Aurora Notes.apk" --clobber
+            else
+              echo "Creating new GitHub Release $TARGET_TAG with Aurora Notes.apk..."
+              gh release create "$TARGET_TAG" "$APK_PATH#Aurora Notes.apk" \
+                --title "Aurora Notes $TARGET_TAG" \
+                --generate-notes
+            fi
+            exit 0
+          fi
+
+          # 3. On push to main/master or manual workflow dispatch:
+          # Also attach the APK to your existing latest release (if one exists without it or to keep it updated),
+          # and create a new numbered release for this build.
+          EXISTING_LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+          if [ -n "$EXISTING_LATEST_TAG" ]; then
+            echo "Updating existing release ($EXISTING_LATEST_TAG) with latest Aurora Notes.apk..."
+            gh release upload "$EXISTING_LATEST_TAG" "$APK_PATH#Aurora Notes.apk" --clobber || true
+          fi
+
+          echo "Creating new GitHub Release $VERSION_TAG with Aurora Notes.apk..."
+          gh release create "$VERSION_TAG" "$APK_PATH#Aurora Notes.apk" \
+            --title "Aurora Notes $VERSION_TAG" \
+            --notes "Automated build (#${{ github.run_number }}) of **Aurora Notes.apk**. Download and install directly over your existing app to update without losing notes." \
+            --latest
+

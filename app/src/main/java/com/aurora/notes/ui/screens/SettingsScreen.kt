@@ -19,14 +19,19 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Warning
@@ -43,8 +48,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
+import com.aurora.notes.util.AppUpdateManager
 import com.aurora.notes.util.LocalLogger
 import com.aurora.notes.util.LogLevel
+import com.aurora.notes.util.UpdateScanResult
+import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,12 +83,25 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val logs by LocalLogger.logs.collectAsState()
     var selectedLevelFilter by remember { mutableStateOf<LogLevel?>(null) }
 
     var newCategoryInput by remember { mutableStateOf("") }
     var pendingDeleteCategory by remember { mutableStateOf<String?>(null) }
     var showWipeConfirmDialog by remember { mutableStateOf(false) }
+
+    // App Version & Self-Update states
+    val currentVersionName = remember { AppUpdateManager.currentVersionName }
+    val currentVersionCode = remember { AppUpdateManager.currentVersionCode }
+    var repoSlugInput by remember { mutableStateOf(AppUpdateManager.getConfiguredRepoSlug(context)) }
+    var showRepoEditor by remember { mutableStateOf(repoSlugInput.isBlank()) }
+    var isScanningUpdate by remember { mutableStateOf(false) }
+    var isDownloadingUpdate by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableStateOf(0) }
+    var scanResult by remember { mutableStateOf<UpdateScanResult?>(null) }
+    var downloadedApkFile by remember { mutableStateOf<File?>(null) }
+    var awaitingInstallPermission by remember { mutableStateOf(false) }
 
     val filteredLogs = remember(logs, selectedLevelFilter) {
         if (selectedLevelFilter == null) logs else logs.filter { it.level == selectedLevelFilter }
@@ -93,6 +115,90 @@ fun SettingsScreen(
             ThemeOptionItem("light", "Light", "Warm mauve canvas", Icons.Default.LightMode),
             ThemeOptionItem("dark", "Dark", "Obsidian amethyst", Icons.Default.DarkMode)
         )
+    }
+
+    fun triggerPullAndSelfUpdate(update: UpdateScanResult.UpdateAvailable) {
+        if (isDownloadingUpdate) return
+        isDownloadingUpdate = true
+        downloadProgress = 0
+        coroutineScope.launch {
+            val result = AppUpdateManager.downloadUpdateApk(
+                context = context,
+                downloadUrl = update.apkDownloadUrl,
+                onProgress = { pct -> downloadProgress = pct }
+            )
+            isDownloadingUpdate = false
+            result.onSuccess { apkFile ->
+                downloadedApkFile = apkFile
+                if (!AppUpdateManager.canRequestPackageInstalls(context)) {
+                    awaitingInstallPermission = true
+                    Toast.makeText(
+                        context,
+                        "Please allow 'Install unknown apps' for Aurora Notes, then tap Install & Force Restart.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    AppUpdateManager.openUnknownSourcesSettings(context)
+                } else {
+                    awaitingInstallPermission = false
+                    Toast.makeText(
+                        context,
+                        "Downloaded v${update.latestVersion}! Installing update & restarting...",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    AppUpdateManager.installApkAndRestart(context, apkFile)
+                }
+            }.onFailure { err ->
+                Toast.makeText(
+                    context,
+                    "Update download failed: ${err.localizedMessage ?: "Network error"}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    fun scanAndAutoPullUpdate() {
+        if (isScanningUpdate || isDownloadingUpdate) return
+        val cleanSlug = repoSlugInput
+            .trim()
+            .removePrefix("https://github.com/")
+            .removePrefix("http://github.com/")
+            .trim('/')
+        if (cleanSlug.isNotBlank() && cleanSlug.contains("/")) {
+            AppUpdateManager.setConfiguredRepoSlug(context, cleanSlug)
+            repoSlugInput = cleanSlug
+            showRepoEditor = false
+        }
+        isScanningUpdate = true
+        scanResult = null
+        coroutineScope.launch {
+            val res = AppUpdateManager.scanForUpdate(context, cleanSlug)
+            isScanningUpdate = false
+            scanResult = res
+            when (res) {
+                is UpdateScanResult.UpToDate -> {
+                    Toast.makeText(
+                        context,
+                        "Aurora Notes is at the latest version (v${res.currentVersion})!",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                is UpdateScanResult.UpdateAvailable -> {
+                    Toast.makeText(
+                        context,
+                        "New update v${res.latestVersion} found! Pulling release & self-updating...",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    triggerPullAndSelfUpdate(res)
+                }
+                is UpdateScanResult.Error -> {
+                    if (cleanSlug.isBlank()) {
+                        showRepoEditor = true
+                    }
+                    Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     if (pendingDeleteCategory != null) {
@@ -201,16 +307,353 @@ fun SettingsScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Page Header with Description
+        // Page Header with Version Badge & Description
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Settings & Preferences",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+            )
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = AuroraRoyalViolet.copy(alpha = 0.14f),
+                border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.35f))
+            ) {
+                Text(
+                    text = "v$currentVersionName (Build $currentVersionCode)",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AuroraRoyalViolet,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
         Text(
-            text = "Settings & Preferences",
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-        )
-        Text(
-            text = "Manage app appearance & theme, biometric security, custom category pins, and local data.",
+            text = "Manage app appearance & theme, self-updates, biometric security, custom category pins, and local data.",
             style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
             modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
         )
+
+        // 0. App Version & Self-Update Card (GitHub Release Scanner + Auto Self-Update & Forced Restart)
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.SystemUpdate,
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "App Version & Self-Update",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Installed: v$currentVersionName • Build $currentVersionCode",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = AuroraRoyalViolet
+                            )
+                        }
+                    }
+
+                    TextButton(
+                        onClick = { showRepoEditor = !showRepoEditor },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (repoSlugInput.isNotBlank()) repoSlugInput else "Set Repo",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = AuroraRoyalViolet
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Minimal Internet Access Warning Box
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = AuroraRoyalViolet.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.25f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier
+                                .size(16.dp)
+                                .padding(top = 1.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Minimal Internet Access Notice: All your notes, tags, and checklists remain 100% offline on your device. Internet permission is strictly limited to manual update scans when you tap 'Scan for Updates' below to pull the latest Aurora Notes.apk from GitHub Releases.",
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+
+                if (showRepoEditor) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = repoSlugInput,
+                        onValueChange = { repoSlugInput = it },
+                        label = { Text("GitHub Repository (owner/Aurora-Notes)", fontSize = 11.sp) },
+                        placeholder = { Text("e.g. username/Aurora-Notes", fontSize = 12.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // Live Download Progress Bar
+                if (isDownloadingUpdate) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Pulling latest Aurora Notes.apk release...",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = AuroraRoyalViolet
+                            )
+                            Text(
+                                text = "$downloadProgress%",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AuroraRoyalViolet
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { downloadProgress / 100f },
+                            color = AuroraRoyalViolet,
+                            trackColor = AuroraRoyalViolet.copy(alpha = 0.18f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                        )
+                    }
+                }
+
+                // Scan Result Feedback Banner
+                when (val res = scanResult) {
+                    is UpdateScanResult.UpToDate -> {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF10B981).copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = Color(0xFF10B981),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "You are on the latest version (v${res.currentVersion})",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF10B981)
+                                    )
+                                    Text(
+                                        text = "Latest GitHub Release: v${res.latestVersion} — No update needed.",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    is UpdateScanResult.UpdateAvailable -> {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = AuroraRoyalViolet.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.45f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = "Update Available: v${res.latestVersion} (Current: v${res.currentVersion})",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AuroraRoyalViolet
+                                )
+                                if (res.releaseNotes.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = res.releaseNotes.take(180),
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                                    )
+                                }
+
+                                if (downloadedApkFile != null) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                val file = downloadedApkFile
+                                                if (file != null) {
+                                                    AppUpdateManager.installApkAndRestart(context, file)
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(
+                                                text = if (awaitingInstallPermission) "Install & Update Now" else "Re-run Installer",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = { AppUpdateManager.forceRestartApp(context) },
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Force Restart", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    is UpdateScanResult.Error -> {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = AuroraDangerRed.copy(alpha = 0.1f),
+                            border = BorderStroke(1.dp, AuroraDangerRed.copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = AuroraDangerRed,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = res.message,
+                                    fontSize = 11.sp,
+                                    color = AuroraDangerRed
+                                )
+                            }
+                        }
+                    }
+
+                    null -> {}
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { scanAndAutoPullUpdate() },
+                        enabled = !isScanningUpdate && !isDownloadingUpdate,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (isScanningUpdate) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Scanning Releases...", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Scan for Updates",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = { AppUpdateManager.forceRestartApp(context) },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Force Restart",
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Restart App", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
 
         // 1. App Appearance & Theme Card
         Card(

@@ -30,7 +30,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.view.HapticFeedbackConstants
+import android.view.View
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,6 +56,32 @@ data class NavTabItem(
     val badge: Int = 0
 )
 
+fun triggerNavbarHaptic(view: View, context: Context) {
+    val performed = view.performHapticFeedback(
+        HapticFeedbackConstants.VIRTUAL_KEY,
+        HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+    )
+    if (!performed) {
+        try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                manager?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            if (vibrator?.hasVibrator() == true) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
+                } else {
+                    vibrator.vibrate(VibrationEffect.createOneShot(12L, VibrationEffect.DEFAULT_AMPLITUDE))
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+}
+
 @Composable
 fun FloatingPillNavigationBar(
     selectedTab: Int,
@@ -55,6 +90,9 @@ fun FloatingPillNavigationBar(
     trashCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
+    val view = LocalView.current
+    val context = LocalContext.current
+
     val items = listOf(
         NavTabItem(0, "Notes", Icons.Default.Description),
         NavTabItem(1, "Pinned", Icons.Default.PushPin, badge = pinnedCount),
@@ -259,7 +297,10 @@ fun FloatingPillNavigationBar(
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null
-                                ) { onTabSelected(item.index) },
+                                ) {
+                                    triggerNavbarHaptic(view, context)
+                                    onTabSelected(item.index)
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Row(

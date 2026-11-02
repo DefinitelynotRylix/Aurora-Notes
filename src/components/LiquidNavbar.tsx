@@ -193,7 +193,12 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
             return (
               <button
                 key={item.id}
-                onClick={() => onChangeTab(item.id)}
+                onClick={() => {
+                  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                    navigator.vibrate(12);
+                  }
+                  onChangeTab(item.id);
+                }}
                 aria-label={item.label}
                 aria-current={isSelected ? 'page' : undefined}
                 className={`relative py-2.5 rounded-full flex items-center justify-center gap-1.5 text-xs font-semibold transition-colors duration-300 select-none focus:outline-none cursor-pointer w-full z-10 ${
