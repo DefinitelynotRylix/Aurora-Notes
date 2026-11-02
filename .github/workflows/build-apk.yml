@@ -31,14 +31,16 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
-      - name: Ensure Debug Keystore Exists
+      - name: Restore Persistent Signing Keystore
         run: |
-          if [ ! -f "debug.keystore" ]; then
-            echo "Generating debug.keystore..."
-            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          else
-            echo "debug.keystore already present in repository."
+          if [ -f "app/signing/debug.keystore.b64" ]; then
+            echo "Restoring persistent signing keystore from app/signing/debug.keystore.b64..."
+            tr -d '[:space:]' < app/signing/debug.keystore.b64 | base64 -d > debug.keystore
+          elif [ ! -f "debug.keystore" ]; then
+            echo "Fallback: generating debug.keystore..."
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Aurora Notes,O=Aurora,C=US"
           fi
+          keytool -list -v -keystore debug.keystore -storepass android | head -n 20 || true
 
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew || true

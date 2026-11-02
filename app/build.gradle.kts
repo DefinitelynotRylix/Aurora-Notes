@@ -1,9 +1,22 @@
+import java.util.Base64
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+val persistentKeystoreFile = file("${rootDir}/debug.keystore")
+val encodedKeystoreFile = file("signing/debug.keystore.b64")
+if ((!persistentKeystoreFile.exists() || persistentKeystoreFile.length() == 0L) && encodedKeystoreFile.exists()) {
+    val cleanBase64 = encodedKeystoreFile.readText().replace("\\s".toRegex(), "")
+    persistentKeystoreFile.writeBytes(Base64.getDecoder().decode(cleanBase64))
+}
+
+val ghRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+val computedVersionCode = if (ghRunNumber != null) 100 + ghRunNumber else 100
+val computedVersionName = if (ghRunNumber != null) "1.2.$ghRunNumber" else "1.2.0"
 
 android {
     namespace = "com.aurora.notes"
@@ -13,15 +26,15 @@ android {
         applicationId = "com.aurora.notes"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = computedVersionCode
+        versionName = computedVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
         create("debugConfig") {
-            storeFile = file("${rootDir}/debug.keystore")
+            storeFile = persistentKeystoreFile
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"

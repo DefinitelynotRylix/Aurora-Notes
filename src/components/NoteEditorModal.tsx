@@ -40,9 +40,48 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   // Active Size Mode ('small' | 'medium' | 'large')
   const [textSizeMode, setTextSizeMode] = useState<'small' | 'medium' | 'large'>('small');
 
-  // Ref for Rich ContentEditable Editor
+  // Ref for Rich ContentEditable Editor & Scroll Container
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const hasSavedRef = useRef(false);
+
+  /**
+   * Ensures the active caret stays well above the bottom formatting bar / keyboard
+   * by scrolling the outer container down before the cursor reaches the bottom edge.
+   */
+  const ensureCaretVisible = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    let rect = range.getBoundingClientRect();
+
+    if (!rect || (rect.top === 0 && rect.bottom === 0)) {
+      const node = range.startContainer;
+      const el = (
+        node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
+      ) as HTMLElement | null;
+      if (el) {
+        rect = el.getBoundingClientRect();
+      }
+    }
+
+    if (!rect || (rect.top === 0 && rect.bottom === 0)) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const bottomClearance = 104;
+    const topClearance = 36;
+
+    if (rect.bottom > containerRect.bottom - bottomClearance) {
+      const delta = rect.bottom - (containerRect.bottom - bottomClearance);
+      container.scrollTop += delta;
+    } else if (rect.top < containerRect.top + topClearance) {
+      const delta = containerRect.top + topClearance - rect.top;
+      container.scrollTop -= delta;
+    }
+  };
 
   const allCategoryOptions = Array.from(new Set(['General', ...customCategories, note.category].filter(Boolean)));
 
@@ -377,11 +416,13 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           newRange.collapse(true);
           selection.removeAllRanges();
           selection.addRange(newRange);
+          requestAnimationFrame(ensureCaretVisible);
           return;
         }
         current = current.parentElement;
       }
     }
+    requestAnimationFrame(ensureCaretVisible);
   };
 
   const handleAddTag = (e: React.KeyboardEvent | React.MouseEvent) => {
@@ -437,7 +478,10 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       {/* 
         MAXIMIZED FULL-PAGE WRITING CANVAS
       */}
-      <div className="p-4 sm:p-8 overflow-y-auto space-y-4 flex-1 max-w-3xl mx-auto w-full">
+      <div
+        ref={scrollContainerRef}
+        className="p-4 sm:p-8 pb-40 overflow-y-auto space-y-4 flex-1 max-w-3xl mx-auto w-full scroll-smooth"
+      >
         {/* Note Title Input */}
         <input
           type="text"
@@ -455,9 +499,12 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           ref={editorRef}
           contentEditable={true}
           onKeyDown={handleKeyDown}
+          onKeyUp={() => requestAnimationFrame(ensureCaretVisible)}
+          onInput={() => requestAnimationFrame(ensureCaretVisible)}
+          onClick={() => requestAnimationFrame(ensureCaretVisible)}
           aria-label="Note content editor"
           data-placeholder="Start typing your note here..."
-          className="w-full min-h-[360px] text-sm sm:text-base leading-relaxed text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none bg-transparent font-normal space-y-2 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:space-y-1 [&_b]:font-bold [&_strong]:font-bold [&_i]:italic [&_em]:italic empty:before:content-[attr(data-placeholder)] empty:before:text-[#797487]/50 empty:before:dark:text-[#A39BAC]/50"
+          className="w-full min-h-[360px] pb-36 text-sm sm:text-base leading-relaxed text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none bg-transparent font-normal space-y-2 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:space-y-1 [&_b]:font-bold [&_strong]:font-bold [&_i]:italic [&_em]:italic empty:before:content-[attr(data-placeholder)] empty:before:text-[#797487]/50 empty:before:dark:text-[#A39BAC]/50"
         />
       </div>
 

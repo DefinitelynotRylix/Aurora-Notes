@@ -29,8 +29,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -210,6 +215,59 @@ fun NoteEditorScreen(
 
     var charSpans by remember(note.id) {
         mutableStateOf(parseSpansJson(note.styleSpansJson, note.content.length))
+    }
+
+    val editorScrollState = rememberScrollState()
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var viewportHeightPx by remember { mutableIntStateOf(0) }
+    var bodyTopInColumnPx by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+
+    // Automatically scroll the editor container down with the cursor BEFORE it reaches
+    // the bottom formatting bar and keyboard so the cursor and current line stay in view.
+    LaunchedEffect(
+        bodyValue.text,
+        bodyValue.selection,
+        textLayoutResult,
+        viewportHeightPx,
+        imeBottomPx,
+        editorScrollState.maxValue
+    ) {
+        val layout = textLayoutResult ?: return@LaunchedEffect
+        if (viewportHeightPx <= 0) return@LaunchedEffect
+
+        val cursorOffset = bodyValue.selection.end.coerceIn(0, bodyValue.text.length)
+        val cursorRect = try {
+            layout.getCursorRect(cursorOffset)
+        } catch (_: Exception) {
+            return@LaunchedEffect
+        }
+
+        val bottomClearancePx = with(density) { 104.dp.toPx() }
+        val topClearancePx = with(density) { 36.dp.toPx() }
+
+        val cursorBottomInContent = bodyTopInColumnPx + cursorRect.bottom
+        val cursorTopInContent = bodyTopInColumnPx + cursorRect.top
+
+        val visibleTop = editorScrollState.value.toFloat()
+        val visibleBottomThreshold = visibleTop + viewportHeightPx - bottomClearancePx
+
+        if (cursorBottomInContent > visibleBottomThreshold) {
+            val targetScroll = (cursorBottomInContent - viewportHeightPx + bottomClearancePx)
+                .toInt()
+                .coerceIn(0, editorScrollState.maxValue)
+            if (targetScroll > editorScrollState.value) {
+                editorScrollState.animateScrollTo(targetScroll)
+            }
+        } else if (cursorTopInContent < visibleTop + topClearancePx) {
+            val targetScroll = (cursorTopInContent - topClearancePx)
+                .toInt()
+                .coerceIn(0, editorScrollState.maxValue)
+            if (targetScroll < editorScrollState.value) {
+                editorScrollState.animateScrollTo(targetScroll)
+            }
+        }
     }
 
     // VisualTransformation keeps IME typing 100% lag-free and allows native Enter new lines
@@ -717,13 +775,18 @@ fun NoteEditorScreen(
             }
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .verticalScroll(rememberScrollState())
+                .onSizeChanged { viewportHeightPx = it.height }
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(editorScrollState)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
             // Note Title Input
             BasicTextField(
                 value = title,
@@ -841,6 +904,7 @@ fun NoteEditorScreen(
                     capitalization = KeyboardCapitalization.Sentences,
                     imeAction = ImeAction.Default
                 ),
+                onTextLayout = { textLayoutResult = it },
                 visualTransformation = richVisualTransformation,
                 textStyle = TextStyle(
                     fontSize = 15.sp,
@@ -869,7 +933,15 @@ fun NoteEditorScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = 360.dp)
+                    .onGloballyPositioned { coords ->
+                        bodyTopInColumnPx = coords.positionInParent().y
+                    }
             )
+
+            // Extra bottom space so the scroll container can always push the cursor and
+            // surrounding lines up well above the bottom formatting bar and keyboard
+            Spacer(modifier = Modifier.height(160.dp))
+            }
         }
     }
 }
