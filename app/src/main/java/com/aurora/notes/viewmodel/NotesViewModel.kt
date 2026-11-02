@@ -103,13 +103,9 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     val filteredActiveNotes: StateFlow<List<Note>> = combine(
         allActiveNotes,
         _searchQuery,
-        _selectedCategory,
-        _selectedTab
-    ) { notes, query, category, tab ->
+        _selectedCategory
+    ) { notes, query, category ->
         var list = notes
-        if (tab == 1) {
-            list = list.filter { it.isPinned }
-        }
         if (category != "All") {
             list = list.filter { note ->
                 note.tags.any { it.equals(category, ignoreCase = true) } ||
@@ -126,6 +122,13 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         list
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val filteredPinnedNotes: StateFlow<List<Note>> = combine(
+        filteredActiveNotes,
+        _searchQuery
+    ) { notes, _ ->
+        notes.filter { it.isPinned }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val filteredTrashedNotes: StateFlow<List<Note>> = combine(

@@ -283,18 +283,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       className="max-w-2xl mx-auto px-4 sm:px-6 pt-3 pb-24 space-y-6"
     >
       {/* Page Title & Description Header */}
-      <div className="pb-2 border-b border-[#EADBFC]/60 dark:border-[#322742]/60 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-[#1E1A24] dark:text-[#F7EEFC] tracking-tight">
-            Settings & Preferences
-          </h2>
-          <p className="text-xs text-[#797487] dark:text-[#A39BAC] mt-1 leading-relaxed">
-            Manage app appearance & theme, self-updates, biometric security, custom category pins, and local data.
-          </p>
-        </div>
-        <span className="shrink-0 text-[11px] font-bold px-3 py-1 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742]">
-          v{APP_VERSION} (Build {APP_BUILD_CODE})
-        </span>
+      <div className="pb-2 border-b border-[#EADBFC]/60 dark:border-[#322742]/60">
+        <h2 className="text-xl sm:text-2xl font-bold text-[#1E1A24] dark:text-[#F7EEFC] tracking-tight">
+          Settings & Preferences
+        </h2>
+        <p className="text-xs text-[#797487] dark:text-[#A39BAC] mt-1 leading-relaxed">
+          Manage app appearance & theme, self-updates, biometric security, custom category pins, and local data.
+        </p>
       </div>
 
       {/* 0. App Version & Self-Update Section */}
@@ -374,24 +369,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-2 pt-1">
+        <div className="pt-1">
           <button
             type="button"
             onClick={handleScanForUpdates}
             disabled={isScanningUpdate || isPullingUpdate}
-            className="flex-1 py-2.5 px-4 rounded-xl bg-[#5925DC] hover:bg-[#4A1FB8] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer disabled:opacity-60"
+            className="w-full py-2.5 px-4 rounded-xl bg-[#5925DC] hover:bg-[#4A1FB8] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer disabled:opacity-60"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isScanningUpdate ? 'animate-spin' : ''}`} />
             <span>{isScanningUpdate ? 'Scanning GitHub Releases...' : 'Scan for Updates'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="py-2.5 px-3.5 rounded-xl border border-[#EADBFC] dark:border-[#322742] bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] hover:text-[#1E1A24] dark:hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Restart App</span>
           </button>
         </div>
       </div>

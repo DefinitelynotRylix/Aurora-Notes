@@ -134,7 +134,7 @@ fun SettingsScreen(
                     awaitingInstallPermission = true
                     Toast.makeText(
                         context,
-                        "Please allow 'Install unknown apps' for Aurora Notes, then tap Install & Force Restart.",
+                        "Please allow 'Install unknown apps' for Aurora Notes, then tap Install & Update Now.",
                         Toast.LENGTH_LONG
                     ).show()
                     AppUpdateManager.openUnknownSourcesSettings(context)
@@ -307,30 +307,11 @@ fun SettingsScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Page Header with Version Badge & Description
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Settings & Preferences",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-            )
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = AuroraRoyalViolet.copy(alpha = 0.14f),
-                border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.35f))
-            ) {
-                Text(
-                    text = "v$currentVersionName (Build $currentVersionCode)",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AuroraRoyalViolet,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                )
-            }
-        }
+        // Page Header & Description
+        Text(
+            text = "Settings & Preferences",
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+        )
         Text(
             text = "Manage app appearance & theme, self-updates, biometric security, custom category pins, and local data.",
             style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
@@ -524,44 +505,25 @@ fun SettingsScreen(
                                     )
                                 }
 
-                                if (downloadedApkFile != null) {
+                                if (downloadedApkFile != null && awaitingInstallPermission) {
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    Button(
+                                        onClick = {
+                                            val file = downloadedApkFile
+                                            if (file != null) {
+                                                AppUpdateManager.installApkAndRestart(context, file)
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Button(
-                                            onClick = {
-                                                val file = downloadedApkFile
-                                                if (file != null) {
-                                                    AppUpdateManager.installApkAndRestart(context, file)
-                                                }
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Text(
-                                                text = if (awaitingInstallPermission) "Install & Update Now" else "Re-run Installer",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White
-                                            )
-                                        }
-
-                                        OutlinedButton(
-                                            onClick = { AppUpdateManager.forceRestartApp(context) },
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Refresh,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Force Restart", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        }
+                                        Text(
+                                            text = "Install & Update Now",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
                                     }
                                 }
                             }
@@ -601,53 +563,35 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Button(
+                    onClick = { scanAndAutoPullUpdate() },
+                    enabled = !isScanningUpdate && !isDownloadingUpdate,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Button(
-                        onClick = { scanAndAutoPullUpdate() },
-                        enabled = !isScanningUpdate && !isDownloadingUpdate,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        if (isScanningUpdate) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Scanning Releases...", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.SystemUpdate,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Scan for Updates",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = { AppUpdateManager.forceRestartApp(context) },
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Force Restart",
+                    if (isScanningUpdate) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 2.dp,
                             modifier = Modifier.size(15.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Restart App", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Scanning Releases...", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.SystemUpdate,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Scan for Updates",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
                     }
                 }
             }

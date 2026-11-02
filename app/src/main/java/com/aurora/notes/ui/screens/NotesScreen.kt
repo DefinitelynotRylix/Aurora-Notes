@@ -54,6 +54,7 @@ fun NotesScreen(
     onAddNote: () -> Unit,
     onCreateTag: (String) -> Unit = {},
     onDeleteTag: ((String) -> Unit)? = null,
+    isPinnedTab: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // Combine persisted user-created tags + any tags present on notes
@@ -222,14 +223,14 @@ fun NotesScreen(
 
         // Header Title
         Text(
-            text = "Aurora Notes",
+            text = if (isPinnedTab) "Pinned Notes" else "Aurora Notes",
             style = MaterialTheme.typography.titleLarge.copy(
                 fontWeight = FontWeight.Bold,
                 fontSize = 22.sp
             )
         )
         Text(
-            text = "Local Only Privacy Focused Note Taking App.",
+            text = if (isPinnedTab) "Quick access to your pinned high-priority notes." else "Local Only Privacy Focused Note Taking App.",
             style = MaterialTheme.typography.bodySmall.copy(
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                 fontSize = 11.sp
@@ -511,12 +512,20 @@ fun NotesScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = if (searchQuery.isBlank()) "No notes yet" else "No matching notes found",
+                        text = when {
+                            searchQuery.isNotBlank() -> "No matching notes found"
+                            isPinnedTab -> "No pinned notes yet"
+                            else -> "No notes yet"
+                        },
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (searchQuery.isBlank()) "Tap + to create your first note" else "Try clearing your search query",
+                        text = when {
+                            searchQuery.isNotBlank() -> "Try clearing your search query"
+                            isPinnedTab -> "Pin any note to keep it at the top of your workspace"
+                            else -> "Tap + to create your first note"
+                        },
                         style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
                     )
                 }

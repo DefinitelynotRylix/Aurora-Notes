@@ -7,9 +7,13 @@ import androidx.activity.viewModels
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -135,7 +139,6 @@ fun AuroraApp(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val isGridView by viewModel.isGridView.collectAsState()
-    val filteredNotes by viewModel.filteredActiveNotes.collectAsState()
     val filteredTrashedNotes by viewModel.filteredTrashedNotes.collectAsState()
     val allActiveNotes by viewModel.allActiveNotes.collectAsState()
     val userTags by viewModel.userTags.collectAsState()
@@ -144,6 +147,32 @@ fun AuroraApp(
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
     val isAppLocked by viewModel.isAppLocked.collectAsState()
     val isWelcomeOpen by viewModel.isWelcomeOpen.collectAsState()
+
+    // Synchronously compute All Notes (Tab 0) and Pinned Notes (Tab 1) so there is zero
+    // coroutine delay or 1ms flash of the main notes menu when switching between navbar tabs
+    val allFilteredNotes = remember(allActiveNotes, searchQuery, selectedCategory) {
+        var list = allActiveNotes
+        if (selectedCategory != "All") {
+            list = list.filter { note ->
+                note.tags.any { it.equals(selectedCategory, ignoreCase = true) } ||
+                    note.category.equals(selectedCategory, ignoreCase = true)
+            }
+        }
+        if (searchQuery.isNotBlank()) {
+            val q = searchQuery.trim().lowercase()
+            list = list.filter { note ->
+                note.title.lowercase().contains(q) ||
+                    note.content.lowercase().contains(q) ||
+                    note.tags.any { it.lowercase().contains(q) } ||
+                    note.checklist.any { it.text.lowercase().contains(q) }
+            }
+        }
+        list
+    }
+
+    val pinnedFilteredNotes = remember(allFilteredNotes) {
+        allFilteredNotes.filter { it.isPinned }
+    }
 
     val pinnedCount = remember(allActiveNotes) { allActiveNotes.count { it.isPinned } }
     val trashCount = remember(filteredTrashedNotes) { filteredTrashedNotes.size }
@@ -262,14 +291,27 @@ fun AuroraApp(
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
+                    val direction = if (targetState >= initialState) 1 else -1
+                    (slideInHorizontally(
+                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                        initialOffsetX = { fullWidth -> direction * fullWidth }
+                    ) + fadeIn(
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                    )).togetherWith(
+                        slideOutHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            targetOffsetX = { fullWidth -> -direction * fullWidth }
+                        ) + fadeOut(
+                            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                        )
+                    ).using(SizeTransform(clip = false))
                 },
                 label = "tab_content_transition"
             ) { targetTab ->
                 when (targetTab) {
-                    0, 1 -> {
+                    0 -> {
                         NotesScreen(
-                            notes = filteredNotes,
+                            notes = allFilteredNotes,
                             userTags = userTags,
                             searchQuery = searchQuery,
                             onSearchChange = { viewModel.setSearchQuery(it) },
@@ -287,6 +329,31 @@ fun AuroraApp(
                             onAddNote = { viewModel.openNewNote() },
                             onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
                             onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
+                            isPinnedTab = false,
+                            modifier = Modifier.padding(paddingValues)
+                        )
+                    }
+                    1 -> {
+                        NotesScreen(
+                            notes = pinnedFilteredNotes,
+                            userTags = userTags,
+                            searchQuery = searchQuery,
+                            onSearchChange = { viewModel.setSearchQuery(it) },
+                            selectedCategory = selectedCategory,
+                            onSelectCategory = { viewModel.setSelectedCategory(it) },
+                            isGridView = isGridView,
+                            onToggleGridView = { viewModel.toggleGridView() },
+                            onSelectNote = { viewModel.openEditNote(it) },
+                            onTogglePin = { viewModel.togglePin(it) },
+                            onDeleteNote = { viewModel.moveToTrash(it) },
+                            onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
+                            onToggleCheckItem = { noteId, itemId ->
+                                viewModel.toggleChecklistItem(noteId, itemId)
+                            },
+                            onAddNote = { viewModel.openNewNote() },
+                            onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
+                            onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
+                            isPinnedTab = true,
                             modifier = Modifier.padding(paddingValues)
                         )
                     }

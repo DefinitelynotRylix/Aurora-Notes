@@ -37,8 +37,22 @@ export default function App() {
   const [isNativeLocked, setIsNativeLocked] = useState(() => isNativeLockEnabled());
   const [nativeAuthError, setNativeAuthError] = useState<string | null>(null);
 
-  // Active navigation tab
+  // Active navigation tab & directional slide tracking
   const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
+  const [slideDirection, setSlideDirection] = useState<number>(1);
+
+  const TAB_ORDER: Record<ActiveTab, number> = {
+    notes: 0,
+    pinned: 1,
+    trash: 2,
+    settings: 3,
+  };
+
+  const handleSelectNavTab = (nextTab: ActiveTab) => {
+    if (nextTab === activeTab) return;
+    setSlideDirection(TAB_ORDER[nextTab] >= TAB_ORDER[activeTab] ? 1 : -1);
+    setActiveTab(nextTab);
+  };
 
   // Custom user tags - starts completely empty in the base app
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
@@ -342,14 +356,9 @@ export default function App() {
     persistNotes(updated);
   };
 
-  // Filter & Search Logic across active notes only
-  const filteredNotes = useMemo(() => {
+  // Filter & Search Logic across active notes (independent of activeTab to prevent any transition flash)
+  const allFilteredNotes = useMemo(() => {
     let result = [...activeNotes];
-
-    // Navigation tab filter
-    if (activeTab === 'pinned') {
-      result = result.filter((n) => n.isPinned);
-    }
 
     // Search query
     if (searchQuery.trim()) {
@@ -377,7 +386,14 @@ export default function App() {
     const pinned = result.filter((n) => n.isPinned);
     const unpinned = result.filter((n) => !n.isPinned);
     return [...pinned, ...unpinned];
-  }, [activeNotes, searchQuery, selectedCategory, activeTab]);
+  }, [activeNotes, searchQuery, selectedCategory]);
+
+  const pinnedFilteredNotes = useMemo(
+    () => allFilteredNotes.filter((n) => n.isPinned),
+    [allFilteredNotes]
+  );
+
+  const filteredNotes = activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes;
 
   // Counts for pills
   const categoryCounts = useMemo(() => {
@@ -443,169 +459,206 @@ export default function App() {
         onCreateNote={handleCreateNote}
       />
 
-      {/* Main Workspace: Notes / Trash / Settings */}
-      <main className="max-w-6xl w-full mx-auto px-3 sm:px-6 pt-4 flex-1">
-        {activeTab === 'settings' ? (
-          <SettingsPage
-            currentTheme={theme}
-            onSelectTheme={handleSelectTheme}
-            customCategories={customCategories}
-            onAddCategory={handleAddCategory}
-            onRemoveCategory={handleRemoveCategory}
-            notes={notes}
-            onOpenWelcomeTour={() => setIsWelcomeOpen(true)}
-            onWipeData={() => {
-              localStorage.removeItem(STORAGE_NOTES_KEY);
-              localStorage.removeItem('aurora_user_tags_v2');
-              setNotes([]);
-              setCustomCategories([]);
-              setSelectedCategory('All');
-              setSelectedNoteIds([]);
-              logger.security('STORAGE', 'User wiped local storage notes and custom categories after biometric verification');
+      {/* Main Workspace: Notes / Pinned / Trash / Settings with Directional Page Slide */}
+      <main className="max-w-6xl w-full mx-auto px-3 sm:px-6 pt-4 flex-1 overflow-x-hidden">
+        <AnimatePresence mode="wait" custom={slideDirection} initial={false}>
+          <motion.div
+            key={activeTab}
+            custom={slideDirection}
+            variants={{
+              enter: (dir: number) => ({
+                x: dir > 0 ? 48 : -48,
+                opacity: 0,
+              }),
+              center: {
+                x: 0,
+                opacity: 1,
+              },
+              exit: (dir: number) => ({
+                x: dir > 0 ? -48 : 48,
+                opacity: 0,
+              }),
             }}
-          />
-        ) : activeTab === 'trash' ? (
-          <TrashView
-            trashedNotes={trashedNotes}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            isGridView={isGridView}
-            onRestoreNote={handleRestoreNote}
-            onPermanentDelete={handlePermanentDelete}
-            onEmptyTrash={handleEmptyTrash}
-          />
-        ) : (
-          <>
-            {/* Category Filter Bar */}
-            <div className="mb-4">
-              <CategoryFilterBar
-                currentCategory={selectedCategory}
-                onSelectCategory={setSelectedCategory}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {activeTab === 'settings' ? (
+              <SettingsPage
+                currentTheme={theme}
+                onSelectTheme={handleSelectTheme}
                 customCategories={customCategories}
                 onAddCategory={handleAddCategory}
                 onRemoveCategory={handleRemoveCategory}
-                counts={categoryCounts}
+                notes={notes}
+                onOpenWelcomeTour={() => setIsWelcomeOpen(true)}
+                onWipeData={() => {
+                  localStorage.removeItem(STORAGE_NOTES_KEY);
+                  localStorage.removeItem('aurora_user_tags_v2');
+                  setNotes([]);
+                  setCustomCategories([]);
+                  setSelectedCategory('All');
+                  setSelectedNoteIds([]);
+                  logger.security('STORAGE', 'User wiped local storage notes and custom categories after biometric verification');
+                }}
               />
-            </div>
-
-            {/* Multi-Selection Action Bar (when user holds down on notes) */}
-            {selectedNoteIds.length > 0 && (
-              <div className="mb-4 p-3 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border-2 border-[#5925DC] dark:border-[#9D5AF5] flex items-center justify-between gap-2 shadow-sm animate-fade-in">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedNoteIds([])}
-                    className="w-8 h-8 rounded-xl bg-white/80 dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] flex items-center justify-center cursor-pointer"
-                    title="Clear selection"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                  <span className="text-xs sm:text-sm font-bold text-[#5925DC] dark:text-[#C296FD]">
-                    {selectedNoteIds.length} selected
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedNoteIds.length === filteredNotes.length) {
-                        setSelectedNoteIds([]);
-                      } else {
-                        setSelectedNoteIds(filteredNotes.map((n) => n.id));
-                      }
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] text-xs font-semibold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 cursor-pointer"
-                  >
-                    <CheckSquare className="w-3.5 h-3.5" />
-                    <span>{selectedNoteIds.length === filteredNotes.length ? 'None' : 'All'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const selected = filteredNotes.filter((n) => selectedNoteIds.includes(n.id));
-                      if (selected.length > 0) {
-                        setNotesToShare(selected);
-                      }
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
-                  >
-                    <Share2 className="w-3.5 h-3.5" />
-                    <span>Share</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowBatchDeleteConfirm(true)}
-                    className="px-3 py-1.5 rounded-xl bg-rose-600 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete ({selectedNoteIds.length})</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Notes Grid or Empty State */}
-            {filteredNotes.length === 0 ? (
-              <div className="py-16 text-center flex flex-col items-center justify-center animate-glide-in">
-                <div className="w-14 h-14 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center text-[#5925DC] dark:text-[#C296FD] mb-3 shadow-sm">
-                  <FileText className="w-7 h-7 stroke-[1.5]" />
-                </div>
-                <h3 className="font-bold text-base text-[#1E1A24] dark:text-[#F7EEFC] mb-1">
-                  {searchQuery ? 'No matching notes found' : 'No notes has been created.'}
-                </h3>
-                <p className="text-xs text-[#797487] dark:text-[#A39BAC] max-w-xs mb-5">
-                  {searchQuery
-                    ? 'Try a different keyword or reset the filter.'
-                    : 'Tap the circular button in the bottom right corner to write a note.'}
-                </p>
-                <button
-                  onClick={handleCreateNote}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Create Note</span>
-                </button>
-              </div>
+            ) : activeTab === 'trash' ? (
+              <TrashView
+                trashedNotes={trashedNotes}
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                isGridView={isGridView}
+                onRestoreNote={handleRestoreNote}
+                onPermanentDelete={handlePermanentDelete}
+                onEmptyTrash={handleEmptyTrash}
+              />
             ) : (
-              <div
-                className={`grid gap-2.5 sm:gap-4 ${
-                  isGridView
-                    ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
-                    : 'grid-cols-1 max-w-2xl mx-auto'
-                }`}
-              >
-                {filteredNotes.map((note) => {
-                  const animateMovement = note.id === lastPinnedId;
+              <>
+                {/* Category Filter Bar */}
+                <div className="mb-4">
+                  <CategoryFilterBar
+                    currentCategory={selectedCategory}
+                    onSelectCategory={setSelectedCategory}
+                    customCategories={customCategories}
+                    onAddCategory={handleAddCategory}
+                    onRemoveCategory={handleRemoveCategory}
+                    counts={categoryCounts}
+                  />
+                </div>
 
-                  const handleDeleteTagAndDetach = (tagToDelete: string) => {
-                    handleRemoveCategory(tagToDelete);
-                  };
+                {/* Multi-Selection Action Bar (when user holds down on notes) */}
+                {selectedNoteIds.length > 0 && (
+                  <div className="mb-4 p-3 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border-2 border-[#5925DC] dark:border-[#9D5AF5] flex items-center justify-between gap-2 shadow-sm animate-fade-in">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedNoteIds([])}
+                        className="w-8 h-8 rounded-xl bg-white/80 dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] flex items-center justify-center cursor-pointer"
+                        title="Clear selection"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs sm:text-sm font-bold text-[#5925DC] dark:text-[#C296FD]">
+                        {selectedNoteIds.length} selected
+                      </span>
+                    </div>
 
-                  return (
-                    <NoteCard
-                      key={note.id}
-                      note={note}
-                      isGridView={isGridView}
-                      animateMovement={animateMovement}
-                      isSelectionMode={selectedNoteIds.length > 0}
-                      isSelected={selectedNoteIds.includes(note.id)}
-                      onToggleSelection={handleToggleNoteSelection}
-                      onSelect={(selected) => setActiveNote(selected)}
-                      onTogglePin={handleTogglePin}
-                      onDelete={handleDeleteNote}
-                      onShare={(noteToShare) => setNotesToShare([noteToShare])}
-                      onToggleCheckItem={handleToggleCheckItem}
-                      onDeleteTag={handleDeleteTagAndDetach}
-                    />
-                  );
-                })}
-              </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetList = activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes;
+                          if (selectedNoteIds.length === targetList.length) {
+                            setSelectedNoteIds([]);
+                          } else {
+                            setSelectedNoteIds(targetList.map((n) => n.id));
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] text-xs font-semibold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 cursor-pointer"
+                      >
+                        <CheckSquare className="w-3.5 h-3.5" />
+                        <span>
+                          {selectedNoteIds.length === (activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes).length
+                            ? 'None'
+                            : 'All'}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetList = activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes;
+                          const selected = targetList.filter((n) => selectedNoteIds.includes(n.id));
+                          if (selected.length > 0) {
+                            setNotesToShare(selected);
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        <span>Share</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowBatchDeleteConfirm(true)}
+                        className="px-3 py-1.5 rounded-xl bg-rose-600 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete ({selectedNoteIds.length})</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Notes Grid or Empty State */}
+                {(activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes).length === 0 ? (
+                  <div className="py-16 text-center flex flex-col items-center justify-center animate-glide-in">
+                    <div className="w-14 h-14 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center text-[#5925DC] dark:text-[#C296FD] mb-3 shadow-sm">
+                      <FileText className="w-7 h-7 stroke-[1.5]" />
+                    </div>
+                    <h3 className="font-bold text-base text-[#1E1A24] dark:text-[#F7EEFC] mb-1">
+                      {searchQuery
+                        ? 'No matching notes found'
+                        : activeTab === 'pinned'
+                        ? 'No pinned notes yet'
+                        : 'No notes has been created.'}
+                    </h3>
+                    <p className="text-xs text-[#797487] dark:text-[#A39BAC] max-w-xs mb-5">
+                      {searchQuery
+                        ? 'Try a different keyword or reset the filter.'
+                        : activeTab === 'pinned'
+                        ? 'Pin any note to keep it at the top of your workspace.'
+                        : 'Tap the circular button in the bottom right corner to write a note.'}
+                    </p>
+                    <button
+                      onClick={handleCreateNote}
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Create Note</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    className={`grid gap-2.5 sm:gap-4 ${
+                      isGridView
+                        ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
+                        : 'grid-cols-1 max-w-2xl mx-auto'
+                    }`}
+                  >
+                    {(activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes).map((note) => {
+                      const animateMovement = note.id === lastPinnedId;
+
+                      const handleDeleteTagAndDetach = (tagToDelete: string) => {
+                        handleRemoveCategory(tagToDelete);
+                      };
+
+                      return (
+                        <NoteCard
+                          key={note.id}
+                          note={note}
+                          isGridView={isGridView}
+                          animateMovement={animateMovement}
+                          isSelectionMode={selectedNoteIds.length > 0}
+                          isSelected={selectedNoteIds.includes(note.id)}
+                          onToggleSelection={handleToggleNoteSelection}
+                          onSelect={(selected) => setActiveNote(selected)}
+                          onTogglePin={handleTogglePin}
+                          onDelete={handleDeleteNote}
+                          onShare={(noteToShare) => setNotesToShare([noteToShare])}
+                          onToggleCheckItem={handleToggleCheckItem}
+                          onDeleteTag={handleDeleteTagAndDetach}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
-          </>
-        )}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Batch Delete Confirmation Modal */}
@@ -670,7 +723,7 @@ export default function App() {
       {/* Liquid Navigation Bar */}
       <LiquidNavbar
         activeTab={activeTab}
-        onChangeTab={setActiveTab}
+        onChangeTab={handleSelectNavTab}
         pinnedCount={activeNotes.filter((n) => n.isPinned).length}
         trashCount={trashedNotes.length}
       />

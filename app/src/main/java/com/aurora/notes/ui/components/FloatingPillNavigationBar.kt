@@ -57,28 +57,50 @@ data class NavTabItem(
 )
 
 fun triggerNavbarHaptic(view: View, context: Context) {
-    val performed = view.performHapticFeedback(
-        HapticFeedbackConstants.VIRTUAL_KEY,
-        HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
-    )
-    if (!performed) {
-        try {
-            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                manager?.defaultVibrator
+    try {
+        view.isHapticFeedbackEnabled = true
+        view.performHapticFeedback(
+            HapticFeedbackConstants.KEYBOARD_TAP,
+            HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+        )
+    } catch (_: Exception) {
+    }
+
+    try {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            manager?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+
+        if (vibrator?.hasVibrator() == true) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val attrs = android.os.VibrationAttributes.Builder()
+                    .setUsage(android.os.VibrationAttributes.USAGE_TOUCH)
+                    .build()
+                vibrator.vibrate(
+                    VibrationEffect.createOneShot(24L, 210),
+                    attrs
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                @Suppress("DEPRECATION")
+                val audioAttrs = android.media.AudioAttributes.Builder()
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .build()
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(
+                    VibrationEffect.createOneShot(24L, 210),
+                    audioAttrs
+                )
             } else {
                 @Suppress("DEPRECATION")
-                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                vibrator.vibrate(24L)
             }
-            if (vibrator?.hasVibrator() == true) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
-                } else {
-                    vibrator.vibrate(VibrationEffect.createOneShot(12L, VibrationEffect.DEFAULT_AMPLITUDE))
-                }
-            }
-        } catch (_: Exception) {
         }
+    } catch (_: Exception) {
     }
 }
 
