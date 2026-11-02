@@ -23,23 +23,15 @@ export const LiquidHeader: React.FC<LiquidHeaderProps> = ({
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
         {/* Brand & Requested Text */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] flex items-center justify-center text-white shadow-[0_4px_14px_rgba(89,37,220,0.3)] shrink-0">
-              <span className="font-bold text-lg tracking-tight font-serif italic">A</span>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="font-bold text-lg sm:text-xl tracking-tight text-[#1E1A24] dark:text-[#F7EEFC]">
+                Aurora Notes
+              </h1>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-bold text-lg tracking-tight text-[#1E1A24] dark:text-[#F7EEFC]">
-                  Aurora
-                </h1>
-                <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742]">
-                  Notes
-                </span>
-              </div>
-              <p className="text-[11px] sm:text-xs text-[#797487] dark:text-[#A39BAC] font-medium tracking-tight">
-                Local Only Privacy Focused Note Taking App.
-              </p>
-            </div>
+            <p className="text-[11px] sm:text-xs text-[#797487] dark:text-[#A39BAC] font-medium tracking-tight">
+              Local Only Privacy Focused Note Taking App.
+            </p>
           </div>
 
           {/* Mobile Actions: New Note & View Toggle */}

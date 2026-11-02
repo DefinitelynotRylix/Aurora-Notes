@@ -2,11 +2,9 @@ import React, { useState, useRef } from 'react';
 import { Note } from '../types';
 import {
   Pin,
-  Lock,
   Check,
   MoreVertical,
-  Trash2,
-  Binary
+  Trash2
 } from 'lucide-react';
 
 interface NoteCardProps {
