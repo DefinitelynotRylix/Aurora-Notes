@@ -32,6 +32,9 @@ interface NoteDao {
     @Query("UPDATE notes SET isDeleted = 1, deletedAt = :timestamp WHERE id = :id")
     suspend fun moveToTrash(id: String, timestamp: Long)
 
+    @Query("UPDATE notes SET isDeleted = 1, deletedAt = :timestamp WHERE id IN (:ids)")
+    suspend fun moveToTrashBatch(ids: List<String>, timestamp: Long)
+
     @Query("UPDATE notes SET isDeleted = 0, deletedAt = NULL WHERE id = :id")
     suspend fun restoreFromTrash(id: String)
 
@@ -40,6 +43,9 @@ interface NoteDao {
 
     @Query("DELETE FROM notes WHERE isDeleted = 1")
     suspend fun emptyTrash(): Int
+
+    @Query("DELETE FROM notes")
+    suspend fun wipeAllNotes(): Int
 
     @Query("SELECT COUNT(*) FROM notes WHERE isDeleted = 0")
     suspend fun getActiveCount(): Int

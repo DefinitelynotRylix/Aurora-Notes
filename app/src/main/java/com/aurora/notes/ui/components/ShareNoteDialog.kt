@@ -1,0 +1,385 @@
+package com.aurora.notes.ui.components
+
+import android.app.Activity
+import android.content.Intent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.aurora.notes.model.Note
+import com.aurora.notes.ui.theme.AuroraRoyalViolet
+import com.aurora.notes.util.NoteShareHelper
+import com.aurora.notes.util.ShareNoteFormat
+
+@Composable
+fun ShareNoteDialog(
+    notes: List<Note>,
+    onDismiss: () -> Unit
+) {
+    if (notes.isEmpty()) return
+
+    val context = LocalContext.current
+    var selectedFormat by remember { mutableStateOf(ShareNoteFormat.MARKDOWN) }
+
+    val formattedPreview = remember(notes, selectedFormat) {
+        NoteShareHelper.formatNotes(notes, selectedFormat)
+    }
+    val suggestedFileName = remember(notes, selectedFormat) {
+        NoteShareHelper.buildSuggestedFileName(notes, selectedFormat)
+    }
+
+    // Android Storage Access Framework launcher allowing user to pick any preferred folder & filename
+    val saveToFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val targetUri = result.data?.data
+            if (targetUri != null) {
+                val ok = NoteShareHelper.writeNoteToChosenUri(
+                    context = context,
+                    uri = targetUri,
+                    notes = notes,
+                    format = selectedFormat
+                )
+                if (ok) {
+                    Toast.makeText(
+                        context,
+                        "Saved $suggestedFileName to your chosen folder!",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    onDismiss()
+                } else {
+                    Toast.makeText(
+                        context,
+                        "Could not write file to selected location.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+    fun launchAndroidFolderFilePicker() {
+        val createIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = selectedFormat.mimeType
+            putExtra(Intent.EXTRA_TITLE, suggestedFileName)
+        }
+        try {
+            saveToFolderLauncher.launch(createIntent)
+        } catch (_: Exception) {
+            // Fallback in case a custom OEM file picker doesn't register text/markdown
+            val fallbackIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TITLE, suggestedFileName)
+            }
+            try {
+                saveToFolderLauncher.launch(fallbackIntent)
+            } catch (e: Exception) {
+                Toast.makeText(
+                    context,
+                    "Could not open Android File Picker: ${e.localizedMessage}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.2.dp, AuroraRoyalViolet.copy(alpha = 0.4f)),
+            tonalElevation = 10.dp,
+            shadowElevation = 20.dp,
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .widthIn(max = 440.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = if (notes.size == 1) "Share & Export Note" else "Share ${notes.size} Selected Notes",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp
+                                )
+                            )
+                            Text(
+                                text = "Send to apps & contacts or save to a folder",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                )
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Format Selector: Markdown (.md) vs Plain Text (.txt)
+                Text(
+                    text = "CHOOSE FORMAT",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AuroraRoyalViolet
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    ShareNoteFormat.entries.forEach { format ->
+                        val isSelected = selectedFormat == format
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isSelected) AuroraRoyalViolet.copy(alpha = 0.14f) else MaterialTheme.colorScheme.background,
+                            border = BorderStroke(
+                                width = if (isSelected) 1.5.dp else 1.dp,
+                                color = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedFormat = format }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = format.label,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = if (format == ShareNoteFormat.MARKDOWN) "Rich headings & lists" else "Universal plain text",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = AuroraRoyalViolet,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // File Name & Live Preview Box
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = suggestedFileName,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Text(
+                        text = "${formattedPreview.length} chars",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 90.dp, max = 150.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.background,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .padding(10.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        text = formattedPreview,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Action Buttons
+                // 1. Share text to Apps & Contacts
+                Button(
+                    onClick = {
+                        NoteShareHelper.shareToAppsAndContacts(
+                            context = context,
+                            notes = notes,
+                            format = selectedFormat,
+                            asFileAttachment = false
+                        )
+                        onDismiss()
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Share to Apps & Contacts (${selectedFormat.extension.uppercase()})",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 2. Share as actual .md / .txt file attachment
+                OutlinedButton(
+                    onClick = {
+                        NoteShareHelper.shareToAppsAndContacts(
+                            context = context,
+                            notes = notes,
+                            format = selectedFormat,
+                            asFileAttachment = true
+                        )
+                        onDismiss()
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AttachFile,
+                        contentDescription = null,
+                        tint = AuroraRoyalViolet,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Send as .${selectedFormat.extension} File to Apps",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AuroraRoyalViolet
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 3. Save to Preferred Folder inside Android File Picker
+                OutlinedButton(
+                    onClick = { launchAndroidFolderFilePicker() },
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Save to Folder (Android File Picker)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+    }
+}

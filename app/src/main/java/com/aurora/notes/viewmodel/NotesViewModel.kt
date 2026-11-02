@@ -252,6 +252,13 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun moveToTrashBatch(ids: List<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            repository.moveToTrashBatch(ids)
+        }
+    }
+
     fun restoreFromTrash(id: String) {
         viewModelScope.launch {
             repository.restoreFromTrash(id)
@@ -267,6 +274,25 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     fun emptyTrash() {
         viewModelScope.launch {
             repository.emptyTrash()
+        }
+    }
+
+    fun setThemeMode(mode: String) {
+        val normalized = when (mode.lowercase()) {
+            "light", "dark", "system" -> mode.lowercase()
+            else -> "system"
+        }
+        prefs.edit().putString(KEY_THEME_MODE, normalized).apply()
+        _themeMode.value = normalized
+        LocalLogger.security("THEME", "Updated app theme mode to '$normalized'")
+    }
+
+    fun wipeAllData() {
+        persistUserTags(emptyList())
+        _selectedCategory.value = "All"
+        viewModelScope.launch {
+            repository.wipeAllNotes()
+            LocalLogger.security("STORAGE", "Wiped all notes and custom category pins after biometric verification")
         }
     }
 

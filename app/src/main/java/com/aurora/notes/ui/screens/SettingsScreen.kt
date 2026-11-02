@@ -5,24 +5,37 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -36,8 +49,22 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private data class ThemeOptionItem(
+    val id: String,
+    val label: String,
+    val description: String,
+    val icon: ImageVector
+)
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
+    themeMode: String = "system",
+    onSelectThemeMode: (String) -> Unit = {},
+    userTags: List<String> = emptyList(),
+    onAddTag: (String) -> Unit = {},
+    onRemoveTag: (String) -> Unit = {},
+    onWipeAllData: () -> Unit = {},
     isBiometricEnabled: Boolean = false,
     onSetBiometricLock: (Boolean) -> Unit = {},
     onOpenWelcomeTour: () -> Unit = {},
@@ -50,11 +77,121 @@ fun SettingsScreen(
     val logs by LocalLogger.logs.collectAsState()
     var selectedLevelFilter by remember { mutableStateOf<LogLevel?>(null) }
 
+    var newCategoryInput by remember { mutableStateOf("") }
+    var pendingDeleteCategory by remember { mutableStateOf<String?>(null) }
+    var showWipeConfirmDialog by remember { mutableStateOf(false) }
+
     val filteredLogs = remember(logs, selectedLevelFilter) {
         if (selectedLevelFilter == null) logs else logs.filter { it.level == selectedLevelFilter }
     }
 
     val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
+    val themeOptions = remember {
+        listOf(
+            ThemeOptionItem("system", "System", "Match phone theme", Icons.Default.BrightnessAuto),
+            ThemeOptionItem("light", "Light", "Warm mauve canvas", Icons.Default.LightMode),
+            ThemeOptionItem("dark", "Dark", "Obsidian amethyst", Icons.Default.DarkMode)
+        )
+    }
+
+    if (pendingDeleteCategory != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteCategory = null },
+            title = { Text("Delete Category Pin #${pendingDeleteCategory}?") },
+            text = {
+                Text(
+                    "Deleting #${pendingDeleteCategory} removes this custom category pin and returns any notes under it back to All without deleting the notes.",
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val cat = pendingDeleteCategory
+                        pendingDeleteCategory = null
+                        if (cat != null) {
+                            onRemoveTag(cat)
+                            Toast.makeText(context, "Removed category pin #$cat", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
+                ) {
+                    Text("Delete Pin", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { pendingDeleteCategory = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showWipeConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showWipeConfirmDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = AuroraDangerRed
+                )
+            },
+            title = {
+                Text(
+                    text = "Biometric Verification Required",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "Wiping all application data will permanently delete all active notes, trashed notes, and custom category pins from your device.\n\nPlease verify with your fingerprint, face unlock, or device PIN to proceed.",
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showWipeConfirmDialog = false
+                        onTriggerBiometricAuth(
+                            {
+                                onWipeAllData()
+                                Toast.makeText(
+                                    context,
+                                    "Biometric verified. All notes and categories have been wiped.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            },
+                            { err ->
+                                Toast.makeText(
+                                    context,
+                                    "Wipe aborted — Biometric verification failed: $err",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Fingerprint,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Verify & Wipe All", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showWipeConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Column(
         modifier = modifier
@@ -70,12 +207,117 @@ fun SettingsScreen(
             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
         )
         Text(
-            text = "Manage native biometric security, welcome guide, and local diagnostic logs.",
+            text = "Manage app appearance & theme, biometric security, custom category pins, and local data.",
             style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
             modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
         )
 
-        // 1. Biometric / PIN Lock Card
+        // 1. App Appearance & Theme Card
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Palette,
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "App Appearance & Theme",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = AuroraRoyalViolet.copy(alpha = 0.14f)
+                    ) {
+                        Text(
+                            text = themeMode.uppercase(Locale.US),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AuroraRoyalViolet,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    themeOptions.forEach { option ->
+                        val isSelected = themeMode.equals(option.id, ignoreCase = true)
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isSelected) AuroraRoyalViolet.copy(alpha = 0.14f) else MaterialTheme.colorScheme.background,
+                            border = BorderStroke(
+                                width = if (isSelected) 1.5.dp else 1.dp,
+                                color = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onSelectThemeMode(option.id) }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = option.icon,
+                                        contentDescription = option.label,
+                                        tint = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = AuroraRoyalViolet,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = option.label,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = option.description,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 2. Biometric / PIN Lock Card
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -133,7 +375,135 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 2. Welcome Tour & App Guide Card
+        // 3. Custom Category Pins Card
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Tag,
+                        contentDescription = null,
+                        tint = AuroraRoyalViolet,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Custom Category Pins",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Manage custom category tags pinned to your filter bar. Tap X or long-press a category pin to delete it (notes return to All).",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        fontSize = 11.sp
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (userTags.isEmpty()) {
+                    Text(
+                        text = "No custom category pins created yet.",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                            fontSize = 12.sp
+                        )
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        userTags.forEach { tag ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = AuroraRoyalViolet.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.35f)),
+                                modifier = Modifier.combinedClickable(
+                                    onClick = { pendingDeleteCategory = tag },
+                                    onLongClick = { pendingDeleteCategory = tag }
+                                )
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "#$tag",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = AuroraRoyalViolet
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Delete $tag",
+                                        tint = AuroraRoyalViolet,
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .clickable { pendingDeleteCategory = tag }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newCategoryInput,
+                        onValueChange = { newCategoryInput = it },
+                        placeholder = { Text("New category name...", fontSize = 12.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Button(
+                        onClick = {
+                            val clean = newCategoryInput.trim().removePrefix("#").trim()
+                            if (clean.isNotBlank() && !clean.equals("All", ignoreCase = true)) {
+                                onAddTag(clean)
+                                newCategoryInput = ""
+                                Toast.makeText(context, "Added category pin #$clean", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 4. Welcome Tour & App Guide Card
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -180,7 +550,7 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 3. Local Diagnostic Logs Card
+        // 5. Local Diagnostic Logs Card
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -245,7 +615,7 @@ fun SettingsScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(200.dp)
+                        .height(180.dp)
                         .background(Color(0xFF0F0B14), shape = RoundedCornerShape(12.dp))
                         .padding(10.dp)
                         .verticalScroll(rememberScrollState())
@@ -330,6 +700,69 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(90.dp))
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 6. Danger Zone: Wipe All Application Data (Biometric Required)
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = AuroraDangerRed.copy(alpha = 0.08f)
+            ),
+            border = BorderStroke(1.dp, AuroraDangerRed.copy(alpha = 0.45f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = AuroraDangerRed,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Wipe All Application Data",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = AuroraDangerRed
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "Permanently delete all notes, trashed items, and custom category pins from local storage. Requires biometric or device PIN verification.",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                        fontSize = 12.sp
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = { showWipeConfirmDialog = true },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Fingerprint,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Wipe All Notes",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(96.dp))
     }
 }

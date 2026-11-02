@@ -13,9 +13,11 @@ import {
   Heading2,
   ArrowLeft,
   X,
-  Plus
+  Plus,
+  Share2
 } from 'lucide-react';
 import { logger } from '../utils/logger';
+import { ShareNoteModal } from './ShareNoteModal';
 
 interface NoteEditorModalProps {
   note: Note;
@@ -36,6 +38,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   const [tags, setTags] = useState<string[]>(note.tags || []);
   const [newTagInput, setNewTagInput] = useState('');
   const [showDoneModal, setShowDoneModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   // Active Size Mode ('small' | 'medium' | 'large')
   const [textSizeMode, setTextSizeMode] = useState<'small' | 'medium' | 'large'>('small');
@@ -462,8 +465,18 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           </div>
         </div>
 
-        {/* Right side: Done Button */}
+        {/* Right side: Share & Done Buttons */}
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowShareModal(true)}
+            aria-label="Share or export note"
+            className="w-9 h-9 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#5925DC] dark:text-[#C296FD] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+            title="Share or save note (.md / .txt)"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+
           <button
             type="button"
             onClick={() => setShowDoneModal(true)}
@@ -474,6 +487,23 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           </button>
         </div>
       </div>
+
+      {showShareModal && (
+        <ShareNoteModal
+          notes={[
+            {
+              ...note,
+              title: title.trim() || 'Untitled Note',
+              content: editorRef.current?.innerHTML || note.content,
+              category,
+              tags,
+              isPinned,
+              updatedAt: Date.now(),
+            },
+          ]}
+          onClose={() => setShowShareModal(false)}
+        />
+      )}
 
       {/* 
         MAXIMIZED FULL-PAGE WRITING CANVAS

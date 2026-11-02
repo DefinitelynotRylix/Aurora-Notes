@@ -1,5 +1,6 @@
 package com.aurora.notes.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -14,8 +15,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aurora.notes.model.Note
 import com.aurora.notes.ui.components.NoteCard
+import com.aurora.notes.ui.components.ShareNoteDialog
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 
@@ -44,13 +49,14 @@ fun NotesScreen(
     onSelectNote: (Note) -> Unit,
     onTogglePin: (Note) -> Unit,
     onDeleteNote: (String) -> Unit,
+    onDeleteNotesBatch: (List<String>) -> Unit = { ids -> ids.forEach(onDeleteNote) },
     onToggleCheckItem: (String, String) -> Unit,
     onAddNote: () -> Unit,
     onCreateTag: (String) -> Unit = {},
     onDeleteTag: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    // Combine persisted user-created tags + any tags present on notes (excluding any legacy defaults)
+    // Combine persisted user-created tags + any tags present on notes
     val createdTags = remember(userTags, notes) {
         val fromNotes = notes.flatMap { it.tags }
         (userTags + fromNotes)
@@ -62,6 +68,68 @@ fun NotesScreen(
     var showCreateTagDialog by remember { mutableStateOf(false) }
     var newTagName by remember { mutableStateOf("") }
     var pendingDeleteTag by remember { mutableStateOf<String?>(null) }
+
+    // Multi-selection state (Hold down on note to select multiple notes)
+    val selectedNoteIds = remember { mutableStateListOf<String>() }
+    val isSelectionMode = selectedNoteIds.isNotEmpty()
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+
+    // Share dialog state
+    var notesToShare by remember { mutableStateOf<List<Note>>(emptyList()) }
+
+    // Prune any selected IDs that are no longer in the visible notes list
+    LaunchedEffect(notes) {
+        val currentIds = notes.map { it.id }.toSet()
+        selectedNoteIds.removeAll { it !in currentIds }
+    }
+
+    BackHandler(enabled = isSelectionMode) {
+        selectedNoteIds.clear()
+    }
+
+    if (notesToShare.isNotEmpty()) {
+        ShareNoteDialog(
+            notes = notesToShare,
+            onDismiss = { notesToShare = emptyList() }
+        )
+    }
+
+    if (showBatchDeleteConfirm && selectedNoteIds.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showBatchDeleteConfirm = false },
+            title = {
+                Text(
+                    text = "Delete ${selectedNoteIds.size} Selected ${if (selectedNoteIds.size == 1) "Note" else "Notes"}?",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "Move ${selectedNoteIds.size} selected ${if (selectedNoteIds.size == 1) "note" else "notes"} to Trash? You can restore them later from the Trash tab.",
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val idsToDelete = selectedNoteIds.toList()
+                        showBatchDeleteConfirm = false
+                        selectedNoteIds.clear()
+                        onDeleteNotesBatch(idsToDelete)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
+                ) {
+                    Text("Delete (${selectedNoteIds.size})", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showBatchDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     if (showCreateTagDialog) {
         AlertDialog(
@@ -152,7 +220,7 @@ fun NotesScreen(
     ) {
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Header Title (No 'A' icon, clean Aurora Notes header)
+        // Header Title
         Text(
             text = "Aurora Notes",
             style = MaterialTheme.typography.titleLarge.copy(
@@ -169,6 +237,120 @@ fun NotesScreen(
         )
 
         Spacer(modifier = Modifier.height(10.dp))
+
+        // Multi-Select Action Bar (when user holds down on notes to select multiple)
+        if (isSelectionMode) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = AuroraRoyalViolet.copy(alpha = 0.14f),
+                border = BorderStroke(1.5.dp, AuroraRoyalViolet),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = { selectedNoteIds.clear() },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Cancel Selection",
+                                tint = AuroraRoyalViolet,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "${selectedNoteIds.size} selected",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = AuroraRoyalViolet
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Select All / Deselect All
+                        TextButton(
+                            onClick = {
+                                if (selectedNoteIds.size == notes.size) {
+                                    selectedNoteIds.clear()
+                                } else {
+                                    selectedNoteIds.clear()
+                                    selectedNoteIds.addAll(notes.map { it.id })
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SelectAll,
+                                contentDescription = "Select All",
+                                tint = AuroraRoyalViolet,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (selectedNoteIds.size == notes.size) "None" else "All",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AuroraRoyalViolet
+                            )
+                        }
+
+                        // Share Selected
+                        FilledTonalButton(
+                            onClick = {
+                                val selectedNotes = notes.filter { it.id in selectedNoteIds }
+                                if (selectedNotes.isNotEmpty()) {
+                                    notesToShare = selectedNotes
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = AuroraRoyalViolet,
+                                contentColor = Color.White
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share Selected",
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Share", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        // Delete Selected
+                        Button(
+                            onClick = { showBatchDeleteConfirm = true },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete Selected",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Delete", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
 
         // Search Bar & Grid/List Toggle
         Row(
@@ -224,9 +406,7 @@ fun NotesScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Tag Filter Bar:
-        // [All] and [+ Create Tag] stay anchored on the left; newly created tags appear to the right.
-        // Long-pressing any created tag opens the Delete Tag option.
+        // Tag Filter Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -234,7 +414,7 @@ fun NotesScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. "All" Button (Always first on the left)
+            // 1. "All" Button
             val isAllSelected = selectedCategory.equals("All", ignoreCase = true)
             Surface(
                 shape = RoundedCornerShape(12.dp),
@@ -256,7 +436,7 @@ fun NotesScreen(
                 )
             }
 
-            // 2. "+ Create Tag" Button (Always second on the left, stays in place)
+            // 2. "+ Create Tag" Button
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = AuroraRoyalViolet.copy(alpha = 0.10f),
@@ -285,7 +465,7 @@ fun NotesScreen(
                 }
             }
 
-            // 3. User-Created Tags (Appear on the right side; long-tap to delete)
+            // 3. User-Created Tags (long-tap to delete)
             createdTags.forEach { tag ->
                 val isTagSelected = selectedCategory.equals(tag, ignoreCase = true)
                 Surface(
@@ -350,11 +530,32 @@ fun NotesScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(notes, key = { it.id }) { note ->
+                    val isNoteSelected = note.id in selectedNoteIds
                     NoteCard(
                         note = note,
-                        onClick = { onSelectNote(note) },
+                        isSelectionMode = isSelectionMode,
+                        isSelected = isNoteSelected,
+                        onClick = {
+                            if (isSelectionMode) {
+                                if (isNoteSelected) {
+                                    selectedNoteIds.remove(note.id)
+                                } else {
+                                    selectedNoteIds.add(note.id)
+                                }
+                            } else {
+                                onSelectNote(note)
+                            }
+                        },
+                        onLongClick = {
+                            if (!isNoteSelected) {
+                                selectedNoteIds.add(note.id)
+                            } else {
+                                selectedNoteIds.remove(note.id)
+                            }
+                        },
                         onTogglePin = { onTogglePin(note) },
                         onDelete = { onDeleteNote(note.id) },
+                        onShare = { notesToShare = listOf(note) },
                         onToggleCheckItem = { itemId -> onToggleCheckItem(note.id, itemId) },
                         onDeleteTag = onDeleteTag
                     )

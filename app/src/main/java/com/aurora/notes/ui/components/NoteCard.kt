@@ -7,9 +7,12 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,57 +42,31 @@ fun NoteCard(
     onTogglePin: () -> Unit,
     onDelete: () -> Unit,
     onToggleCheckItem: (String) -> Unit,
+    onShare: (() -> Unit)? = null,
     onDeleteTag: ((String) -> Unit)? = null,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val dateFormat = SimpleDateFormat("MMM d", Locale.US)
     val formattedDate = dateFormat.format(Date(note.updatedAt))
-
-    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     val plainTextPreview = note.content
         .replace(Regex("<[^>]*>"), "")
         .replace("&nbsp;", " ")
         .trim()
 
-    if (showDeleteConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirmDialog = false },
-            icon = {
-                Icon(
-                    imageVector = Icons.Outlined.Delete,
-                    contentDescription = null,
-                    tint = AuroraDangerRed
-                )
-            },
-            title = {
-                Text(
-                    text = "Delete Note?",
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Text(
-                    text = "Move \"${if (note.title.isNotBlank()) note.title else "Untitled Note"}\" to Trash?"
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showDeleteConfirmDialog = false
-                        onDelete()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
-                ) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirmDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
+    val cardBorder = if (isSelected) {
+        BorderStroke(2.dp, AuroraRoyalViolet)
+    } else {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+    }
+
+    val cardContainerColor = if (isSelected) {
+        AuroraRoyalViolet.copy(alpha = 0.10f)
+    } else {
+        MaterialTheme.colorScheme.surface
     }
 
     Card(
@@ -98,13 +75,13 @@ fun NoteCard(
             .clip(RoundedCornerShape(16.dp))
             .combinedClickable(
                 onClick = { onClick() },
-                onLongClick = { showDeleteConfirmDialog = true }
+                onLongClick = { onLongClick?.invoke() }
             ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = cardContainerColor
         ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+        border = cardBorder,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
@@ -112,46 +89,77 @@ fun NoteCard(
                 .fillMaxWidth()
                 .padding(14.dp)
         ) {
-            // Header Row: Title & Action icons
+            // Header Row: Selection Indicator (if in multi-select mode), Title & Action icons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                Text(
-                    text = if (note.title.isNotBlank()) note.title else "Untitled Note",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    ),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
-                )
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onTogglePin,
-                        modifier = Modifier.size(28.dp)
-                    ) {
+                ) {
+                    if (isSelectionMode) {
                         Icon(
-                            imageVector = if (note.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                            contentDescription = if (note.isPinned) "Unpin" else "Pin",
-                            tint = if (note.isPinned) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                            modifier = Modifier.size(16.dp)
+                            imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                            contentDescription = if (isSelected) "Selected" else "Not selected",
+                            tint = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                            modifier = Modifier.size(18.dp)
                         )
+                        Spacer(modifier = Modifier.width(6.dp))
                     }
 
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Delete,
-                            contentDescription = "Delete",
-                            tint = AuroraDangerRed.copy(alpha = 0.7f),
-                            modifier = Modifier.size(16.dp)
-                        )
+                    Text(
+                        text = if (note.title.isNotBlank()) note.title else "Untitled Note",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        ),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                if (!isSelectionMode) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (onShare != null) {
+                            IconButton(
+                                onClick = onShare,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Share,
+                                    contentDescription = "Share Note",
+                                    tint = AuroraRoyalViolet.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = onTogglePin,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (note.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                                contentDescription = if (note.isPinned) "Unpin" else "Pin",
+                                tint = if (note.isPinned) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onDelete,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = "Delete",
+                                tint = AuroraDangerRed.copy(alpha = 0.7f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -183,7 +191,13 @@ fun NoteCard(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onToggleCheckItem(item.id) }
+                                .clickable {
+                                    if (isSelectionMode) {
+                                        onClick()
+                                    } else {
+                                        onToggleCheckItem(item.id)
+                                    }
+                                }
                         ) {
                             Box(
                                 modifier = Modifier.size(14.dp),
@@ -191,7 +205,13 @@ fun NoteCard(
                             ) {
                                 Checkbox(
                                     checked = item.completed,
-                                    onCheckedChange = { _ -> onToggleCheckItem(item.id) },
+                                    onCheckedChange = { _ ->
+                                        if (isSelectionMode) {
+                                            onClick()
+                                        } else {
+                                            onToggleCheckItem(item.id)
+                                        }
+                                    },
                                     modifier = Modifier.size(14.dp)
                                 )
                             }

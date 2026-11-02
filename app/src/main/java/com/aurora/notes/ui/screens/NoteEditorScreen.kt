@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aurora.notes.model.ChecklistItem
 import com.aurora.notes.model.Note
+import com.aurora.notes.ui.components.ShareNoteDialog
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.google.gson.Gson
@@ -526,6 +528,25 @@ fun NoteEditorScreen(
         )
     }
 
+    var showShareDialog by remember { mutableStateOf(false) }
+
+    if (showShareDialog) {
+        val currentSnapshot = note.copy(
+            title = title.trim().ifBlank { "Untitled Note" },
+            content = bodyValue.text,
+            styleSpansJson = if (charSpans.isEmpty()) "" else spanGson.toJson(charSpans),
+            checklist = checklistItems.filter { it.text.trim().isNotEmpty() },
+            tags = tags.toList(),
+            category = tags.firstOrNull() ?: "",
+            isPinned = isPinned,
+            updatedAt = System.currentTimeMillis()
+        )
+        ShareNoteDialog(
+            notes = listOf(currentSnapshot),
+            onDismiss = { showShareDialog = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             Surface(
@@ -581,15 +602,32 @@ fun NoteEditorScreen(
                         }
                     }
 
-                    Button(
-                        onClick = { showDoneDetailsDialog = true },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Done", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        IconButton(
+                            onClick = { showShareDialog = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share Note",
+                                tint = AuroraRoyalViolet,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Button(
+                            onClick = { showDoneDetailsDialog = true },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Done", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
                     }
                 }
             }

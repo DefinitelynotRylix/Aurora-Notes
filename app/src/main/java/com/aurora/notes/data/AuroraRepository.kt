@@ -35,6 +35,12 @@ class AuroraRepository(private val noteDao: NoteDao) {
         LocalLogger.security("TRASH", "Moved note to trash: $id")
     }
 
+    suspend fun moveToTrashBatch(ids: List<String>) {
+        if (ids.isEmpty()) return
+        noteDao.moveToTrashBatch(ids, System.currentTimeMillis())
+        LocalLogger.security("TRASH", "Batch moved ${ids.size} notes to trash")
+    }
+
     suspend fun restoreFromTrash(id: String) {
         noteDao.restoreFromTrash(id)
         LocalLogger.security("TRASH", "Restored note from trash: $id")
@@ -48,5 +54,10 @@ class AuroraRepository(private val noteDao: NoteDao) {
     suspend fun emptyTrash() {
         val purged = noteDao.emptyTrash()
         LocalLogger.security("TRASH", "Permanently emptied trash ($purged items purged)")
+    }
+
+    suspend fun wipeAllNotes() {
+        val wiped = noteDao.wipeAllNotes()
+        LocalLogger.security("STORAGE", "Wiped all notes from local database ($wiped notes removed)")
     }
 }

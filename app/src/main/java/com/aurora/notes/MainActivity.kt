@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,7 +52,15 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            AuroraTheme {
+            val themeMode by viewModel.themeMode.collectAsState()
+            val systemDark = isSystemInDarkTheme()
+            val useDarkTheme = when (themeMode.lowercase()) {
+                "dark" -> true
+                "light" -> false
+                else -> systemDark
+            }
+
+            AuroraTheme(darkTheme = useDarkTheme) {
                 AuroraApp(
                     viewModel = viewModel,
                     onTriggerBiometricAuth = { onSuccess, onError ->
@@ -90,8 +99,8 @@ class MainActivity : FragmentActivity() {
         )
 
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Aurora Notes Lock")
-            .setSubtitle("Verify identity to access your notes")
+            .setTitle("Aurora Notes Security")
+            .setSubtitle("Verify your identity with biometric or device PIN")
             .setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG or
                     BiometricManager.Authenticators.BIOMETRIC_WEAK or
@@ -121,6 +130,7 @@ fun AuroraApp(
     val filteredTrashedNotes by viewModel.filteredTrashedNotes.collectAsState()
     val allActiveNotes by viewModel.allActiveNotes.collectAsState()
     val userTags by viewModel.userTags.collectAsState()
+    val themeMode by viewModel.themeMode.collectAsState()
 
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
     val isAppLocked by viewModel.isAppLocked.collectAsState()
@@ -261,6 +271,7 @@ fun AuroraApp(
                             onSelectNote = { viewModel.openEditNote(it) },
                             onTogglePin = { viewModel.togglePin(it) },
                             onDeleteNote = { viewModel.moveToTrash(it) },
+                            onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
                             onToggleCheckItem = { noteId, itemId ->
                                 viewModel.toggleChecklistItem(noteId, itemId)
                             },
@@ -285,6 +296,12 @@ fun AuroraApp(
                     }
                     3 -> {
                         SettingsScreen(
+                            themeMode = themeMode,
+                            onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
+                            userTags = userTags,
+                            onAddTag = { newTag -> viewModel.addUserTag(newTag) },
+                            onRemoveTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
+                            onWipeAllData = { viewModel.wipeAllData() },
                             isBiometricEnabled = isBiometricEnabled,
                             onSetBiometricLock = { enabled ->
                                 viewModel.setBiometricLockEnabled(enabled)

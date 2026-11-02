@@ -9,9 +9,10 @@ import { TrashView } from './components/TrashView';
 import { NoteEditorModal } from './components/NoteEditorModal';
 import { SettingsPage } from './components/SettingsPage';
 import { WelcomeTourModal } from './components/WelcomeTourModal';
+import { ShareNoteModal } from './components/ShareNoteModal';
 import { isNativeLockEnabled, verifyWithAndroidNativeLock } from './utils/nativeAuth';
 import { logger } from './utils/logger';
-import { FileText, Plus, Fingerprint, Smartphone } from 'lucide-react';
+import { FileText, Plus, Fingerprint, Smartphone, Share2, Trash2, X, CheckSquare } from 'lucide-react';
 
 const STORAGE_NOTES_KEY = 'aurora_local_notes_v1';
 const STORAGE_CATEGORIES_KEY = 'aurora_custom_categories_v1';
@@ -72,6 +73,9 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [isGridView, setIsGridView] = useState(true);
   const [activeNote, setActiveNote] = useState<Note | null>(null);
+  const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
+  const [notesToShare, setNotesToShare] = useState<Note[]>([]);
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
 
   // Track the most recently pinned note id to animate only its move to top
   const [lastPinnedId, setLastPinnedId] = useState<string | null>(null);
@@ -250,6 +254,24 @@ export default function App() {
       n.id === id ? { ...n, isDeleted: true, deletedAt: Date.now() } : n
     );
     persistNotes(updated);
+  };
+
+  // Batch Soft Delete: moves multiple selected notes to Trash
+  const handleDeleteNotesBatch = (ids: string[]) => {
+    const idSet = new Set(ids);
+    const now = Date.now();
+    const updated = notes.map((n) =>
+      idSet.has(n.id) ? { ...n, isDeleted: true, deletedAt: now } : n
+    );
+    persistNotes(updated);
+    setSelectedNoteIds([]);
+    logger.security('TRASH', `Batch moved ${ids.length} selected notes to Trash`);
+  };
+
+  const handleToggleNoteSelection = (noteId: string) => {
+    setSelectedNoteIds((prev) =>
+      prev.includes(noteId) ? prev.filter((id) => id !== noteId) : [...prev, noteId]
+    );
   };
 
   // Restore Note from Trash
@@ -434,8 +456,12 @@ export default function App() {
             onOpenWelcomeTour={() => setIsWelcomeOpen(true)}
             onWipeData={() => {
               localStorage.removeItem(STORAGE_NOTES_KEY);
+              localStorage.removeItem('aurora_user_tags_v2');
               setNotes([]);
-              logger.security('STORAGE', 'User wiped local storage notes');
+              setCustomCategories([]);
+              setSelectedCategory('All');
+              setSelectedNoteIds([]);
+              logger.security('STORAGE', 'User wiped local storage notes and custom categories after biometric verification');
             }}
           />
         ) : activeTab === 'trash' ? (
@@ -461,6 +487,65 @@ export default function App() {
                 counts={categoryCounts}
               />
             </div>
+
+            {/* Multi-Selection Action Bar (when user holds down on notes) */}
+            {selectedNoteIds.length > 0 && (
+              <div className="mb-4 p-3 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border-2 border-[#5925DC] dark:border-[#9D5AF5] flex items-center justify-between gap-2 shadow-sm animate-fade-in">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedNoteIds([])}
+                    className="w-8 h-8 rounded-xl bg-white/80 dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] flex items-center justify-center cursor-pointer"
+                    title="Clear selection"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs sm:text-sm font-bold text-[#5925DC] dark:text-[#C296FD]">
+                    {selectedNoteIds.length} selected
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedNoteIds.length === filteredNotes.length) {
+                        setSelectedNoteIds([]);
+                      } else {
+                        setSelectedNoteIds(filteredNotes.map((n) => n.id));
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] text-xs font-semibold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 cursor-pointer"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5" />
+                    <span>{selectedNoteIds.length === filteredNotes.length ? 'None' : 'All'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const selected = filteredNotes.filter((n) => selectedNoteIds.includes(n.id));
+                      if (selected.length > 0) {
+                        setNotesToShare(selected);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>Share</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowBatchDeleteConfirm(true)}
+                    className="px-3 py-1.5 rounded-xl bg-rose-600 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete ({selectedNoteIds.length})</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Notes Grid or Empty State */}
             {filteredNotes.length === 0 ? (
@@ -493,22 +578,10 @@ export default function App() {
                 }`}
               >
                 {filteredNotes.map((note) => {
-                  // If note was just pinned, animate its entrance to the top column.
-                  // If notes are adjacent pinned notes, don't trigger jarring movement animations.
                   const animateMovement = note.id === lastPinnedId;
 
                   const handleDeleteTagAndDetach = (tagToDelete: string) => {
-                    const updatedNotes = notes.map((n) => {
-                      if (n.tags?.includes(tagToDelete)) {
-                        return {
-                          ...n,
-                          tags: n.tags.filter((t) => t !== tagToDelete),
-                        };
-                      }
-                      return n;
-                    });
-                    persistNotes(updatedNotes);
-                    logger.security('TAGS', `Deleted tag "${tagToDelete}" from local notes`);
+                    handleRemoveCategory(tagToDelete);
                   };
 
                   return (
@@ -517,9 +590,13 @@ export default function App() {
                       note={note}
                       isGridView={isGridView}
                       animateMovement={animateMovement}
+                      isSelectionMode={selectedNoteIds.length > 0}
+                      isSelected={selectedNoteIds.includes(note.id)}
+                      onToggleSelection={handleToggleNoteSelection}
                       onSelect={(selected) => setActiveNote(selected)}
                       onTogglePin={handleTogglePin}
                       onDelete={handleDeleteNote}
+                      onShare={(noteToShare) => setNotesToShare([noteToShare])}
                       onToggleCheckItem={handleToggleCheckItem}
                       onDeleteTag={handleDeleteTagAndDetach}
                     />
@@ -530,6 +607,53 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* Batch Delete Confirmation Modal */}
+      {showBatchDeleteConfirm && selectedNoteIds.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in"
+          onClick={() => setShowBatchDeleteConfirm(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] shadow-2xl p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-sm text-[#1E1A24] dark:text-[#F7EEFC]">
+              Delete {selectedNoteIds.length} Selected {selectedNoteIds.length === 1 ? 'Note' : 'Notes'}?
+            </h3>
+            <p className="text-xs text-[#484455] dark:text-[#A39BAC] leading-relaxed">
+              Move {selectedNoteIds.length} selected {selectedNoteIds.length === 1 ? 'note' : 'notes'} to Trash? You can restore them anytime from the Trash tab.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowBatchDeleteConfirm(false)}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-[#484455] dark:text-[#A39BAC] border border-[#EADBFC] dark:border-[#322742] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBatchDeleteConfirm(false);
+                  handleDeleteNotesBatch(selectedNoteIds);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 cursor-pointer"
+              >
+                Delete ({selectedNoteIds.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share & Export Modal (.md / .txt) */}
+      {notesToShare.length > 0 && (
+        <ShareNoteModal
+          notes={notesToShare}
+          onClose={() => setNotesToShare([])}
+        />
+      )}
 
       {/* Floating Circular UI Element in the Down Right Corner - safely elevated above bottom bar on phones */}
       <motion.button

@@ -356,35 +356,57 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       </div>
 
-      {/* 5. Danger Zone / Wipe Data */}
+      {/* 5. Danger Zone / Wipe Data (Biometric Verification Required) */}
       <div className="rounded-2xl p-4 sm:p-5 border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20 shadow-xs space-y-3">
         <h3 className="text-sm font-semibold text-rose-700 dark:text-rose-400 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4" />
           <span>Wipe All Application Data</span>
         </h3>
         <p className="text-xs text-rose-600/80 dark:text-rose-300/80 leading-relaxed">
-          Permanently delete all notes, custom categories, and settings from local device storage.
+          Permanently delete all notes, custom category pins, and settings from local device storage. Biometric or device PIN verification is required.
         </p>
 
         {showWipeConfirm ? (
-          <div className="flex items-center gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => {
-                setShowWipeConfirm(false);
-                onWipeData();
-              }}
-              className="px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold shadow-xs cursor-pointer active:scale-95"
-            >
-              Yes, Wipe Everything
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowWipeConfirm(false)}
-              className="px-4 py-2 rounded-xl bg-white dark:bg-[#1B1524] text-[#484455] dark:text-[#A39BAC] text-xs font-semibold border border-[#EADBFC] dark:border-[#322742] cursor-pointer"
-            >
-              Cancel
-            </button>
+          <div className="space-y-2.5 pt-1">
+            <div className="p-2.5 rounded-xl bg-rose-100/70 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-200 font-medium">
+              Please verify your identity with Android biometric lock or device PIN to permanently wipe all notes.
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                disabled={isLockChecking}
+                onClick={async () => {
+                  setIsLockChecking(true);
+                  setLockStatusMsg(null);
+                  const authResult = isNativeLockEnabled()
+                    ? await verifyWithAndroidNativeLock()
+                    : await registerNativeDeviceLock();
+                  setIsLockChecking(false);
+
+                  if (authResult.success) {
+                    setShowWipeConfirm(false);
+                    onWipeData();
+                    setLockStatusMsg({ text: 'Biometric verified. All notes and categories wiped.' });
+                  } else {
+                    setLockStatusMsg({
+                      text: authResult.error || 'Biometric verification required to wipe notes.',
+                      isError: true,
+                    });
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold shadow-xs cursor-pointer active:scale-95 flex items-center gap-1.5"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Verify Biometric & Wipe All</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowWipeConfirm(false)}
+                className="px-4 py-2 rounded-xl bg-white dark:bg-[#1B1524] text-[#484455] dark:text-[#A39BAC] text-xs font-semibold border border-[#EADBFC] dark:border-[#322742] cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         ) : (
           <button
