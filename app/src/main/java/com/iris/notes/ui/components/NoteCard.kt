@@ -2,6 +2,7 @@ package com.iris.notes.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -97,6 +99,7 @@ fun NoteCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
             .combinedClickable(
                 onClick = { onClick() },
                 onLongClick = { showDeleteConfirmDialog = true }
@@ -205,7 +208,7 @@ fun NoteCard(
                             ) {
                                 Checkbox(
                                     checked = item.completed,
-                                    onCheckedChange = { onToggleCheckItem(item.id) },
+                                    onCheckedChange = { _ -> onToggleCheckItem(item.id) },
                                     modifier = Modifier.size(14.dp)
                                 )
                             }

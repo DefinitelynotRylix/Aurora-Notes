@@ -25,6 +25,7 @@ import com.iris.notes.model.Note
 import com.iris.notes.ui.components.NoteCard
 import com.iris.notes.ui.theme.IrisRoyalViolet
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotesScreen(
     notes: List<Note>,
