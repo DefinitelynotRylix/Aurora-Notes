@@ -17,10 +17,21 @@ interface NavItem {
   badge?: number;
 }
 
-const easeFluidGlide = (t: number): number => {
+const easeFluidOvershoot = (t: number, overshoot: number = 1.32): number => {
   const clamped = Math.min(1, Math.max(0, t));
-  return 1 - Math.pow(1 - clamped, 3.2);
+  const inv = clamped - 1;
+  return 1 + (overshoot + 1) * Math.pow(inv, 3) + overshoot * Math.pow(inv, 2);
 };
+
+function triggerWebHaptic(enabled: boolean) {
+  if (
+    enabled &&
+    typeof navigator !== 'undefined' &&
+    typeof navigator.vibrate === 'function'
+  ) {
+    navigator.vibrate(30);
+  }
+}
 
 function buildMetaballDropPath(
   dropPos: number,
@@ -32,11 +43,14 @@ function buildMetaballDropPath(
   const slotWidth = width / Math.max(1, tabCount);
   const h = height;
   const centerY = h / 2;
-  const sep = Math.abs(dropPos - bodyPos);
+  const maxTabIndex = Math.max(0, tabCount - 1);
+  const clampedDrop = Math.min(maxTabIndex, Math.max(0, dropPos));
+  const clampedBody = Math.min(maxTabIndex, Math.max(0, bodyPos));
+  const sep = Math.abs(clampedDrop - clampedBody);
   const dropShrink = Math.min(1, Math.max(0, sep / (sep + 0.28)));
 
   if (sep < 0.005) {
-    const left = Math.max(0, Math.min(width - slotWidth, dropPos * slotWidth));
+    const left = Math.max(0, Math.min(width - slotWidth, clampedDrop * slotWidth));
     const right = Math.max(left + h, Math.min(width, left + slotWidth));
     const r = h / 2;
     const lc = left + r;
@@ -44,12 +58,12 @@ function buildMetaballDropPath(
     return `M ${lc} 0 L ${rc} 0 A ${r} ${r} 0 0 1 ${rc} ${h} L ${lc} ${h} A ${r} ${r} 0 0 1 ${lc} 0 Z`;
   }
 
-  const isMovingRight = dropPos >= bodyPos;
-  const bodyCenterX = (bodyPos + 0.5) * slotWidth;
+  const isMovingRight = clampedDrop >= clampedBody;
+  const bodyCenterX = (clampedBody + 0.5) * slotWidth;
   const bodyH = Math.max(h * 0.88, h * (1 - 0.03 * dropShrink));
   const bodyW = Math.max(bodyH, slotWidth * (1 - 0.08 * dropShrink));
 
-  const dropCenterX = (dropPos + 0.5) * slotWidth;
+  const dropCenterX = (clampedDrop + 0.5) * slotWidth;
   const dropH = Math.max(h * 0.80, h * (1 - 0.14 * dropShrink));
   const dropW = Math.max(dropH, slotWidth * (1 - 0.24 * dropShrink));
 
@@ -60,8 +74,12 @@ function buildMetaballDropPath(
   const rightW = isMovingRight ? dropW : bodyW;
   const rightH = isMovingRight ? dropH : bodyH;
 
-  const leftOuter = Math.max(0, Math.min(width - leftH, leftCX - leftW / 2));
-  const rightOuter = Math.max(leftOuter + rightH, Math.min(width, rightCX + rightW / 2));
+  // Strictly clamp inside [0, width] so the pill can never clip outside the navbar
+  const leftOuter = Math.max(0, Math.min(Math.max(0, width - leftH), leftCX - leftW / 2));
+  const rightOuter = Math.max(
+    Math.min(width, leftOuter + rightH),
+    Math.min(width, rightCX + rightW / 2)
+  );
 
   const leftTop = centerY - leftH / 2;
   const leftBottom = centerY + leftH / 2;
@@ -124,6 +142,9 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
 
   const trackRef = useRef<HTMLDivElement>(null);
   const [trackSize, setTrackSize] = useState({ width: 320, height: 44 });
+  const [isHoldingPill, setIsHoldingPill] = useState(false);
+  const [dragTabPos, setDragTabPos] = useState(targetIndex);
+
   const [animState, setAnimState] = useState({
     dropPos: targetIndex,
     bodyPos: targetIndex,
@@ -137,6 +158,22 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     target: targetIndex,
     startTime: 0,
     rafId: 0,
+  });
+
+  const gestureRef = useRef<{
+    pointerId: number | null;
+    startX: number;
+    currentX: number;
+    tappedIndex: number;
+    holdModeActive: boolean;
+    holdTimer: number | null;
+  }>({
+    pointerId: null,
+    startX: 0,
+    currentX: 0,
+    tappedIndex: targetIndex,
+    holdModeActive: false,
+    holdTimer: null,
   });
 
   useEffect(() => {
@@ -153,9 +190,44 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     return () => window.removeEventListener('resize', updateMeasure);
   }, []);
 
+  // Sync while holding & sliding the purple pill
   useEffect(() => {
+    if (!isHoldingPill) return;
+    cancelAnimationFrame(animRef.current.rafId);
+
+    let raf = 0;
+    const step = () => {
+      const state = animRef.current;
+      const nextDrop = state.currentDrop + (dragTabPos - state.currentDrop) * 0.42;
+      const nextBody = state.currentBody + (dragTabPos - state.currentBody) * 0.22;
+      state.currentDrop = nextDrop;
+      state.currentBody = nextBody;
+      setAnimState({
+        dropPos: nextDrop,
+        bodyPos: nextBody,
+      });
+      if (
+        Math.abs(dragTabPos - nextDrop) > 0.002 ||
+        Math.abs(dragTabPos - nextBody) > 0.002
+      ) {
+        raf = requestAnimationFrame(step);
+      }
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [isHoldingPill, dragTabPos]);
+
+  // Animate fluid drop going slightly past the target button and settling back into place
+  useEffect(() => {
+    if (isHoldingPill) return;
     const state = animRef.current;
-    if (state.target === targetIndex) return;
+    if (
+      state.target === targetIndex &&
+      Math.abs(state.currentDrop - targetIndex) < 0.005 &&
+      Math.abs(state.currentBody - targetIndex) < 0.005
+    ) {
+      return;
+    }
 
     cancelAnimationFrame(state.rafId);
     state.startDrop = state.currentDrop;
@@ -163,13 +235,13 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     state.target = targetIndex;
     state.startTime = performance.now();
 
-    const DROP_DURATION = 340;
-    const BODY_DURATION = 640;
+    const DROP_DURATION = 420;
+    const BODY_DURATION = 680;
 
     const tick = (now: number) => {
       const elapsed = Math.max(0, now - state.startTime);
-      const dropProgress = easeFluidGlide(elapsed / DROP_DURATION);
-      const bodyProgress = easeFluidGlide(elapsed / BODY_DURATION);
+      const dropProgress = easeFluidOvershoot(elapsed / DROP_DURATION, 1.38);
+      const bodyProgress = easeFluidOvershoot(elapsed / BODY_DURATION, 1.15);
 
       const nextDrop = Math.min(
         items.length - 1,
@@ -182,20 +254,118 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
 
       state.currentDrop = nextDrop;
       state.currentBody = nextBody;
-      setAnimState({ dropPos: nextDrop, bodyPos: nextBody });
+      setAnimState({
+        dropPos: nextDrop,
+        bodyPos: nextBody,
+      });
 
       if (elapsed < BODY_DURATION) {
         state.rafId = requestAnimationFrame(tick);
       } else {
         state.currentDrop = state.target;
         state.currentBody = state.target;
-        setAnimState({ dropPos: state.target, bodyPos: state.target });
+        setAnimState({
+          dropPos: state.target,
+          bodyPos: state.target,
+        });
       }
     };
 
     state.rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(state.rafId);
-  }, [targetIndex, items.length]);
+  }, [targetIndex, isHoldingPill, items.length]);
+
+  const computeDragPosFromClientX = (clientX: number): number => {
+    if (!trackRef.current) return targetIndex;
+    const rect = trackRef.current.getBoundingClientRect();
+    const relX = clientX - rect.left;
+    const tabWidth = Math.max(1, rect.width / items.length);
+    return Math.min(items.length - 1, Math.max(0, relX / tabWidth - 0.5));
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!trackRef.current) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const rect = trackRef.current.getBoundingClientRect();
+    const relX = e.clientX - rect.left;
+    const tabWidth = Math.max(1, rect.width / items.length);
+    const tappedIndex = Math.min(
+      items.length - 1,
+      Math.max(0, Math.floor(relX / tabWidth))
+    );
+
+    // Haptic feedback at push
+    triggerWebHaptic(isHapticsEnabled);
+
+    if (gestureRef.current.holdTimer !== null) {
+      window.clearTimeout(gestureRef.current.holdTimer);
+    }
+
+    const holdTimer = window.setTimeout(() => {
+      if (gestureRef.current.pointerId === e.pointerId) {
+        gestureRef.current.holdModeActive = true;
+        setIsHoldingPill(true);
+        setDragTabPos(computeDragPosFromClientX(gestureRef.current.currentX));
+      }
+    }, 165);
+
+    gestureRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      currentX: e.clientX,
+      tappedIndex,
+      holdModeActive: false,
+      holdTimer,
+    };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (gestureRef.current.pointerId !== e.pointerId) return;
+    gestureRef.current.currentX = e.clientX;
+    const dx = Math.abs(e.clientX - gestureRef.current.startX);
+
+    if (!gestureRef.current.holdModeActive && dx > 6) {
+      if (gestureRef.current.holdTimer !== null) {
+        window.clearTimeout(gestureRef.current.holdTimer);
+        gestureRef.current.holdTimer = null;
+      }
+      gestureRef.current.holdModeActive = true;
+      setIsHoldingPill(true);
+    }
+
+    if (gestureRef.current.holdModeActive) {
+      // Slide the purple pill through the menus with NO haptic feedback
+      setDragTabPos(computeDragPosFromClientX(e.clientX));
+    }
+  };
+
+  const finishGesture = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (gestureRef.current.pointerId !== e.pointerId) return;
+    if (gestureRef.current.holdTimer !== null) {
+      window.clearTimeout(gestureRef.current.holdTimer);
+      gestureRef.current.holdTimer = null;
+    }
+
+    const wasHolding = gestureRef.current.holdModeActive;
+    const tappedIdx = gestureRef.current.tappedIndex;
+    const finalDragPos = computeDragPosFromClientX(e.clientX);
+    gestureRef.current.pointerId = null;
+    gestureRef.current.holdModeActive = false;
+
+    if (wasHolding) {
+      const landedIndex = Math.min(
+        items.length - 1,
+        Math.max(0, Math.round(finalDragPos))
+      );
+      setIsHoldingPill(false);
+      // Haptic feedback upon letting go of the hold phase
+      triggerWebHaptic(isHapticsEnabled);
+      onChangeTab(items[landedIndex].id);
+    } else {
+      setIsHoldingPill(false);
+      onChangeTab(items[tappedIdx].id);
+    }
+  };
 
   const pillPath = buildMetaballDropPath(
     animState.dropPos,
@@ -205,6 +375,10 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     trackSize.height
   );
 
+  const visualActiveIndex = isHoldingPill
+    ? Math.min(items.length - 1, Math.max(0, Math.round(dragTabPos)))
+    : targetIndex;
+
   return (
     <nav
       aria-label="Bottom Navigation"
@@ -213,7 +387,11 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
       <div className="glass-floating rounded-full p-1.5 flex items-center justify-between shadow-[0_16px_36px_-4px_rgba(89,37,220,0.28)] dark:shadow-[0_16px_36px_-4px_rgba(0,0,0,0.75)] border border-white/80 dark:border-white/15 bg-white/95 dark:bg-[#140E21]/95 backdrop-blur-2xl overflow-hidden">
         <div
           ref={trackRef}
-          className="relative grid grid-cols-4 w-full rounded-full overflow-hidden"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={finishGesture}
+          onPointerCancel={finishGesture}
+          className="relative grid grid-cols-4 w-full rounded-full overflow-hidden touch-none select-none"
         >
           <svg
             width={trackSize.width}
@@ -225,7 +403,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
             <defs>
               <linearGradient id="aurora-pill-grad" x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="#6929F5" />
-                <stop offset="50%" stopColor="#8E42FF" />
+                <stop offset="50%" stopColor="#7B35E8" />
                 <stop offset="100%" stopColor="#B86BFF" />
               </linearGradient>
               <filter id="aurora-pill-glow" x="-15%" y="-25%" width="130%" height="150%">
@@ -245,26 +423,17 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
             />
           </svg>
 
-          {items.map((item) => {
-            const isSelected = activeTab === item.id;
+          {items.map((item, idx) => {
+            const isSelected = visualActiveIndex === idx;
             const IconComponent = item.icon;
 
             return (
               <button
                 key={item.id}
-                onClick={() => {
-                  if (
-                    isHapticsEnabled &&
-                    typeof navigator !== 'undefined' &&
-                    typeof navigator.vibrate === 'function'
-                  ) {
-                    navigator.vibrate(30);
-                  }
-                  onChangeTab(item.id);
-                }}
+                type="button"
                 aria-label={item.label}
                 aria-current={isSelected ? 'page' : undefined}
-                className={`relative py-2.5 rounded-full flex items-center justify-center gap-1.5 text-xs font-semibold transition-colors duration-300 select-none focus:outline-none cursor-pointer w-full z-10 ${
+                className={`relative py-2.5 rounded-full flex items-center justify-center gap-1.5 text-xs font-semibold transition-all duration-200 select-none focus:outline-none cursor-pointer w-full z-10 ${
                   isSelected
                     ? 'text-white'
                     : 'text-[#484455] dark:text-[#A39BAC] hover:text-[#5925DC] dark:hover:text-[#C296FD]'
@@ -272,7 +441,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
               >
                 <span className="relative z-10 flex items-center justify-center gap-1">
                   <IconComponent
-                    className={`w-4 h-4 transition-transform duration-300 ${
+                    className={`w-4 h-4 transition-transform duration-200 ${
                       isSelected ? 'scale-105' : 'group-hover:scale-105'
                     }`}
                   />

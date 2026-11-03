@@ -1,6 +1,8 @@
 package com.aurora.notes.ui.components
 
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Path
 import kotlin.math.abs
 import kotlin.math.max
@@ -10,18 +12,18 @@ import kotlin.math.min
  * Computes the organic metaball / fluid-droplet geometry for Aurora Notes' bottom navigation bar.
  *
  * Visual behavior:
- * 1. When a user selects a menu tab, a small purple fluid droplet ([dropPos]) rapidly detaches
- *    ahead of the main pill body ([bodyPos]) and travels to the selected menu tab while remaining
- *    connected via a slender, C1-continuous cubic-Bezier liquid tendril.
- * 2. The rest of the main pill ([bodyPos]) then glides along the liquid tendril and attaches
- *    itself into the waiting droplet upon arrival, seamlessly expanding it back into the full
- *    resting capsule.
+ * 1. When a user selects a menu tab, a small purple fluid droplet ([dropPos]) detaches ahead of
+ *    the main pill body ([bodyPos]) and glides to the selected menu tab (overshooting slightly
+ *    into the neighboring button before settling back into place) while remaining connected via
+ *    a smooth cubic-Bezier liquid bridge.
+ * 2. The rest of the main pill ([bodyPos]) follows along the liquid bridge and attaches itself
+ *    into the droplet, strictly contained within `[0f, containerWidthPx]` so it never clips
+ *    outside the navbar.
  */
 object FluidDropPathBuilder {
 
     data class FluidDropPaths(
         val mainMetaballPath: Path,
-        val specularDropHighlightPath: Path,
         val boundingLeftPx: Float,
         val boundingRightPx: Float
     )
@@ -38,8 +40,11 @@ object FluidDropPathBuilder {
         val h = containerHeightPx
         val centerY = h / 2f
 
-        val clampedDrop = dropPos.coerceIn(0f, (safeTabCount - 1).toFloat())
-        val clampedBody = bodyPos.coerceIn(0f, (safeTabCount - 1).toFloat())
+        // Clamp within the navbar track [0 .. tabCount - 1] so the pill can overshoot into
+        // neighboring buttons inside the bar but never clip past the outer ends of the navbar.
+        val maxTabIndex = (safeTabCount - 1).toFloat()
+        val clampedDrop = dropPos.coerceIn(0f, maxTabIndex)
+        val clampedBody = bodyPos.coerceIn(0f, maxTabIndex)
         val separation = abs(clampedDrop - clampedBody)
 
         // Normalized separation factor [0f .. 1f]:
@@ -47,15 +52,13 @@ object FluidDropPathBuilder {
         // and decays smoothly to 0f as the main pill attaches into the drop upon arrival.
         val dropShrink = (separation / (separation + 0.28f)).coerceIn(0f, 1f)
 
-        // At rest (or once the main pill has fully attached into the little drop)
+        // At rest (or once the main pill has attached into the little drop and settles back into place)
         if (separation < 0.005f) {
-            val left = (clampedDrop * tabWidthPx).coerceIn(0f, containerWidthPx - tabWidthPx)
+            val left = (clampedDrop * tabWidthPx).coerceIn(0f, (containerWidthPx - tabWidthPx).coerceAtLeast(0f))
             val right = (left + tabWidthPx).coerceIn(left + h, containerWidthPx)
             val capsule = buildSymmetricCapsule(left, 0f, right, h)
-            val highlight = buildRestingHighlight(left, right, h)
             return FluidDropPaths(
                 mainMetaballPath = capsule,
-                specularDropHighlightPath = highlight,
                 boundingLeftPx = left,
                 boundingRightPx = right
             )
@@ -69,8 +72,8 @@ object FluidDropPathBuilder {
         val bodyW = (tabWidthPx * (1f - 0.08f * dropShrink)).coerceAtLeast(bodyH)
 
         // Leading fluid drop dimensions:
-        // Forms a rounded purple fluid drop ahead of the main pill without getting too small,
-        // then expands back to full capsule dimensions as the main pill attaches into it.
+        // Forms a rounded purple fluid drop ahead of the main pill, then expands back
+        // to full capsule dimensions as the main pill attaches into it.
         val dropCenterX = (clampedDrop + 0.5f) * tabWidthPx
         val dropH = (h * (1f - 0.14f * dropShrink)).coerceAtLeast(h * 0.80f)
         val dropW = (tabWidthPx * (1f - 0.24f * dropShrink)).coerceAtLeast(dropH)
@@ -99,8 +102,12 @@ object FluidDropPathBuilder {
             rightH = bodyH
         }
 
-        val leftOuter = (leftCX - leftW / 2f).coerceIn(0f, containerWidthPx - leftH)
-        val rightOuter = (rightCX + rightW / 2f).coerceIn(leftOuter + rightH, containerWidthPx)
+        // Strictly clamp leftOuter and rightOuter inside [0f, containerWidthPx] so the pill never clips out
+        val leftOuter = (leftCX - leftW / 2f).coerceIn(0f, (containerWidthPx - leftH).coerceAtLeast(0f))
+        val rightOuter = (rightCX + rightW / 2f).coerceIn(
+            (leftOuter + rightH).coerceAtMost(containerWidthPx),
+            containerWidthPx
+        )
 
         val leftTop = centerY - leftH / 2f
         val leftBottom = centerY + leftH / 2f
@@ -116,10 +123,8 @@ object FluidDropPathBuilder {
             val blendedTop = centerY - blendedH / 2f
             val blendedBottom = centerY + blendedH / 2f
             val merged = buildSymmetricCapsule(leftOuter, blendedTop, rightOuter, blendedBottom)
-            val highlight = buildRestingHighlight(leftOuter, rightOuter, h)
             return FluidDropPaths(
                 mainMetaballPath = merged,
-                specularDropHighlightPath = highlight,
                 boundingLeftPx = leftOuter,
                 boundingRightPx = rightOuter
             )
@@ -142,14 +147,15 @@ object FluidDropPathBuilder {
 
         val metaballPath = Path().apply {
             // 1. Left lobe semicircular end cap (bottom-left to top-left)
+            // Use forceMoveTo = true on the first contour command so no stray line connects from (0,0).
             arcTo(
                 rect = Rect(leftOuter, leftTop, leftOuter + leftH, leftBottom),
                 startAngleDegrees = 90f,
                 sweepAngleDegrees = 180f,
-                forceMoveTo = false
+                forceMoveTo = true
             )
 
-            // 2. Top contour from left lobe crown down into the thin liquid neck
+            // 2. Top contour from left lobe crown down into the liquid neck
             cubicTo(
                 x1 = leftCapCenterX + leftSpan * 0.54f,
                 y1 = leftTop,
@@ -200,29 +206,8 @@ object FluidDropPathBuilder {
             close()
         }
 
-        // Build a subtle specular highlight inside the leading droplet so it gleams like liquid glass
-        val dropHighlightPath = Path().apply {
-            val dropletLeft = if (isMovingRight) rightOuter - rightW else leftOuter
-            val dropletRight = if (isMovingRight) rightOuter else leftOuter + leftW
-            val dropletTop = if (isMovingRight) rightTop else leftTop
-            val insetX = (dropletRight - dropletLeft) * 0.24f
-            val insetY = dropH * 0.18f
-            if (dropletRight - dropletLeft > insetX * 2f) {
-                addRoundRect(
-                    androidx.compose.ui.geometry.RoundRect(
-                        left = dropletLeft + insetX,
-                        top = dropletTop + insetY,
-                        right = dropletRight - insetX,
-                        bottom = (dropletTop + insetY + dropH * 0.16f).coerceAtMost(centerY),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(dropH * 0.1f, dropH * 0.1f)
-                    )
-                )
-            }
-        }
-
         return FluidDropPaths(
             mainMetaballPath = metaballPath,
-            specularDropHighlightPath = dropHighlightPath,
             boundingLeftPx = leftOuter,
             boundingRightPx = rightOuter
         )
@@ -236,45 +221,17 @@ object FluidDropPathBuilder {
     ): Path {
         val h = (bottom - top).coerceAtLeast(1f)
         val safeRight = max(right, left + h)
+        val radius = h / 2f
         return Path().apply {
-            arcTo(
-                rect = Rect(left, top, left + h, bottom),
-                startAngleDegrees = 90f,
-                sweepAngleDegrees = 180f,
-                forceMoveTo = false
-            )
-            lineTo(safeRight - h / 2f, top)
-            arcTo(
-                rect = Rect(safeRight - h, top, safeRight, bottom),
-                startAngleDegrees = 270f,
-                sweepAngleDegrees = 180f,
-                forceMoveTo = false
-            )
-            lineTo(left + h / 2f, bottom)
-            close()
-        }
-    }
-
-    private fun buildRestingHighlight(
-        left: Float,
-        right: Float,
-        height: Float
-    ): Path {
-        val width = (right - left).coerceAtLeast(1f)
-        val insetX = width * 0.22f
-        val insetY = height * 0.15f
-        return Path().apply {
-            if (right - left > insetX * 2f) {
-                addRoundRect(
-                    androidx.compose.ui.geometry.RoundRect(
-                        left = left + insetX,
-                        top = insetY,
-                        right = right - insetX,
-                        bottom = insetY + height * 0.12f,
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(height * 0.08f, height * 0.08f)
-                    )
+            addRoundRect(
+                RoundRect(
+                    left = left,
+                    top = top,
+                    right = safeRight,
+                    bottom = bottom,
+                    cornerRadius = CornerRadius(radius, radius)
                 )
-            }
+            )
         }
     }
 }
