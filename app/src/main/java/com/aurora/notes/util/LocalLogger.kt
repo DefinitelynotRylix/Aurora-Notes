@@ -48,12 +48,13 @@ object LocalLogger {
     }
 
     fun security(category: String, message: String) {
-        record(LogLevel.SECURITY, category, message)
-        Log.i(TAG, "[SECURITY] [$category] $message")
+        // Restricted: routine informational/security actions are not shown in diagnostic logs;
+        // only errors and warnings are recorded when one occurs.
     }
 
     private fun record(level: LogLevel, category: String, message: String) {
         if (!isLoggingActive) return
+        if (level != LogLevel.ERROR && level != LogLevel.WARN) return
 
         val entry = LogEntry(
             level = level,

@@ -30,7 +30,13 @@ class LocalLogger {
 
       const stored = localStorage.getItem(STORAGE_LOGS_KEY);
       if (stored) {
-        this.logs = JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          // Restrict strictly to ERROR and WARN entries
+          this.logs = parsed.filter(
+            (entry: LogEntry) => entry && (entry.level === 'ERROR' || entry.level === 'WARN')
+          );
+        }
       }
     } catch {
       this.logs = [];
@@ -66,18 +72,17 @@ class LocalLogger {
     } catch {
       // ignore
     }
-    if (enabled) {
-      this.security('LOGGER', 'Local diagnostic logging enabled by user');
-    }
     this.notify();
   }
 
   public getLogs(): LogEntry[] {
-    return [...this.logs];
+    return this.logs.filter((entry) => entry.level === 'ERROR' || entry.level === 'WARN');
   }
 
   public log(level: LogLevel, category: string, message: string, details?: string): LogEntry | null {
     if (!this.isEnabled) return null;
+    // Only record warnings and errors when one occurs
+    if (level !== 'ERROR' && level !== 'WARN') return null;
 
     const entry: LogEntry = {
       id: 'log-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
@@ -94,8 +99,6 @@ class LocalLogger {
       console.error(consoleTag, details || '');
     } else if (level === 'WARN') {
       console.warn(consoleTag, details || '');
-    } else {
-      console.info(consoleTag, details || '');
     }
 
     // Prepend to maintain reverse chronological order (newest first)
@@ -112,8 +115,9 @@ class LocalLogger {
     return this.log('WARN', category, message, details);
   }
 
-  public security(category: string, message: string, details?: string): LogEntry | null {
-    return this.log('SECURITY', category, message, details);
+  public security(_category: string, _message: string, _details?: string): LogEntry | null {
+    // Restricted: routine informational/security actions are not logged; only errors and warnings are shown when one occurs.
+    return null;
   }
 
   public clearLogs() {

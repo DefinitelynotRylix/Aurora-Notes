@@ -205,12 +205,14 @@ export function toggleCheckboxCheckedStateAtOffset(
 
 /**
  * Computes layout span & alignment properties when changing note view format.
- * Ensures the first note expands widely horizontally and every subsequent note aligns
- * according to the first note.
+ * In Masonry Grid view (isGridView = true), the first note stays the same single-column size
+ * as every other note so notes sit side by side without stretching.
+ * When Single-Column view (isGridView = false) is enabled, the first note expands widely
+ * horizontally and every subsequent note aligns according to the first note.
  */
 export function getNoteViewFormatAlignment(
   index: number,
-  totalNotes: number,
+  _totalNotes: number,
   isGridView: boolean
 ): {
   isFirstNote: boolean;
@@ -218,13 +220,11 @@ export function getNoteViewFormatAlignment(
   alignsToFirstNoteBounds: boolean;
 } {
   const isFirstNote = index === 0;
-  // When switching to list/column view (or when there is a single note),
-  // the first note expands across the full horizontal width and all other notes align to it.
-  const spansFullHorizontalWidth = !isGridView || totalNotes === 1;
+  const spansFullHorizontalWidth = !isGridView;
   return {
     isFirstNote,
     spansFullHorizontalWidth,
-    alignsToFirstNoteBounds: true,
+    alignsToFirstNoteBounds: !isGridView,
   };
 }
 

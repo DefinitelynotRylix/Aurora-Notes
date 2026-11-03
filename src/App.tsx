@@ -866,9 +866,9 @@ export default function App() {
 
                       return (
                         <motion.div
-                          key={`${note.id}-${isFirstNote ? 'first' : 'aligned'}`}
+                          key={note.id}
                           layout
-                          initial={{ opacity: 0.88, scaleX: isFirstNote ? 0.86 : 0.94, scaleY: 0.96 }}
+                          initial={{ opacity: 0.92, scaleX: !isGridView && isFirstNote ? 0.88 : 0.96, scaleY: 0.97 }}
                           animate={{ opacity: 1, scaleX: 1, scaleY: 1 }}
                           style={{ originX: 0, originY: 0.5 }}
                           transition={{
@@ -877,13 +877,11 @@ export default function App() {
                             scaleY: { duration: 0.24 },
                             opacity: { duration: 0.22 },
                           }}
-                          className={`w-full ${
-                            isFirstNote || !isGridView ? 'col-span-full' : ''
-                          }`}
+                          className={`w-full ${!isGridView ? 'col-span-full' : ''}`}
                         >
                           <NoteCard
                             note={note}
-                            isGridView={isGridView && !isFirstNote}
+                            isGridView={isGridView}
                             animateMovement={animateMovement}
                             isSelectionMode={selectedNoteIds.length > 0}
                             isSelected={selectedNoteIds.includes(note.id)}

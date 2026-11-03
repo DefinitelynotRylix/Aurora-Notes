@@ -198,26 +198,28 @@ fun TrashScreen(
         LaunchedEffect(isGridView) {
             if (previousGridView != isGridView) {
                 previousGridView = isGridView
-                firstNoteHorizontalScale.snapTo(0.84f)
-                otherNotesAlignProgress.snapTo(0.90f)
-                firstNoteHorizontalScale.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(
-                        dampingRatio = 0.76f,
-                        stiffness = 185f
-                    )
-                )
-            }
-        }
-        LaunchedEffect(isGridView) {
-            if (otherNotesAlignProgress.value < 1f) {
-                otherNotesAlignProgress.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(
-                        dampingRatio = 0.78f,
-                        stiffness = 195f
-                    )
-                )
+                kotlinx.coroutines.coroutineScope {
+                    kotlinx.coroutines.launch {
+                        firstNoteHorizontalScale.snapTo(if (!isGridView) 0.86f else 0.94f)
+                        firstNoteHorizontalScale.animateTo(
+                            targetValue = 1f,
+                            animationSpec = spring(
+                                dampingRatio = 0.78f,
+                                stiffness = 190f
+                            )
+                        )
+                    }
+                    kotlinx.coroutines.launch {
+                        otherNotesAlignProgress.snapTo(0.92f)
+                        otherNotesAlignProgress.animateTo(
+                            targetValue = 1f,
+                            animationSpec = spring(
+                                dampingRatio = 0.80f,
+                                stiffness = 195f
+                            )
+                        )
+                    }
+                }
             }
         }
 
@@ -246,11 +248,11 @@ fun TrashScreen(
                 itemsIndexed(
                     items = trashedNotes,
                     key = { _, note -> note.id },
-                    span = { index, _ ->
-                        if (index == 0 || !isGridView) {
-                            StaggeredGridItemSpan.FullLine
-                        } else {
+                    span = { _, _ ->
+                        if (isGridView) {
                             StaggeredGridItemSpan.SingleLane
+                        } else {
+                            StaggeredGridItemSpan.FullLine
                         }
                     }
                 ) { index, note ->

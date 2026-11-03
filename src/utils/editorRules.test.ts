@@ -68,16 +68,52 @@ test('toggleCheckboxCheckedStateAtOffset toggles ☐ and ☑ on the targeted lin
   assert.equal(toggledBack.text, '☐ Buy milk\n☐ Call mom');
 });
 
-test('getNoteViewFormatAlignment expands first note horizontally and aligns subsequent notes', () => {
+import { logger } from './logger';
+
+test('getNoteViewFormatAlignment keeps first note single-column in masonry grid view and only expands in column view', () => {
+  // In Masonry Grid view (isGridView = true), the first note and second note stay single-column (do not stretch full width)
+  const gridFirst = getNoteViewFormatAlignment(0, 4, true);
+  const gridSecond = getNoteViewFormatAlignment(1, 4, true);
+  assert.equal(gridFirst.isFirstNote, true);
+  assert.equal(gridFirst.spansFullHorizontalWidth, false);
+  assert.equal(gridSecond.spansFullHorizontalWidth, false);
+
+  // Even with 1 note in Masonry Grid view, it stays at single-column size
+  const singleGrid = getNoteViewFormatAlignment(0, 1, true);
+  assert.equal(singleGrid.spansFullHorizontalWidth, false);
+
+  // When switching to Single-Column view (isGridView = false), the first note expands horizontally and others align to it
   const colFirst = getNoteViewFormatAlignment(0, 4, false);
   const colSecond = getNoteViewFormatAlignment(1, 4, false);
   assert.equal(colFirst.isFirstNote, true);
   assert.equal(colFirst.spansFullHorizontalWidth, true);
   assert.equal(colSecond.spansFullHorizontalWidth, true);
   assert.equal(colSecond.alignsToFirstNoteBounds, true);
+});
 
-  const singleGrid = getNoteViewFormatAlignment(0, 1, true);
-  assert.equal(singleGrid.spansFullHorizontalWidth, true);
+test('logger restricts entries strictly to ERROR and WARN when one occurs', () => {
+  logger.clearLogs();
+  assert.equal(logger.getLogs().length, 0);
+
+  // Routine security/informational logs must be ignored
+  const secEntry = logger.security('ARCHIVE', 'Archived note');
+  assert.equal(secEntry, null);
+  assert.equal(logger.getLogs().length, 0);
+
+  // Warning and Error logs must be recorded when one occurs
+  const warnEntry = logger.warn('NOTE', 'Discarded blank note');
+  assert.ok(warnEntry);
+  assert.equal(warnEntry.level, 'WARN');
+
+  const errEntry = logger.error('UPDATE', 'Failed checking GitHub Releases');
+  assert.ok(errEntry);
+  assert.equal(errEntry.level, 'ERROR');
+
+  const allLogs = logger.getLogs();
+  assert.equal(allLogs.length, 2);
+  assert.equal(allLogs[0].level, 'ERROR');
+  assert.equal(allLogs[1].level, 'WARN');
+  logger.clearLogs();
 });
 
 test('compareReleaseVersions detects newer GitHub Releases across standard semver and CI run numbers', () => {
@@ -91,4 +127,5 @@ test('compareReleaseVersions detects newer GitHub Releases across standard semve
   assert.equal(runNum, 29);
   assert.equal(compareReleaseVersions('v1.2.29', '1.3.28', runNum, 128), 1);
 });
+
 

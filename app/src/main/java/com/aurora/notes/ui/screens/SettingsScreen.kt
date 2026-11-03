@@ -1011,6 +1011,16 @@ fun SettingsScreen(
                     )
                 }
 
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "Restricted to errors and warnings only. Logged locally in device memory when an issue occurs.",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        fontSize = 11.sp
+                    )
+                )
+
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Row(
@@ -1023,11 +1033,6 @@ fun SettingsScreen(
                         selected = selectedLevelFilter == null,
                         onClick = { selectedLevelFilter = null },
                         label = { Text("ALL (${logs.size})", fontSize = 11.sp) }
-                    )
-                    FilterChip(
-                        selected = selectedLevelFilter == LogLevel.SECURITY,
-                        onClick = { selectedLevelFilter = LogLevel.SECURITY },
-                        label = { Text("SECURITY (${logs.count { it.level == LogLevel.SECURITY }})", fontSize = 11.sp) }
                     )
                     FilterChip(
                         selected = selectedLevelFilter == LogLevel.WARN,
@@ -1053,7 +1058,7 @@ fun SettingsScreen(
                 ) {
                     if (filteredLogs.isEmpty()) {
                         Text(
-                            text = "No diagnostic events captured in current buffer.",
+                            text = "No warnings or errors recorded.",
                             color = Color(0xFF6B6577),
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp
