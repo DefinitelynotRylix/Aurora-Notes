@@ -34,6 +34,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.aurora.notes.model.Note
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.util.NoteShareHelper
+import com.aurora.notes.util.PrivateStorageManager
 import com.aurora.notes.util.ShareNoteFormat
 
 @Composable
@@ -46,68 +47,54 @@ fun ShareNoteDialog(
     val context = LocalContext.current
     var selectedFormat by remember { mutableStateOf(ShareNoteFormat.MARKDOWN) }
 
-    val formattedPreview = remember(notes, selectedFormat) {
-        NoteShareHelper.formatNotes(notes, selectedFormat)
+    val plainNotes = remember(notes) {
+        notes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
     }
-    val suggestedFileName = remember(notes, selectedFormat) {
-        NoteShareHelper.buildSuggestedFileName(notes, selectedFormat)
+
+    val formattedPreview = remember(plainNotes, selectedFormat) {
+        NoteShareHelper.formatNotes(plainNotes, selectedFormat)
+    }
+    val suggestedFileName = remember(plainNotes, selectedFormat) {
+        NoteShareHelper.buildSuggestedFileName(plainNotes, selectedFormat)
     }
 
     // Android Storage Access Framework launcher allowing user to pick any preferred folder & filename
-    val saveToFolderLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val targetUri = result.data?.data
-            if (targetUri != null) {
-                val ok = NoteShareHelper.writeNoteToChosenUri(
-                    context = context,
-                    uri = targetUri,
-                    notes = notes,
-                    format = selectedFormat
-                )
-                if (ok) {
-                    Toast.makeText(
-                        context,
-                        "Saved $suggestedFileName to your chosen folder!",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    onDismiss()
-                } else {
-                    Toast.makeText(
-                        context,
-                        "Could not write file to selected location.",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
+    val createDocLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(selectedFormat.mimeType)
+    ) { targetUri ->
+        if (targetUri != null) {
+            val ok = NoteShareHelper.writeNoteToChosenUri(
+                context = context,
+                uri = targetUri,
+                notes = plainNotes,
+                format = selectedFormat
+            )
+            if (ok) {
+                Toast.makeText(
+                    context,
+                    "Saved $suggestedFileName to your chosen folder!",
+                    Toast.LENGTH_LONG
+                ).show()
+                onDismiss()
+            } else {
+                Toast.makeText(
+                    context,
+                    "Could not write file to selected location.",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }
 
     fun launchAndroidFolderFilePicker() {
-        val createIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = selectedFormat.mimeType
-            putExtra(Intent.EXTRA_TITLE, suggestedFileName)
-        }
         try {
-            saveToFolderLauncher.launch(createIntent)
-        } catch (_: Exception) {
-            // Fallback in case a custom OEM file picker doesn't register text/markdown
-            val fallbackIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TITLE, suggestedFileName)
-            }
-            try {
-                saveToFolderLauncher.launch(fallbackIntent)
-            } catch (e: Exception) {
-                Toast.makeText(
-                    context,
-                    "Could not open Android File Picker: ${e.localizedMessage}",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            createDocLauncher.launch(suggestedFileName)
+        } catch (e: Exception) {
+            Toast.makeText(
+                context,
+                "Could not open Android File Picker: ${e.localizedMessage ?: "Unknown error"}",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 

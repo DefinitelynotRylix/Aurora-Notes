@@ -13,6 +13,7 @@ import {
   X
 } from 'lucide-react';
 import { logger } from '../utils/logger';
+import { MorphingNotesGrid } from './MorphingNotesGrid';
 
 interface TrashViewProps {
   trashedNotes: Note[];

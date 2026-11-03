@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aurora.notes.model.Note
+import com.aurora.notes.ui.components.MorphingNotesGrid
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import kotlinx.coroutines.launch

@@ -101,8 +101,6 @@ fun SettingsScreen(
     val logs by LocalLogger.logs.collectAsState()
     var selectedLevelFilter by remember { mutableStateOf<LogLevel?>(null) }
 
-    var newCategoryInput by remember { mutableStateOf("") }
-    var pendingDeleteCategory by remember { mutableStateOf<String?>(null) }
     var showWipeConfirmDialog by remember { mutableStateOf(false) }
 
     // App Version & Self-Update states
@@ -200,38 +198,6 @@ fun SettingsScreen(
         }
     }
 
-    if (pendingDeleteCategory != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDeleteCategory = null },
-            title = { Text("Delete Category Pin #${pendingDeleteCategory}?") },
-            text = {
-                Text(
-                    "Deleting #${pendingDeleteCategory} removes this custom category pin and returns any notes under it back to All without deleting the notes.",
-                    fontSize = 13.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val cat = pendingDeleteCategory
-                        pendingDeleteCategory = null
-                        if (cat != null) {
-                            onRemoveTag(cat)
-                            Toast.makeText(context, "Removed category pin #$cat", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
-                ) {
-                    Text("Delete Pin", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { pendingDeleteCategory = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 
     if (showWipeConfirmDialog) {
         AlertDialog(
@@ -851,15 +817,15 @@ fun SettingsScreen(
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = Color(0xFF10B981).copy(alpha = 0.14f)
                     ) {
                         Text(
-                            text = "AES-256 ALWAYS ON",
+                            text = "AES-256",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF10B981),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                         )
                     }
                 }
@@ -895,60 +861,30 @@ fun SettingsScreen(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = AuroraRoyalViolet,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = "Room Database & File Encryption",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Mandatory hardware-backed AndroidKeyStore AES-256-GCM encryption is permanently enabled for all Room SQLite records and mirrored device storage files.",
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
-                            )
-                        }
-                    }
-
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = AuroraRoyalViolet,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .padding(top = 2.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
-
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = AuroraRoyalViolet.copy(alpha = 0.14f),
-                        border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.4f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = AuroraRoyalViolet,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Locked ON",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AuroraRoyalViolet
-                            )
-                        }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Room Database & File Encryption",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Mandatory hardware-backed AndroidKeyStore AES-256-GCM encryption is permanently enabled for all Room SQLite records and mirrored device storage files.",
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+                        )
                     }
                 }
 
@@ -956,60 +892,30 @@ fun SettingsScreen(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            tint = AuroraRoyalViolet,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = "Orphaned & Temp File Cleanup",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Orphaned note files, incomplete .tmp writes, and stale shared/update cache files are swept automatically on launch, resume, and every note change.",
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
-                            )
-                        }
-                    }
-
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = AuroraRoyalViolet,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .padding(top = 2.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
-
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = AuroraRoyalViolet.copy(alpha = 0.14f),
-                        border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.4f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = AuroraRoyalViolet,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Auto-Active",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AuroraRoyalViolet
-                            )
-                        }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Orphaned & Temp File Cleanup",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Orphaned note files, incomplete .tmp writes, and stale shared/update cache files are swept automatically on launch, resume, and every note change.",
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+                        )
                     }
                 }
 
@@ -1035,135 +941,7 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 3. Custom Category Pins Card
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Tag,
-                        contentDescription = null,
-                        tint = AuroraRoyalViolet,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Custom Category Pins",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "Manage custom category tags pinned to your filter bar. Tap X or long-press a category pin to delete it (notes return to All).",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        fontSize = 11.sp
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                if (userTags.isEmpty()) {
-                    Text(
-                        text = "No custom category pins created yet.",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                            fontSize = 12.sp
-                        )
-                    )
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        userTags.forEach { tag ->
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = AuroraRoyalViolet.copy(alpha = 0.12f),
-                                border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.35f)),
-                                modifier = Modifier.combinedClickable(
-                                    onClick = { pendingDeleteCategory = tag },
-                                    onLongClick = { pendingDeleteCategory = tag }
-                                )
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
-                                ) {
-                                    Text(
-                                        text = "#$tag",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = AuroraRoyalViolet
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Delete $tag",
-                                        tint = AuroraRoyalViolet,
-                                        modifier = Modifier
-                                            .size(14.dp)
-                                            .clickable { pendingDeleteCategory = tag }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = newCategoryInput,
-                        onValueChange = { newCategoryInput = it },
-                        placeholder = { Text("New category name...", fontSize = 12.sp) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    Button(
-                        onClick = {
-                            val clean = newCategoryInput.trim().removePrefix("#").trim()
-                            if (clean.isNotBlank() && !clean.equals("All", ignoreCase = true)) {
-                                onAddTag(clean)
-                                newCategoryInput = ""
-                                Toast.makeText(context, "Added category pin #$clean", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // 4. Welcome Tour & App Guide Card
+        // 3. Welcome Tour & App Guide Card
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),

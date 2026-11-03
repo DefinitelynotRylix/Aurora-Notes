@@ -4,6 +4,7 @@ import { Note, ThemeOption, ActiveTab } from './types';
 import { LiquidHeader } from './components/LiquidHeader';
 import { CategoryFilterBar } from './components/CategoryFilterBar';
 import { NoteCard } from './components/NoteCard';
+import { MorphingNotesGrid } from './components/MorphingNotesGrid';
 import { LiquidNavbar } from './components/LiquidNavbar';
 import { TrashView } from './components/TrashView';
 import { NoteEditorModal } from './components/NoteEditorModal';
@@ -966,38 +967,16 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  <motion.div
-                    layout
-                    transition={{ layout: { type: 'spring', stiffness: 185, damping: 24 } }}
-                    className={`w-full grid gap-2.5 sm:gap-4 items-start ${
-                      isGridView
-                        ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
-                        : 'grid-cols-1'
-                    }`}
-                  >
-                    {currentTabNotes.map((note, index) => {
+                  <MorphingNotesGrid isGridView={isGridView}>
+                    {currentTabNotes.map((note) => {
                       const animateMovement = note.id === lastPinnedId;
-                      const isFirstNote = index === 0;
 
                       const handleDeleteTagAndDetach = (tagToDelete: string) => {
                         handleRemoveCategory(tagToDelete);
                       };
 
                       return (
-                        <motion.div
-                          key={note.id}
-                          layout
-                          initial={{ opacity: 0.92, scaleX: !isGridView && isFirstNote ? 0.88 : 0.96, scaleY: 0.97 }}
-                          animate={{ opacity: 1, scaleX: 1, scaleY: 1 }}
-                          style={{ originX: 0, originY: 0.5 }}
-                          transition={{
-                            layout: { type: 'spring', stiffness: 185, damping: 24 },
-                            scaleX: { type: 'spring', stiffness: 185, damping: 23 },
-                            scaleY: { duration: 0.24 },
-                            opacity: { duration: 0.22 },
-                          }}
-                          className={`w-full ${!isGridView ? 'col-span-full' : ''}`}
-                        >
+                        <div key={note.id} className="w-full">
                           <NoteCard
                             note={note}
                             isGridView={isGridView}
@@ -1017,10 +996,10 @@ export default function App() {
                             onToggleCheckItem={handleToggleCheckItem}
                             onDeleteTag={handleDeleteTagAndDetach}
                           />
-                        </motion.div>
+                        </div>
                       );
                     })}
-                  </motion.div>
+                  </MorphingNotesGrid>
                 )}
               </>
             )}

@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aurora.notes.model.Note
+import com.aurora.notes.ui.components.MorphingNotesGrid
 import com.aurora.notes.ui.components.NoteCard
 import com.aurora.notes.ui.components.ShareNoteDialog
 import com.aurora.notes.ui.theme.AuroraDangerRed
@@ -592,41 +593,7 @@ fun NotesScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Smooth horizontal expansion when switching view modes; in masonry grid view the first note stays single-column
-        val firstNoteHorizontalScale = remember { Animatable(1f) }
-        val otherNotesAlignProgress = remember { Animatable(1f) }
-        var previousGridView by remember { mutableStateOf(isGridView) }
-        LaunchedEffect(isGridView) {
-            if (previousGridView != isGridView) {
-                previousGridView = isGridView
-                if (!isGridView) {
-                    launch {
-                        firstNoteHorizontalScale.snapTo(0.86f)
-                        firstNoteHorizontalScale.animateTo(
-                            targetValue = 1f,
-                            animationSpec = spring(
-                                dampingRatio = 0.78f,
-                                stiffness = 190f
-                            )
-                        )
-                    }
-                } else {
-                    firstNoteHorizontalScale.snapTo(1f)
-                }
-                launch {
-                    otherNotesAlignProgress.snapTo(0.92f)
-                    otherNotesAlignProgress.animateTo(
-                        targetValue = 1f,
-                        animationSpec = spring(
-                            dampingRatio = 0.80f,
-                            stiffness = 195f
-                        )
-                    )
-                }
-            }
-        }
-
-        // Notes Masonry / Column View
+        // Notes Masonry / Column View with continuous smooth width & position morphing
         if (notes.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -655,91 +622,49 @@ fun NotesScreen(
                 }
             }
         } else {
-            LazyVerticalStaggeredGrid(
-                columns = StaggeredGridCells.Fixed(2),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalItemSpacing = 10.dp,
+            MorphingNotesGrid(
+                isGridView = isGridView,
+                horizontalSpacing = 10.dp,
+                verticalSpacing = 10.dp,
                 contentPadding = PaddingValues(bottom = 96.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                itemsIndexed(
-                    items = notes,
-                    key = { _, note -> note.id },
-                    span = { _, _ ->
-                        // In Masonry Grid view (isGridView == true), the first note and all other notes stay the same
-                        // single-column size so the second note sits beside the first note without stretching.
-                        // Full-width horizontal expansion only occurs when the other view mode (!isGridView) is enabled.
-                        if (isGridView) {
-                            StaggeredGridItemSpan.SingleLane
-                        } else {
-                            StaggeredGridItemSpan.FullLine
-                        }
-                    }
-                ) { index, note ->
-                    val isNoteSelected = note.id in selectedNoteIds
-                    val isFirstNote = index == 0
-                    NoteCard(
-                        note = note,
-                        isSelectionMode = isSelectionMode,
-                        isSelected = isNoteSelected,
-                        onClick = {
-                            if (isSelectionMode) {
-                                if (isNoteSelected) {
-                                    selectedNoteIds.remove(note.id)
+                notes.forEach { note ->
+                    key(note.id) {
+                        val isNoteSelected = note.id in selectedNoteIds
+                        NoteCard(
+                            note = note,
+                            isSelectionMode = isSelectionMode,
+                            isSelected = isNoteSelected,
+                            onClick = {
+                                if (isSelectionMode) {
+                                    if (isNoteSelected) {
+                                        selectedNoteIds.remove(note.id)
+                                    } else {
+                                        selectedNoteIds.add(note.id)
+                                    }
                                 } else {
+                                    onSelectNote(note)
+                                }
+                            },
+                            onLongClick = {
+                                if (!isNoteSelected) {
                                     selectedNoteIds.add(note.id)
-                                }
-                            } else {
-                                onSelectNote(note)
-                            }
-                        },
-                        onLongClick = {
-                            if (!isNoteSelected) {
-                                selectedNoteIds.add(note.id)
-                            } else {
-                                selectedNoteIds.remove(note.id)
-                            }
-                        },
-                        onTogglePin = { onTogglePin(note) },
-                        onDelete = { onDeleteNote(note.id) },
-                        onUnarchive = if (note.isArchived || isArchiveTab) {
-                            { onUnarchiveNote(note.id) }
-                        } else null,
-                        onShare = { notesToShare = listOf(note) },
-                        onToggleCheckItem = { itemId -> onToggleCheckItem(note.id, itemId) },
-                        onDeleteTag = onDeleteTag,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .animateItem(
-                                fadeInSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
-                                placementSpec = spring(
-                                    dampingRatio = 0.78f,
-                                    stiffness = 190f
-                                ),
-                                fadeOutSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
-                            )
-                            .graphicsLayer {
-                                if (isFirstNote && !isGridView) {
-                                    val sx = firstNoteHorizontalScale.value
-                                    transformOrigin = TransformOrigin(0f, 0.5f)
-                                    scaleX = sx
-                                    scaleY = 0.96f + 0.04f * sx
-                                    alpha = (0.45f + 0.55f * sx).coerceIn(0f, 1f)
                                 } else {
-                                    val s = otherNotesAlignProgress.value
-                                    transformOrigin = TransformOrigin(0f, 0f)
-                                    scaleX = s
-                                    scaleY = s
-                                    alpha = (0.4f + 0.6f * s).coerceIn(0f, 1f)
+                                    selectedNoteIds.remove(note.id)
                                 }
-                            }
-                            .animateContentSize(
-                                animationSpec = spring(
-                                    dampingRatio = 0.78f,
-                                    stiffness = 190f
-                                )
-                            )
-                    )
+                            },
+                            onTogglePin = { onTogglePin(note) },
+                            onDelete = { onDeleteNote(note.id) },
+                            onUnarchive = if (note.isArchived || isArchiveTab) {
+                                { onUnarchiveNote(note.id) }
+                            } else null,
+                            onShare = { notesToShare = listOf(note) },
+                            onToggleCheckItem = { itemId -> onToggleCheckItem(note.id, itemId) },
+                            onDeleteTag = onDeleteTag,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         }

@@ -22,6 +22,12 @@ enum class ShareNoteFormat(
 
 object NoteShareHelper {
 
+    const val REQUEST_CODE_SAVE_TO_FOLDER = 1042
+
+    private var pendingSafNotes: List<Note> = emptyList()
+    private var pendingSafFormat: ShareNoteFormat = ShareNoteFormat.MARKDOWN
+    private var pendingSafFileName: String = "Aurora_Note.md"
+
     private fun stripHtmlTags(raw: String): String {
         return raw
             .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
@@ -34,7 +40,8 @@ object NoteShareHelper {
             .trim()
     }
 
-    fun formatSingleNote(note: Note, format: ShareNoteFormat): String {
+    fun formatSingleNote(rawNote: Note, format: ShareNoteFormat): String {
+        val note = PrivateStorageManager.decryptNoteFromRoom(rawNote)
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         val updatedStr = dateFormat.format(Date(note.updatedAt))
         val title = note.title.trim().ifBlank { "Untitled Note" }
@@ -106,18 +113,20 @@ object NoteShareHelper {
 
     fun formatNotes(notes: List<Note>, format: ShareNoteFormat): String {
         if (notes.isEmpty()) return ""
-        if (notes.size == 1) return formatSingleNote(notes.first(), format)
+        val plainNotes = notes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+        if (plainNotes.size == 1) return formatSingleNote(plainNotes.first(), format)
 
         val separator = when (format) {
             ShareNoteFormat.MARKDOWN -> "\n\n---\n\n"
             ShareNoteFormat.PLAIN_TEXT -> "\n\n" + "-".repeat(40) + "\n\n"
         }
-        return notes.joinToString(separator) { formatSingleNote(it, format).trimEnd() } + "\n"
+        return plainNotes.joinToString(separator) { formatSingleNote(it, format).trimEnd() } + "\n"
     }
 
     fun buildSuggestedFileName(notes: List<Note>, format: ShareNoteFormat): String {
-        val baseName = if (notes.size == 1) {
-            val rawTitle = notes.first().title.trim().ifBlank { "Untitled_Note" }
+        val plainNotes = notes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+        val baseName = if (plainNotes.size == 1) {
+            val rawTitle = plainNotes.first().title.trim().ifBlank { "Untitled_Note" }
             rawTitle
                 .replace(Regex("[^a-zA-Z0-9._\\- ]"), "")
                 .trim()
@@ -126,9 +135,39 @@ object NoteShareHelper {
                 .ifBlank { "Aurora_Note" }
         } else {
             val dateStr = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
-            "Aurora_Notes_${notes.size}_$dateStr"
+            "Aurora_Notes_${plainNotes.size}_$dateStr"
         }
         return "$baseName.${format.extension}"
+    }
+
+    fun preparePendingSafSave(notes: List<Note>, format: ShareNoteFormat, suggestedFileName: String) {
+        pendingSafNotes = notes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+        pendingSafFormat = format
+        pendingSafFileName = suggestedFileName
+    }
+
+    fun handlePendingSafResult(context: Context, uri: Uri?) {
+        if (uri == null || pendingSafNotes.isEmpty()) return
+        val ok = writeNoteToChosenUri(
+            context = context,
+            uri = uri,
+            notes = pendingSafNotes,
+            format = pendingSafFormat
+        )
+        if (ok) {
+            Toast.makeText(
+                context,
+                "Saved $pendingSafFileName to your chosen folder!",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            Toast.makeText(
+                context,
+                "Could not write file to selected location.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        pendingSafNotes = emptyList()
     }
 
     fun shareToAppsAndContacts(
@@ -138,12 +177,13 @@ object NoteShareHelper {
         asFileAttachment: Boolean = false
     ) {
         if (notes.isEmpty()) return
-        val formattedText = formatNotes(notes, format)
-        val fileName = buildSuggestedFileName(notes, format)
-        val subject = if (notes.size == 1) {
-            notes.first().title.ifBlank { "Aurora Note" }
+        val plainNotes = notes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+        val formattedText = formatNotes(plainNotes, format)
+        val fileName = buildSuggestedFileName(plainNotes, format)
+        val subject = if (plainNotes.size == 1) {
+            plainNotes.first().title.ifBlank { "Aurora Note" }
         } else {
-            "${notes.size} Aurora Notes"
+            "${plainNotes.size} Aurora Notes"
         }
 
         try {
@@ -179,7 +219,7 @@ object NoteShareHelper {
                 chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(chooser)
             }
-            LocalLogger.security("SHARE", "Shared ${notes.size} note(s) in ${format.name} format")
+            LocalLogger.security("SHARE", "Shared ${plainNotes.size} note(s) in ${format.name} format")
         } catch (e: Exception) {
             LocalLogger.error("SHARE", "Failed to share note(s): ${e.localizedMessage}")
             Toast.makeText(context, "Unable to open share sheet: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
@@ -193,12 +233,16 @@ object NoteShareHelper {
         format: ShareNoteFormat
     ): Boolean {
         return try {
-            val content = formatNotes(notes, format)
-            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+            val plainNotes = notes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+            val content = formatNotes(plainNotes, format)
+            context.contentResolver.openOutputStream(uri, "wt")?.use { outputStream ->
+                outputStream.write(content.toByteArray(Charsets.UTF_8))
+                outputStream.flush()
+            } ?: context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                 outputStream.write(content.toByteArray(Charsets.UTF_8))
                 outputStream.flush()
             } ?: return false
-            LocalLogger.security("SHARE", "Saved ${notes.size} note(s) as .${format.extension} to chosen folder")
+            LocalLogger.security("SHARE", "Saved ${plainNotes.size} note(s) as .${format.extension} to chosen folder")
             true
         } catch (e: Exception) {
             LocalLogger.error("SHARE", "Failed saving note to chosen folder: ${e.localizedMessage}")

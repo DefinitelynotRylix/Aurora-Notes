@@ -80,7 +80,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onWipeData,
   onOpenWelcomeTour,
 }) => {
-  const [newCatInput, setNewCatInput] = useState('');
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
 
   // App Version & Self-Update State
@@ -302,14 +301,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
-  const handleAddCategorySubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const clean = newCatInput.trim();
-    if (clean && !customCategories.includes(clean)) {
-      onAddCategory(clean);
-      setNewCatInput('');
-    }
-  };
 
   const handleExportMarkdown = () => {
     const mdContent = notes
@@ -346,7 +337,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           Settings & Preferences
         </h2>
         <p className="text-xs text-[#797487] dark:text-[#A39BAC] mt-1 leading-relaxed">
-          Manage app appearance & theme, self-updates, biometric security, custom category pins, and local data.
+          Manage app appearance & theme, self-updates, biometric security, storage encryption, and local data.
         </p>
       </div>
 
@@ -590,15 +581,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </span>
             <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] mt-0.5 flex items-center gap-2">
               <Folder className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
-              <span>Private Storage & DB Encryption</span>
+              <span>Storage Encryption</span>
             </h3>
             <p className="text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD] mt-0.5">
               {storageStats.syncedFileCount} synced file(s) • {storageStats.totalBytes} B on device
             </p>
           </div>
 
-          <span className="text-[10px] font-bold px-2.5 py-1 rounded-xl border bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
-            AES-256 ALWAYS ON
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg border bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 shrink-0 whitespace-nowrap">
+            AES-256
           </span>
         </div>
 
@@ -611,7 +602,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="pt-1">
           <div className="space-y-0.5">
             <div className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
               <Lock className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
@@ -621,17 +612,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               Mandatory hardware-backed AndroidKeyStore AES-256-GCM encryption is permanently enabled for all Room SQLite records and mirrored device storage files.
             </p>
           </div>
-
-          <div
-            aria-label="Encryption locked on"
-            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border border-[#5925DC]/40 dark:border-[#9D5AF5]/40 flex items-center gap-1.5 shrink-0 select-none"
-          >
-            <Lock className="w-3 h-3" />
-            <span>Locked ON</span>
-          </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#EADBFC]/60 dark:border-[#322742]/60">
+        <div className="pt-2 border-t border-[#EADBFC]/60 dark:border-[#322742]/60">
           <div className="space-y-0.5">
             <div className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
               <Check className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
@@ -641,14 +624,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               Orphaned note files, incomplete .tmp writes, and stale shared/update cache files are swept automatically on launch, resume, and every note change.
             </p>
           </div>
-
-          <div
-            aria-label="Automatic cleanup active"
-            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border border-[#5925DC]/40 dark:border-[#9D5AF5]/40 flex items-center gap-1.5 shrink-0 select-none"
-          >
-            <Check className="w-3 h-3" />
-            <span>Auto-Active</span>
-          </div>
         </div>
 
         {lastCleanupSummary && (
@@ -656,50 +631,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             {lastCleanupSummary}
           </div>
         )}
-      </div>
-
-      {/* 3. Custom Categories Management */}
-      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
-        <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-2">
-          <Tag className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
-          <span>Custom Category Pins</span>
-        </h3>
-
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {customCategories.map((cat) => (
-            <span
-              key={cat}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-xs font-semibold border border-[#EADBFC] dark:border-[#322742]"
-            >
-              <span>{cat}</span>
-              <button
-                type="button"
-                onClick={() => onRemoveCategory(cat)}
-                className="hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer ml-1"
-                aria-label={`Remove category ${cat}`}
-              >
-                ✕
-              </button>
-            </span>
-          ))}
-        </div>
-
-        <form onSubmit={handleAddCategorySubmit} className="flex gap-2 pt-1">
-          <input
-            type="text"
-            placeholder="New category name..."
-            value={newCatInput}
-            onChange={(e) => setNewCatInput(e.target.value)}
-            className="flex-1 text-xs sm:text-sm px-3.5 py-2 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none focus:border-[#5925DC]"
-          />
-          <button
-            type="submit"
-            className="px-4 py-2 rounded-xl bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-xs font-semibold flex items-center gap-1 shadow-xs cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add</span>
-          </button>
-        </form>
       </div>
 
       {/* 4. Local Diagnostic Logs & Export (Errors & Warnings Only) */}

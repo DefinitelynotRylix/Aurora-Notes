@@ -1,5 +1,7 @@
 package com.aurora.notes
 
+import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.PredictiveBackHandler
@@ -68,6 +70,7 @@ import com.aurora.notes.ui.screens.SettingsScreen
 import com.aurora.notes.ui.screens.TrashScreen
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.ui.theme.AuroraTheme
+import com.aurora.notes.util.NoteShareHelper
 import com.aurora.notes.viewmodel.NotesViewModel
 
 class MainActivity : FragmentActivity() {
@@ -108,6 +111,14 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.onAppResumed()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == NoteShareHelper.REQUEST_CODE_SAVE_TO_FOLDER && resultCode == Activity.RESULT_OK) {
+            NoteShareHelper.handlePendingSafResult(this, data?.data)
+        }
     }
 
     private fun showBiometricPrompt(

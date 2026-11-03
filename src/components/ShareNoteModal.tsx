@@ -10,12 +10,32 @@ import {
   Download
 } from 'lucide-react';
 import { logger } from '../utils/logger';
+import { decryptStoragePayload, ENC_STORAGE_PREFIX } from '../utils/editorRules';
 
 export type ShareFormat = 'md' | 'txt';
 
 interface ShareNoteModalProps {
   notes: Note[];
   onClose: () => void;
+}
+
+function maybeDecryptField(val: string | undefined): string {
+  if (!val) return '';
+  return val.startsWith(ENC_STORAGE_PREFIX) ? decryptStoragePayload(val) : val;
+}
+
+function decryptNoteFields(note: Note): Note {
+  return {
+    ...note,
+    title: maybeDecryptField(note.title),
+    content: maybeDecryptField(note.content),
+    category: maybeDecryptField(note.category),
+    tags: (note.tags || []).map((t) => maybeDecryptField(t)),
+    checklist: (note.checklist || []).map((item) => ({
+      ...item,
+      text: maybeDecryptField(item.text),
+    })),
+  };
 }
 
 function stripHtmlToPlain(rawHtml: string): string {
@@ -31,7 +51,8 @@ function stripHtmlToPlain(rawHtml: string): string {
   }
 }
 
-export function formatSingleNote(note: Note, format: ShareFormat): string {
+export function formatSingleNote(rawNote: Note, format: ShareFormat): string {
+  const note = decryptNoteFields(rawNote);
   const title = (note.title || '').trim() || 'Untitled Note';
   const updatedStr = new Date(note.updatedAt || Date.now()).toLocaleString();
   const cleanBody = stripHtmlToPlain(note.content);
@@ -97,7 +118,8 @@ export function formatNotesForShare(notes: Note[], format: ShareFormat): string 
 
 export function getSuggestedFileName(notes: Note[], format: ShareFormat): string {
   if (notes.length === 1) {
-    const raw = (notes[0].title || 'Untitled_Note').trim();
+    const plain = decryptNoteFields(notes[0]);
+    const raw = (plain.title || 'Untitled_Note').trim();
     const clean = raw
       .replace(/[^a-zA-Z0-9._\- ]/g, '')
       .trim()
