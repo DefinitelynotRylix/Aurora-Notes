@@ -9,4 +9,10 @@
     <files-path
         name="exported_notes"
         path="exported_notes/" />
+    <external-files-path
+        name="aurora_private_notes"
+        path="aurora_private_notes/" />
+    <external-cache-path
+        name="external_shared_cache"
+        path="shared_notes/" />
 </paths>

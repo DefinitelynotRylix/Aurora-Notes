@@ -26,6 +26,7 @@ import {
   linkifyDomContainer,
   openUrlInDefaultBrowser,
 } from '../utils/linkUtils';
+import { computeWordAndLetterCounts } from '../utils/editorRules';
 import { ShareNoteModal } from './ShareNoteModal';
 
 interface NoteEditorModalProps {
@@ -61,6 +62,13 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
   // Tracks whether the current cursor line has an active checkbox in its -1 slot
   const [isCurrentLineChecklist, setIsCurrentLineChecklist] = useState(false);
+
+  // Live body content snapshot for real-time word and letter counter on top of note editor
+  const [bodyContentSnapshot, setBodyContentSnapshot] = useState<string>(note.content || '');
+  const wordLetterStats = React.useMemo(
+    () => computeWordAndLetterCounts(title, bodyContentSnapshot),
+    [title, bodyContentSnapshot]
+  );
 
   // Predictive Back Gesture State (0..1 progress & swipe edge)
   const [predictiveBackProgress, setPredictiveBackProgress] = useState(0);
@@ -149,6 +157,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   useEffect(() => {
     if (editorRef.current) {
       editorRef.current.innerHTML = note.content || '';
+      setBodyContentSnapshot(editorRef.current.innerHTML || '');
       linkifyDomContainer(editorRef.current);
 
       const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
@@ -890,6 +899,18 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
               <span className="truncate max-w-[100px] sm:max-w-[150px]">{category}</span>
             </div>
           )}
+
+          {/* Live Word & Letter Counter on Top of Note Editor */}
+          <div
+            data-testid="note-word-letter-counter"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742]"
+            title="Live word and letter counter"
+          >
+            <span>
+              {wordLetterStats.words} {wordLetterStats.words === 1 ? 'word' : 'words'} •{' '}
+              {wordLetterStats.letters} {wordLetterStats.letters === 1 ? 'letter' : 'letters'}
+            </span>
+          </div>
         </div>
 
         {/* Right side: Restore + Delete when archived, or Share + Done when active */}
@@ -1011,10 +1032,22 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
                   if ((e.key === ' ' || e.key === 'Enter') && editorRef.current) {
                     linkifyDomContainer(editorRef.current);
                   }
+                  if (editorRef.current) {
+                    setBodyContentSnapshot(editorRef.current.innerHTML || '');
+                  }
                   requestAnimationFrame(ensureCaretVisible);
                 }
           }
-          onInput={isReadOnly ? undefined : () => requestAnimationFrame(ensureCaretVisible)}
+          onInput={
+            isReadOnly
+              ? undefined
+              : () => {
+                  if (editorRef.current) {
+                    setBodyContentSnapshot(editorRef.current.innerHTML || '');
+                  }
+                  requestAnimationFrame(ensureCaretVisible);
+                }
+          }
           onClick={handleEditorClick}
           aria-label="Note content editor"
           data-placeholder="Start typing your note here..."

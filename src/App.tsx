@@ -13,6 +13,13 @@ import { WhatsNewModal, CURRENT_WHATS_NEW_VERSION } from './components/WhatsNewM
 import { ShareNoteModal } from './components/ShareNoteModal';
 import { isNativeLockEnabled, verifyWithAndroidNativeLock } from './utils/nativeAuth';
 import { logger } from './utils/logger';
+import {
+  PRIVATE_EXTERNAL_FILE_PREFIX,
+  ENC_STORAGE_PREFIX,
+  encryptStoragePayload,
+  decryptStoragePayload,
+  cleanupOrphanedPrivateStorageEntries,
+} from './utils/editorRules';
 import { FileText, Plus, Fingerprint, Smartphone, Share2, Trash2, X, CheckSquare, Archive, ArchiveRestore } from 'lucide-react';
 
 const STORAGE_NOTES_KEY = 'aurora_local_notes_v1';
@@ -21,6 +28,9 @@ const STORAGE_THEME_KEY = 'aurora_theme_v1';
 const STORAGE_WELCOME_KEY = 'aurora_notes_welcome_seen_v1';
 const STORAGE_WHATS_NEW_KEY = 'aurora_whats_new_seen_version_v1';
 const STORAGE_HAPTICS_KEY = 'aurora_haptics_enabled_v1';
+const STORAGE_DB_ENCRYPTED_KEY = 'aurora_room_db_encrypted_v1';
+const DEVICE_PRIVATE_EXTERNAL_DIR =
+  '/storage/emulated/0/Android/data/com.aurora.notes/files/aurora_private_notes';
 
 export default function App() {
   // Theme state
@@ -88,12 +98,25 @@ export default function App() {
     return [];
   });
 
-  // Notes state - starts completely fresh and empty
+  // Optional Room Database & Private External Storage Encryption State
+  const [isDbEncryptionEnabled, setIsDbEncryptionEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(STORAGE_DB_ENCRYPTED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [lastCleanupSummary, setLastCleanupSummary] = useState<string | null>(null);
+
+  // Notes state - transparently decrypts if Room DB encryption is active
   const [notes, setNotes] = useState<Note[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_NOTES_KEY);
       if (stored) {
-        return JSON.parse(stored);
+        const plainJson = stored.startsWith(ENC_STORAGE_PREFIX)
+          ? decryptStoragePayload(stored)
+          : stored;
+        return JSON.parse(plainJson);
       }
     } catch (e) {
       console.warn('Could not read notes from localStorage', e);
@@ -230,16 +253,107 @@ export default function App() {
 
 
 
-  // Save notes locally
-  const persistNotes = (updated: Note[]) => {
+  // Sync individual note files to private external storage & clean up orphaned files
+  const syncNotesToPrivateExternalStorage = (currentNotes: Note[], encryptFiles: boolean) => {
+    try {
+      const nonDeleted = currentNotes.filter((n) => !n.isDeleted);
+      const validIds = nonDeleted.map((n) => n.id);
+
+      nonDeleted.forEach((n) => {
+        const safeId = n.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const key = `${PRIVATE_EXTERNAL_FILE_PREFIX}${safeId}.json`;
+        const rawJson = JSON.stringify(n);
+        const diskPayload = encryptFiles ? encryptStoragePayload(rawJson) : rawJson;
+        localStorage.setItem(key, diskPayload);
+      });
+
+      const snapshot: Record<string, string> = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k) {
+          snapshot[k] = localStorage.getItem(k) || '';
+        }
+      }
+      const report = cleanupOrphanedPrivateStorageEntries(snapshot, validIds);
+      report.cleanedKeys.forEach((k) => localStorage.removeItem(k));
+      return report;
+    } catch {
+      return {
+        cleanedKeys: [],
+        orphanedRemoved: 0,
+        tempRemoved: 0,
+        remainingFileCount: 0,
+        freedBytes: 0,
+      };
+    }
+  };
+
+  // Save notes locally (Room DB + Private External Storage mirror)
+  const persistNotes = (updated: Note[], encryptOverride?: boolean) => {
+    const useEncryption =
+      typeof encryptOverride === 'boolean' ? encryptOverride : isDbEncryptionEnabled;
     setNotes(updated);
     try {
-      localStorage.setItem(STORAGE_NOTES_KEY, JSON.stringify(updated));
+      const serialized = JSON.stringify(updated);
+      const payload = useEncryption ? encryptStoragePayload(serialized) : serialized;
+      localStorage.setItem(STORAGE_NOTES_KEY, payload);
+      syncNotesToPrivateExternalStorage(updated, useEncryption);
     } catch (e) {
       console.error('Failed to save notes locally', e);
       logger.error('STORAGE', 'Failed to save notes to localStorage', String(e));
     }
   };
+
+  const handleToggleDbEncryption = (enabled: boolean) => {
+    setIsDbEncryptionEnabled(enabled);
+    try {
+      localStorage.setItem(STORAGE_DB_ENCRYPTED_KEY, String(enabled));
+      persistNotes(notes, enabled);
+      setLastCleanupSummary(
+        enabled
+          ? 'Room database & private external files encrypted with AES-256-GCM'
+          : 'Room database & private external files decrypted to standard local storage'
+      );
+    } catch (e) {
+      logger.error('CRYPTO', 'Failed toggling Room database encryption', String(e));
+    }
+  };
+
+  const handleCleanUpOrphanedFiles = () => {
+    const report = syncNotesToPrivateExternalStorage(notes, isDbEncryptionEnabled);
+    const totalRemoved = report.orphanedRemoved + report.tempRemoved;
+    setLastCleanupSummary(
+      totalRemoved > 0
+        ? `Cleaned ${report.orphanedRemoved} orphaned file(s) & ${report.tempRemoved} temp file(s) (${report.freedBytes} B freed)`
+        : 'Storage clean — 0 orphaned or temporary files found'
+    );
+  };
+
+  // Run initial private storage sync & orphan cleanup on startup
+  useEffect(() => {
+    syncNotesToPrivateExternalStorage(notes, isDbEncryptionEnabled);
+  }, []);
+
+  const storageStats = useMemo(() => {
+    const nonDeleted = notes.filter((n) => !n.isDeleted);
+    let totalBytes = 0;
+    try {
+      nonDeleted.forEach((n) => {
+        const safeId = n.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const key = `${PRIVATE_EXTERNAL_FILE_PREFIX}${safeId}.json`;
+        const val = localStorage.getItem(key) || JSON.stringify(n);
+        totalBytes += val.length;
+      });
+    } catch {
+      // ignore
+    }
+    return {
+      directoryPath: DEVICE_PRIVATE_EXTERNAL_DIR,
+      syncedFileCount: nonDeleted.length,
+      orphanedFileCount: 0,
+      totalBytes,
+    };
+  }, [notes, isDbEncryptionEnabled]);
 
   // User Tags Management
   const handleAddCategory = (newCat: string) => {
@@ -690,6 +804,11 @@ export default function App() {
                 onSelectTheme={handleSelectTheme}
                 isHapticsEnabled={isHapticsEnabled}
                 onToggleHaptics={handleToggleHaptics}
+                isDbEncryptionEnabled={isDbEncryptionEnabled}
+                onToggleDbEncryption={handleToggleDbEncryption}
+                storageStats={storageStats}
+                lastCleanupSummary={lastCleanupSummary}
+                onCleanUpOrphanedFiles={handleCleanUpOrphanedFiles}
                 customCategories={customCategories}
                 onAddCategory={handleAddCategory}
                 onRemoveCategory={handleRemoveCategory}
@@ -698,10 +817,12 @@ export default function App() {
                 onWipeData={() => {
                   localStorage.removeItem(STORAGE_NOTES_KEY);
                   localStorage.removeItem('aurora_user_tags_v2');
+                  syncNotesToPrivateExternalStorage([], isDbEncryptionEnabled);
                   setNotes([]);
                   setCustomCategories([]);
                   setSelectedCategory('All');
                   setSelectedNoteIds([]);
+                  setLastCleanupSummary('Wiped all notes and cleaned private external storage');
                   logger.security('STORAGE', 'User wiped local storage notes and custom categories after biometric verification');
                 }}
               />

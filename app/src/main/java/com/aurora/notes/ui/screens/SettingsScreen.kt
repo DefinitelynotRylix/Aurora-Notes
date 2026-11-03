@@ -47,12 +47,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Lock
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.util.AppUpdateManager
 import com.aurora.notes.util.HapticHelper
 import com.aurora.notes.util.LocalLogger
 import com.aurora.notes.util.LogLevel
+import com.aurora.notes.util.PrivateStorageStats
+import com.aurora.notes.util.StorageCleanupReport
 import com.aurora.notes.util.UpdateScanResult
 import kotlinx.coroutines.launch
 import java.io.File
@@ -74,6 +78,11 @@ fun SettingsScreen(
     onSelectThemeMode: (String) -> Unit = {},
     isHapticsEnabled: Boolean = true,
     onSetHapticsEnabled: (Boolean) -> Unit = {},
+    isDbEncryptionEnabled: Boolean = false,
+    onSetDatabaseEncryption: (Boolean) -> Unit = {},
+    storageStats: PrivateStorageStats = PrivateStorageStats(),
+    lastCleanupSummary: String? = null,
+    onCleanUpOrphanedFiles: ((StorageCleanupReport) -> Unit) -> Unit = {},
     userTags: List<String> = emptyList(),
     onAddTag: (String) -> Unit = {},
     onRemoveTag: (String) -> Unit = {},
@@ -801,6 +810,186 @@ fun SettingsScreen(
                         fontSize = 12.sp
                     )
                 )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 2b. Private External Storage & Optional Room Database Encryption Card
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Folder,
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Private Storage & DB Encryption",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "${storageStats.syncedFileCount} synced file(s) • ${storageStats.totalBytes} B on device",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = AuroraRoyalViolet
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isDbEncryptionEnabled) Color(0xFF10B981).copy(alpha = 0.14f) else AuroraRoyalViolet.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            text = if (isDbEncryptionEnabled) "AES-256 ON" else "STANDARD",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isDbEncryptionEnabled) Color(0xFF10B981) else AuroraRoyalViolet,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.background,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "Device Private External Storage Path",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AuroraRoyalViolet
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = storageStats.directoryPath.ifBlank {
+                                "/storage/emulated/0/Android/data/com.aurora.notes/files/aurora_private_notes"
+                            },
+                            fontSize = 10.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Encrypt Room Database & Files",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Hardware-backed AndroidKeyStore AES-256-GCM encryption for Room SQLite records and mirrored device storage files.",
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Switch(
+                        checked = isDbEncryptionEnabled,
+                        onCheckedChange = { enabled ->
+                            onSetDatabaseEncryption(enabled)
+                            val msg = if (enabled) {
+                                "Room database & private external storage encrypted (AES-256-GCM)"
+                            } else {
+                                "Room database & private external storage set to unencrypted mode"
+                            }
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+
+                if (!lastCleanupSummary.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = AuroraRoyalViolet.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = lastCleanupSummary,
+                            fontSize = 11.sp,
+                            color = AuroraRoyalViolet,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        onCleanUpOrphanedFiles { report ->
+                            val total = report.orphanedFilesRemoved + report.tempFilesRemoved
+                            val toastText = if (total > 0) {
+                                "Cleaned ${report.orphanedFilesRemoved} orphaned & ${report.tempFilesRemoved} temp file(s)"
+                            } else {
+                                "Storage clean — 0 orphaned files found"
+                            }
+                            Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        tint = AuroraRoyalViolet,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Clean Up Orphaned & Temp Files",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AuroraRoyalViolet
+                    )
+                }
             }
         }
 

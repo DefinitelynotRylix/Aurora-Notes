@@ -62,6 +62,12 @@ interface NoteDao {
     @Query("DELETE FROM notes")
     suspend fun wipeAllNotes(): Int
 
+    @Query("SELECT * FROM notes")
+    suspend fun getAllNotesSnapshot(): List<Note>
+
+    @Query("SELECT * FROM notes WHERE isDeleted = 1")
+    suspend fun getTrashedNotesSnapshot(): List<Note>
+
     @Query("SELECT COUNT(*) FROM notes WHERE isDeleted = 0 AND isArchived = 0")
     suspend fun getActiveCount(): Int
 

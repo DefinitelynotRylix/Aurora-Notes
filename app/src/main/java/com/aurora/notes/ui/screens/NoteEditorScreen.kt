@@ -65,6 +65,7 @@ import com.aurora.notes.ui.components.ShareNoteDialog
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.util.LinkHelper
+import com.aurora.notes.util.PrivateStorageManager
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CancellationException
@@ -376,6 +377,10 @@ fun NoteEditorScreen(
     val context = LocalContext.current
     val detectedBodyLinks = remember(bodyValue.text) {
         LinkHelper.extractLinks(bodyValue.text)
+    }
+
+    val wordLetterStats = remember(title, bodyValue.text) {
+        PrivateStorageManager.computeWordAndLetterCounts(title, bodyValue.text)
     }
 
     // VisualTransformation keeps IME typing 100% lag-free, styles user spans, inline checkboxes, and highlights links in purple
@@ -812,6 +817,22 @@ fun NoteEditorScreen(
                                     )
                                 }
                             }
+                        }
+                        // Live Word & Letter Counter Pill on Top of Note Editor
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = AuroraRoyalViolet.copy(alpha = 0.10f),
+                            border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.28f))
+                        ) {
+                            Text(
+                                text = "${wordLetterStats.words} ${if (wordLetterStats.words == 1) "word" else "words"} • ${wordLetterStats.letters} ${if (wordLetterStats.letters == 1) "letter" else "letters"}",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 11.sp,
+                                    color = AuroraRoyalViolet
+                                ),
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
+                            )
                         }
                     }
 

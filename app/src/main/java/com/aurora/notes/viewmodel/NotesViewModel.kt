@@ -8,8 +8,12 @@ import com.aurora.notes.data.AuroraDatabase
 import com.aurora.notes.data.AuroraRepository
 import com.aurora.notes.model.Note
 import com.aurora.notes.util.LocalLogger
+import com.aurora.notes.util.PrivateStorageManager
+import com.aurora.notes.util.PrivateStorageStats
+import com.aurora.notes.util.StorageCleanupReport
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -29,6 +34,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_USER_TAGS = "key_user_created_tags_v1"
         private const val KEY_THEME_MODE = "key_theme_mode_v1"
         private const val KEY_HAPTICS_ENABLED = "key_haptics_enabled_v1"
+        private const val KEY_DB_ENCRYPTION_ENABLED = "key_room_db_encryption_enabled_v1"
     }
 
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -76,9 +82,30 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     private val _isHapticsEnabled = MutableStateFlow(prefs.getBoolean(KEY_HAPTICS_ENABLED, true))
     val isHapticsEnabled: StateFlow<Boolean> = _isHapticsEnabled.asStateFlow()
 
+    private val _isDbEncryptionEnabled = MutableStateFlow(prefs.getBoolean(KEY_DB_ENCRYPTION_ENABLED, false))
+    val isDbEncryptionEnabled: StateFlow<Boolean> = _isDbEncryptionEnabled.asStateFlow()
+
+    private val _storageStats = MutableStateFlow(
+        PrivateStorageStats(
+            directoryPath = PrivateStorageManager.getPrivateExternalNotesDir(application).absolutePath,
+            syncedFileCount = 0,
+            orphanedFileCount = 0,
+            totalBytes = 0L,
+            isEncrypted = _isDbEncryptionEnabled.value
+        )
+    )
+    val storageStats: StateFlow<PrivateStorageStats> = _storageStats.asStateFlow()
+
+    private val _lastCleanupSummary = MutableStateFlow<String?>(null)
+    val lastCleanupSummary: StateFlow<String?> = _lastCleanupSummary.asStateFlow()
+
     init {
         val noteDao = AuroraDatabase.getDatabase(application).noteDao()
-        repository = AuroraRepository(noteDao)
+        repository = AuroraRepository(
+            context = application.applicationContext,
+            noteDao = noteDao,
+            initialEncryptionEnabled = _isDbEncryptionEnabled.value
+        )
 
         allActiveNotes = repository.activeNotes.stateIn(
             viewModelScope,
@@ -98,7 +125,21 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             emptyList()
         )
 
-        LocalLogger.security("APP", "Aurora Notes initialized with local Room SQLite storage")
+        viewModelScope.launch(Dispatchers.IO) {
+            val (report, stats) = repository.syncAndCleanupOnStartup()
+            _storageStats.value = stats
+            val totalCleaned = report.orphanedFilesRemoved + report.tempFilesRemoved
+            if (totalCleaned > 0) {
+                _lastCleanupSummary.value =
+                    "Auto-cleaned ${report.orphanedFilesRemoved} orphaned file(s) & ${report.tempFilesRemoved} temp file(s)"
+            }
+        }
+    }
+
+    private fun refreshStorageStatsAsync() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _storageStats.value = repository.getStorageStats()
+        }
     }
 
     private fun loadSavedTags(): List<String> {
@@ -290,78 +331,90 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.saveNote(finalNote)
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
     fun togglePin(note: Note) {
         if (note.isArchived) return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.togglePin(note)
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
     fun toggleChecklistItem(noteId: String, itemId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.toggleChecklistItem(noteId, itemId)
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
     fun archiveNote(id: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.archiveNote(id)
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
     fun archiveNotesBatch(ids: List<String>) {
         if (ids.isEmpty()) return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.archiveNotesBatch(ids)
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
     fun unarchiveNote(id: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.unarchiveNote(id)
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
     fun unarchiveNotesBatch(ids: List<String>) {
         if (ids.isEmpty()) return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.unarchiveNotesBatch(ids)
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
     fun moveToTrash(id: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.moveToTrash(id)
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
     fun moveToTrashBatch(ids: List<String>) {
         if (ids.isEmpty()) return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.moveToTrashBatch(ids)
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
     fun restoreFromTrash(id: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.restoreFromTrash(id)
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
     fun deletePermanently(id: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.deletePermanently(id)
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
     fun emptyTrash() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.emptyTrash()
+            _storageStats.value = repository.getStorageStats()
         }
     }
 
@@ -372,21 +425,47 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         }
         prefs.edit().putString(KEY_THEME_MODE, normalized).apply()
         _themeMode.value = normalized
-        LocalLogger.security("THEME", "Updated app theme mode to '$normalized'")
     }
 
     fun setHapticsEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_HAPTICS_ENABLED, enabled).apply()
         _isHapticsEnabled.value = enabled
-        LocalLogger.security("HAPTICS", "Updated in-app haptic feedback to $enabled")
+    }
+
+    fun setDatabaseEncryptionEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DB_ENCRYPTION_ENABLED, enabled).apply()
+        _isDbEncryptionEnabled.value = enabled
+        viewModelScope.launch(Dispatchers.IO) {
+            val stats = repository.setDatabaseEncryption(enabled)
+            _storageStats.value = stats
+            _lastCleanupSummary.value = if (enabled) {
+                "Room database & private external files encrypted with AES-256-GCM"
+            } else {
+                "Room database & private external files decrypted to standard local storage"
+            }
+        }
+    }
+
+    fun cleanUpOrphanedFiles(onComplete: (StorageCleanupReport) -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val report = repository.cleanupOrphanedStorageFiles()
+            val stats = repository.getStorageStats()
+            _storageStats.value = stats
+            _lastCleanupSummary.value =
+                "Cleaned ${report.orphanedFilesRemoved} orphaned file(s) & ${report.tempFilesRemoved} temp file(s) (${report.bytesFreed} bytes freed)"
+            withContext(Dispatchers.Main) {
+                onComplete(report)
+            }
+        }
     }
 
     fun wipeAllData() {
         persistUserTags(emptyList())
         _selectedCategory.value = "All"
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.wipeAllNotes()
-            LocalLogger.security("STORAGE", "Wiped all notes and custom category pins after biometric verification")
+            _storageStats.value = repository.getStorageStats()
+            _lastCleanupSummary.value = "Wiped all notes and cleaned private external storage"
         }
     }
 

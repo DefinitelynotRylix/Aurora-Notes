@@ -171,6 +171,9 @@ fun AuroraApp(
     val isWelcomeOpen by viewModel.isWelcomeOpen.collectAsState()
     val isWhatsNewOpen by viewModel.isWhatsNewOpen.collectAsState()
     val isHapticsEnabled by viewModel.isHapticsEnabled.collectAsState()
+    val isDbEncryptionEnabled by viewModel.isDbEncryptionEnabled.collectAsState()
+    val storageStats by viewModel.storageStats.collectAsState()
+    val lastCleanupSummary by viewModel.lastCleanupSummary.collectAsState()
 
     // Synchronously compute Active Notes (Tab 0) and Archived Notes (Tab 1)
     val allFilteredNotes = remember(allActiveNotes, searchQuery, selectedCategory) {
@@ -491,6 +494,15 @@ fun AuroraApp(
                                 onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
                                 isHapticsEnabled = isHapticsEnabled,
                                 onSetHapticsEnabled = { enabled -> viewModel.setHapticsEnabled(enabled) },
+                                isDbEncryptionEnabled = isDbEncryptionEnabled,
+                                onSetDatabaseEncryption = { enabled ->
+                                    viewModel.setDatabaseEncryptionEnabled(enabled)
+                                },
+                                storageStats = storageStats,
+                                lastCleanupSummary = lastCleanupSummary,
+                                onCleanUpOrphanedFiles = { onComplete ->
+                                    viewModel.cleanUpOrphanedFiles(onComplete)
+                                },
                                 userTags = userTags,
                                 onAddTag = { newTag -> viewModel.addUserTag(newTag) },
                                 onRemoveTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },

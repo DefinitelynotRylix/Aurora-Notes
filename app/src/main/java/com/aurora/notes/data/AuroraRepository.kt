@@ -1,89 +1,209 @@
 package com.aurora.notes.data
 
+import android.content.Context
 import com.aurora.notes.model.Note
 import com.aurora.notes.util.LocalLogger
+import com.aurora.notes.util.PrivateStorageManager
+import com.aurora.notes.util.PrivateStorageStats
+import com.aurora.notes.util.StorageCleanupReport
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
-class AuroraRepository(private val noteDao: NoteDao) {
+class AuroraRepository(
+    private val context: Context,
+    private val noteDao: NoteDao,
+    initialEncryptionEnabled: Boolean = false
+) {
 
-    val activeNotes: Flow<List<Note>> = noteDao.getActiveNotes()
-    val archivedNotes: Flow<List<Note>> = noteDao.getArchivedNotes()
-    val trashedNotes: Flow<List<Note>> = noteDao.getTrashedNotes()
+    @Volatile
+    var isDatabaseEncryptionEnabled: Boolean = initialEncryptionEnabled
+        private set
+
+    val activeNotes: Flow<List<Note>> = noteDao.getActiveNotes().map { list ->
+        list.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+    }
+
+    val archivedNotes: Flow<List<Note>> = noteDao.getArchivedNotes().map { list ->
+        list.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+    }
+
+    val trashedNotes: Flow<List<Note>> = noteDao.getTrashedNotes().map { list ->
+        list.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+    }
 
     suspend fun saveNote(note: Note) {
         if (note.isArchived) return
-        val updatedNote = note.copy(updatedAt = System.currentTimeMillis())
-        noteDao.insertOrUpdate(updatedNote)
-        LocalLogger.security("NOTE", "Local note saved: \"${updatedNote.title}\" (ID: ${updatedNote.id})")
+        val plainUpdated = PrivateStorageManager.decryptNoteFromRoom(note).copy(
+            updatedAt = System.currentTimeMillis()
+        )
+        val roomEntity = PrivateStorageManager.encryptNoteForRoom(
+            note = plainUpdated,
+            encryptionEnabled = isDatabaseEncryptionEnabled
+        )
+        noteDao.insertOrUpdate(roomEntity)
+        PrivateStorageManager.writeNoteToPrivateStorage(
+            context = context,
+            note = plainUpdated,
+            encryptFileContent = isDatabaseEncryptionEnabled
+        )
+        LocalLogger.security("NOTE", "Local note saved: \"${plainUpdated.title}\" (ID: ${plainUpdated.id})")
     }
 
     suspend fun togglePin(note: Note) {
         if (note.isArchived) return
-        val updated = note.copy(isPinned = !note.isPinned, updatedAt = System.currentTimeMillis())
-        noteDao.update(updated)
-        LocalLogger.security("NOTE", "Note pin toggled: \"${updated.title}\" (isPinned: ${updated.isPinned})")
+        val plainUpdated = PrivateStorageManager.decryptNoteFromRoom(note).copy(
+            isPinned = !note.isPinned,
+            updatedAt = System.currentTimeMillis()
+        )
+        val roomEntity = PrivateStorageManager.encryptNoteForRoom(
+            note = plainUpdated,
+            encryptionEnabled = isDatabaseEncryptionEnabled
+        )
+        noteDao.update(roomEntity)
+        PrivateStorageManager.writeNoteToPrivateStorage(
+            context = context,
+            note = plainUpdated,
+            encryptFileContent = isDatabaseEncryptionEnabled
+        )
     }
 
     suspend fun toggleChecklistItem(noteId: String, itemId: String) {
-        val note = noteDao.getNoteById(noteId) ?: return
-        if (note.isArchived) return
-        val updatedList = note.checklist.map { item ->
+        val rawNote = noteDao.getNoteById(noteId) ?: return
+        val plainNote = PrivateStorageManager.decryptNoteFromRoom(rawNote)
+        if (plainNote.isArchived) return
+        val updatedList = plainNote.checklist.map { item ->
             if (item.id == itemId) item.copy(completed = !item.completed) else item
         }
-        val updatedNote = note.copy(checklist = updatedList, updatedAt = System.currentTimeMillis())
-        noteDao.update(updatedNote)
+        val plainUpdated = plainNote.copy(
+            checklist = updatedList,
+            updatedAt = System.currentTimeMillis()
+        )
+        val roomEntity = PrivateStorageManager.encryptNoteForRoom(
+            note = plainUpdated,
+            encryptionEnabled = isDatabaseEncryptionEnabled
+        )
+        noteDao.update(roomEntity)
+        PrivateStorageManager.writeNoteToPrivateStorage(
+            context = context,
+            note = plainUpdated,
+            encryptFileContent = isDatabaseEncryptionEnabled
+        )
     }
 
     suspend fun archiveNote(id: String) {
         noteDao.archiveNote(id, System.currentTimeMillis())
-        LocalLogger.security("ARCHIVE", "Archived note (read-only): $id")
+        syncSingleNoteFile(id)
     }
 
     suspend fun archiveNotesBatch(ids: List<String>) {
         if (ids.isEmpty()) return
         noteDao.archiveNotesBatch(ids, System.currentTimeMillis())
-        LocalLogger.security("ARCHIVE", "Batch archived ${ids.size} notes (read-only)")
+        ids.forEach { syncSingleNoteFile(it) }
     }
 
     suspend fun unarchiveNote(id: String) {
         noteDao.unarchiveNote(id, System.currentTimeMillis())
-        LocalLogger.security("ARCHIVE", "Restored note from archive: $id")
+        syncSingleNoteFile(id)
     }
 
     suspend fun unarchiveNotesBatch(ids: List<String>) {
         if (ids.isEmpty()) return
         noteDao.unarchiveNotesBatch(ids, System.currentTimeMillis())
-        LocalLogger.security("ARCHIVE", "Batch restored ${ids.size} notes from archive")
+        ids.forEach { syncSingleNoteFile(it) }
     }
 
     suspend fun moveToTrash(id: String) {
         noteDao.moveToTrash(id, System.currentTimeMillis())
-        LocalLogger.security("TRASH", "Moved note to trash: $id")
+        PrivateStorageManager.deleteNoteFromPrivateStorage(context, id)
     }
 
     suspend fun moveToTrashBatch(ids: List<String>) {
         if (ids.isEmpty()) return
         noteDao.moveToTrashBatch(ids, System.currentTimeMillis())
-        LocalLogger.security("TRASH", "Batch moved ${ids.size} notes to trash")
+        ids.forEach { PrivateStorageManager.deleteNoteFromPrivateStorage(context, it) }
     }
 
     suspend fun restoreFromTrash(id: String) {
         noteDao.restoreFromTrash(id)
-        LocalLogger.security("TRASH", "Restored note from trash: $id")
+        syncSingleNoteFile(id)
     }
 
     suspend fun deletePermanently(id: String) {
         noteDao.deletePermanently(id)
-        LocalLogger.security("TRASH", "Permanently deleted note: $id")
+        PrivateStorageManager.deleteNoteFromPrivateStorage(context, id)
+        cleanupOrphanedStorageFiles()
     }
 
     suspend fun emptyTrash() {
-        val purged = noteDao.emptyTrash()
-        LocalLogger.security("TRASH", "Permanently emptied trash ($purged items purged)")
+        val trashed = noteDao.getTrashedNotesSnapshot()
+        noteDao.emptyTrash()
+        trashed.forEach { PrivateStorageManager.deleteNoteFromPrivateStorage(context, it.id) }
+        cleanupOrphanedStorageFiles()
     }
 
     suspend fun wipeAllNotes() {
-        val wiped = noteDao.wipeAllNotes()
-        LocalLogger.security("STORAGE", "Wiped all notes from local database ($wiped notes removed)")
+        noteDao.wipeAllNotes()
+        PrivateStorageManager.cleanupOrphanedFiles(context, emptySet())
+    }
+
+    suspend fun setDatabaseEncryption(enabled: Boolean): PrivateStorageStats {
+        isDatabaseEncryptionEnabled = enabled
+        val allRaw = noteDao.getAllNotesSnapshot()
+        val migratedRoomEntities = allRaw.map { raw ->
+            PrivateStorageManager.encryptNoteForRoom(raw, encryptionEnabled = enabled)
+        }
+        if (migratedRoomEntities.isNotEmpty()) {
+            noteDao.insertAll(migratedRoomEntities)
+        }
+        val plainNotes = allRaw.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+        PrivateStorageManager.syncAllNotesToPrivateStorage(
+            context = context,
+            allNotes = plainNotes,
+            encryptFileContent = enabled
+        )
+        return getStorageStats()
+    }
+
+    suspend fun syncAndCleanupOnStartup(): Pair<StorageCleanupReport, PrivateStorageStats> {
+        val allRaw = noteDao.getAllNotesSnapshot()
+        val plainNotes = allRaw.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+        val report = PrivateStorageManager.syncAllNotesToPrivateStorage(
+            context = context,
+            allNotes = plainNotes,
+            encryptFileContent = isDatabaseEncryptionEnabled
+        )
+        val validIds = plainNotes.filter { !it.isDeleted }.map { it.id }.toSet()
+        val stats = PrivateStorageManager.computeStorageStats(
+            context = context,
+            validNoteIds = validIds,
+            isEncrypted = isDatabaseEncryptionEnabled
+        )
+        return report to stats
+    }
+
+    suspend fun cleanupOrphanedStorageFiles(): StorageCleanupReport {
+        val allRaw = noteDao.getAllNotesSnapshot()
+        val validIds = allRaw.filter { !it.isDeleted }.map { it.id }.toSet()
+        return PrivateStorageManager.cleanupOrphanedFiles(context, validIds)
+    }
+
+    suspend fun getStorageStats(): PrivateStorageStats {
+        val allRaw = noteDao.getAllNotesSnapshot()
+        val validIds = allRaw.filter { !it.isDeleted }.map { it.id }.toSet()
+        return PrivateStorageManager.computeStorageStats(
+            context = context,
+            validNoteIds = validIds,
+            isEncrypted = isDatabaseEncryptionEnabled
+        )
+    }
+
+    private suspend fun syncSingleNoteFile(id: String) {
+        val raw = noteDao.getNoteById(id) ?: return
+        val plain = PrivateStorageManager.decryptNoteFromRoom(raw)
+        PrivateStorageManager.writeNoteToPrivateStorage(
+            context = context,
+            note = plain,
+            encryptFileContent = isDatabaseEncryptionEnabled
+        )
     }
 }

@@ -17,7 +17,9 @@ import {
   AlertTriangle,
   RefreshCw,
   ShieldAlert,
-  CheckCircle2
+  CheckCircle2,
+  Folder,
+  Lock
 } from 'lucide-react';
 import {
   isNativeLockEnabled,
@@ -38,6 +40,16 @@ interface SettingsPageProps {
   onSelectTheme: (theme: ThemeOption) => void;
   isHapticsEnabled?: boolean;
   onToggleHaptics?: (enabled: boolean) => void;
+  isDbEncryptionEnabled?: boolean;
+  onToggleDbEncryption?: (enabled: boolean) => void;
+  storageStats?: {
+    directoryPath: string;
+    syncedFileCount: number;
+    orphanedFileCount: number;
+    totalBytes: number;
+  };
+  lastCleanupSummary?: string | null;
+  onCleanUpOrphanedFiles?: () => void;
   customCategories: string[];
   onAddCategory: (category: string) => void;
   onRemoveCategory: (category: string) => void;
@@ -51,6 +63,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onSelectTheme,
   isHapticsEnabled = true,
   onToggleHaptics,
+  isDbEncryptionEnabled = false,
+  onToggleDbEncryption,
+  storageStats = {
+    directoryPath: '/storage/emulated/0/Android/data/com.aurora.notes/files/aurora_private_notes',
+    syncedFileCount: 0,
+    orphanedFileCount: 0,
+    totalBytes: 0,
+  },
+  lastCleanupSummary,
+  onCleanUpOrphanedFiles,
   customCategories,
   onAddCategory,
   onRemoveCategory,
@@ -557,6 +579,84 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </button>
           </div>
         )}
+      </div>
+
+      {/* 2b. Private External Storage & Optional Room Database Encryption */}
+      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5925DC] dark:text-[#C296FD]">
+              DEVICE STORAGE & ROOM ENCRYPTION
+            </span>
+            <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] mt-0.5 flex items-center gap-2">
+              <Folder className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
+              <span>Private Storage & DB Encryption</span>
+            </h3>
+            <p className="text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD] mt-0.5">
+              {storageStats.syncedFileCount} synced file(s) • {storageStats.totalBytes} B on device
+            </p>
+          </div>
+
+          <span
+            className={`text-[10px] font-bold px-2.5 py-1 rounded-xl border ${
+              isDbEncryptionEnabled
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                : 'bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border-[#EADBFC] dark:border-[#322742]'
+            }`}
+          >
+            {isDbEncryptionEnabled ? 'AES-256 ON' : 'STANDARD'}
+          </span>
+        </div>
+
+        <div className="p-3 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] space-y-1">
+          <div className="text-[10px] font-bold text-[#5925DC] dark:text-[#C296FD] uppercase tracking-wider">
+            Device Private External Storage Path
+          </div>
+          <div className="text-[11px] font-mono text-[#484455] dark:text-[#C5BECD] break-all">
+            {storageStats.directoryPath}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <div className="space-y-0.5">
+            <div className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
+              <span>Encrypt Room Database & Files</span>
+            </div>
+            <p className="text-[11px] text-[#484455] dark:text-[#A39BAC] leading-relaxed">
+              Hardware-backed AndroidKeyStore AES-256-GCM encryption for Room SQLite records and mirrored device storage files.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onToggleDbEncryption?.(!isDbEncryptionEnabled)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
+              isDbEncryptionEnabled
+                ? 'bg-[#5925DC] dark:bg-[#9D5AF5] text-white border-transparent shadow-xs'
+                : 'bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border-[#EADBFC] dark:border-[#322742]'
+            }`}
+          >
+            {isDbEncryptionEnabled ? 'Encrypted' : 'Encrypt DB'}
+          </button>
+        </div>
+
+        {lastCleanupSummary && (
+          <div className="p-2.5 rounded-xl bg-[#F4EBFF]/70 dark:bg-[#2B1E3E]/60 border border-[#EADBFC] dark:border-[#322742] text-[11px] font-medium text-[#5925DC] dark:text-[#C296FD]">
+            {lastCleanupSummary}
+          </div>
+        )}
+
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => onCleanUpOrphanedFiles?.()}
+            className="w-full py-2 px-3.5 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-xs font-bold border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Clean Up Orphaned & Temp Files</span>
+          </button>
+        </div>
       </div>
 
       {/* 3. Custom Categories Management */}

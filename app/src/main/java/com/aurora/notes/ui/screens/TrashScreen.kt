@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.aurora.notes.model.Note
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -198,9 +199,9 @@ fun TrashScreen(
         LaunchedEffect(isGridView) {
             if (previousGridView != isGridView) {
                 previousGridView = isGridView
-                kotlinx.coroutines.coroutineScope {
-                    kotlinx.coroutines.launch {
-                        firstNoteHorizontalScale.snapTo(if (!isGridView) 0.86f else 0.94f)
+                if (!isGridView) {
+                    launch {
+                        firstNoteHorizontalScale.snapTo(0.86f)
                         firstNoteHorizontalScale.animateTo(
                             targetValue = 1f,
                             animationSpec = spring(
@@ -209,16 +210,18 @@ fun TrashScreen(
                             )
                         )
                     }
-                    kotlinx.coroutines.launch {
-                        otherNotesAlignProgress.snapTo(0.92f)
-                        otherNotesAlignProgress.animateTo(
-                            targetValue = 1f,
-                            animationSpec = spring(
-                                dampingRatio = 0.80f,
-                                stiffness = 195f
-                            )
+                } else {
+                    firstNoteHorizontalScale.snapTo(1f)
+                }
+                launch {
+                    otherNotesAlignProgress.snapTo(0.92f)
+                    otherNotesAlignProgress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = spring(
+                            dampingRatio = 0.80f,
+                            stiffness = 195f
                         )
-                    }
+                    )
                 }
             }
         }
@@ -272,7 +275,7 @@ fun TrashScreen(
                                 fadeOutSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
                             )
                             .graphicsLayer {
-                                if (isFirstNote) {
+                                if (isFirstNote && !isGridView) {
                                     val sx = firstNoteHorizontalScale.value
                                     transformOrigin = TransformOrigin(0f, 0.5f)
                                     scaleX = sx

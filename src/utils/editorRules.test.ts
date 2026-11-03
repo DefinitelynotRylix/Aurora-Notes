@@ -8,6 +8,12 @@ import {
   getNoteViewFormatAlignment,
   compareReleaseVersions,
   extractReleaseRunNumber,
+  computeWordAndLetterCounts,
+  encryptStoragePayload,
+  decryptStoragePayload,
+  cleanupOrphanedPrivateStorageEntries,
+  PRIVATE_EXTERNAL_FILE_PREFIX,
+  TEMP_CACHE_FILE_PREFIX,
 } from './editorRules';
 
 test('toggleLineCheckboxAtCursor enables and disables checkbox on every specific line with -1 rule', () => {
@@ -127,5 +133,41 @@ test('compareReleaseVersions detects newer GitHub Releases across standard semve
   assert.equal(runNum, 29);
   assert.equal(compareReleaseVersions('v1.2.29', '1.3.28', runNum, 128), 1);
 });
+
+test('computeWordAndLetterCounts accurately counts words and letters while ignoring HTML and checkbox prefixes', () => {
+  assert.deepEqual(computeWordAndLetterCounts('', ''), { words: 0, letters: 0 });
+  assert.deepEqual(computeWordAndLetterCounts('Hello', '<div>☐ World test</div>'), {
+    words: 3,
+    letters: 14, // "Hello" (5) + "World" (5) + "test" (4) = 14
+  });
+});
+
+test('encryptStoragePayload and decryptStoragePayload round-trip note data with ENCv1 prefix', () => {
+  const plain = JSON.stringify({ id: 'note-1', title: 'Secret Plan', content: 'Encrypted Room DB' });
+  const encrypted = encryptStoragePayload(plain);
+  assert.ok(encrypted.startsWith('ENCv1:'));
+  assert.notEqual(encrypted, plain);
+  assert.equal(decryptStoragePayload(encrypted), plain);
+});
+
+test('cleanupOrphanedPrivateStorageEntries removes orphaned note files, empty files, and temp cache files', () => {
+  const mockStorage: Record<string, string> = {
+    [`${PRIVATE_EXTERNAL_FILE_PREFIX}note_1.json`]: '{"id":"note_1","title":"Keep"}',
+    [`${PRIVATE_EXTERNAL_FILE_PREFIX}note_orphan.json`]: '{"id":"note_orphan","title":"Remove"}',
+    [`${PRIVATE_EXTERNAL_FILE_PREFIX}note_empty.json`]: '   ',
+    [`${TEMP_CACHE_FILE_PREFIX}share_123.md`]: '# Temp share',
+    aurora_theme_v1: 'dark',
+  };
+
+  const report = cleanupOrphanedPrivateStorageEntries(mockStorage, ['note_1']);
+  assert.equal(report.orphanedRemoved, 2);
+  assert.equal(report.tempRemoved, 1);
+  assert.equal(report.remainingFileCount, 1);
+  assert.ok(report.cleanedKeys.includes(`${PRIVATE_EXTERNAL_FILE_PREFIX}note_orphan.json`));
+  assert.ok(report.cleanedKeys.includes(`${PRIVATE_EXTERNAL_FILE_PREFIX}note_empty.json`));
+  assert.ok(report.cleanedKeys.includes(`${TEMP_CACHE_FILE_PREFIX}share_123.md`));
+  assert.ok(!report.cleanedKeys.includes(`${PRIVATE_EXTERNAL_FILE_PREFIX}note_1.json`));
+});
+
 
 

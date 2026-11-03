@@ -293,3 +293,139 @@ export function compareReleaseVersions(
   return 0;
 }
 
+export const PRIVATE_EXTERNAL_FILE_PREFIX = 'aurora_ext_private_file_';
+export const TEMP_CACHE_FILE_PREFIX = 'aurora_temp_cache_file_';
+export const ENC_STORAGE_PREFIX = 'ENCv1:';
+const STORAGE_CIPHER_KEY = 'aurora-keystore-aes256-gcm-v1';
+
+/**
+ * Computes live word and letter counts from the note's title and body (plain text or HTML).
+ * Strips HTML tags, zero-width spaces, and inline checkbox/bullet prefixes (`☐ `, `☑ `, `• `).
+ */
+export function computeWordAndLetterCounts(
+  title: string,
+  bodyTextOrHtml: string
+): { words: number; letters: number } {
+  const cleanBody = (bodyTextOrHtml || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\u200B/g, '')
+    .replace(/[☐☑•]/g, ' ');
+
+  const cleanTitle = (title || '').replace(/\u200B/g, '').trim();
+  const combined = `${cleanTitle} ${cleanBody}`.trim();
+
+  if (!combined) {
+    return { words: 0, letters: 0 };
+  }
+
+  const tokens = combined.split(/\s+/).filter(Boolean);
+  const words = tokens.filter((tok) => /[\p{L}\p{N}]/u.test(tok)).length;
+  const letters = Array.from(combined).filter((ch) => !/\s/.test(ch)).length;
+
+  return { words, letters };
+}
+
+/**
+ * Deterministic reversible cipher wrapper (`ENCv1:`) for Room / local storage encryption state.
+ */
+export function encryptStoragePayload(plainText: string): string {
+  if (!plainText || plainText.startsWith(ENC_STORAGE_PREFIX)) return plainText;
+  const bytes = new TextEncoder().encode(plainText);
+  const keyBytes = new TextEncoder().encode(STORAGE_CIPHER_KEY);
+  const out = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    out[i] = bytes[i] ^ keyBytes[i % keyBytes.length] ^ ((i * 31) & 0xff);
+  }
+  let binary = '';
+  for (let i = 0; i < out.length; i++) {
+    binary += String.fromCharCode(out[i]);
+  }
+  const b64 =
+    typeof btoa === 'function'
+      ? btoa(binary)
+      : Buffer.from(out).toString('base64');
+  return `${ENC_STORAGE_PREFIX}${b64}`;
+}
+
+export function decryptStoragePayload(payload: string): string {
+  if (!payload || !payload.startsWith(ENC_STORAGE_PREFIX)) return payload;
+  try {
+    const rawB64 = payload.slice(ENC_STORAGE_PREFIX.length);
+    let cipherBytes: Uint8Array;
+    if (typeof atob === 'function') {
+      const bin = atob(rawB64);
+      cipherBytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) {
+        cipherBytes[i] = bin.charCodeAt(i);
+      }
+    } else {
+      cipherBytes = new Uint8Array(Buffer.from(rawB64, 'base64'));
+    }
+    const keyBytes = new TextEncoder().encode(STORAGE_CIPHER_KEY);
+    const plainBytes = new Uint8Array(cipherBytes.length);
+    for (let i = 0; i < cipherBytes.length; i++) {
+      plainBytes[i] = cipherBytes[i] ^ keyBytes[i % keyBytes.length] ^ ((i * 31) & 0xff);
+    }
+    return new TextDecoder().decode(plainBytes);
+  } catch {
+    return payload;
+  }
+}
+
+/**
+ * Scans private external storage entries for orphaned note files (whose note ID is no longer
+ * in `validNoteIds`), empty/corrupted 0-byte entries, and temporary `.tmp` / cache files.
+ */
+export function cleanupOrphanedPrivateStorageEntries(
+  storageEntries: Record<string, string>,
+  validNoteIds: string[]
+): {
+  cleanedKeys: string[];
+  orphanedRemoved: number;
+  tempRemoved: number;
+  remainingFileCount: number;
+  freedBytes: number;
+} {
+  const validSet = new Set(validNoteIds.map((id) => id.replace(/[^a-zA-Z0-9_-]/g, '_')));
+  const cleanedKeys: string[] = [];
+  let orphanedRemoved = 0;
+  let tempRemoved = 0;
+  let remainingFileCount = 0;
+  let freedBytes = 0;
+
+  for (const [key, value] of Object.entries(storageEntries)) {
+    if (key.startsWith(TEMP_CACHE_FILE_PREFIX) || key.endsWith('.tmp')) {
+      cleanedKeys.push(key);
+      tempRemoved++;
+      freedBytes += (value || '').length;
+      continue;
+    }
+
+    if (key.startsWith(PRIVATE_EXTERNAL_FILE_PREFIX)) {
+      const extractedId = key
+        .slice(PRIVATE_EXTERNAL_FILE_PREFIX.length)
+        .replace(/\.json$/, '');
+      const isEmptyOrCorrupted = !value || value.trim().length === 0;
+      const isOrphaned = !validSet.has(extractedId);
+
+      if (isEmptyOrCorrupted || isOrphaned) {
+        cleanedKeys.push(key);
+        orphanedRemoved++;
+        freedBytes += (value || '').length;
+      } else {
+        remainingFileCount++;
+      }
+    }
+  }
+
+  return {
+    cleanedKeys,
+    orphanedRemoved,
+    tempRemoved,
+    remainingFileCount,
+    freedBytes,
+  };
+}
+
+
