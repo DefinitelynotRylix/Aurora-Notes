@@ -98,19 +98,14 @@ export default function App() {
     return [];
   });
 
-  // Optional Room Database & Private External Storage Encryption State
-  const [isDbEncryptionEnabled, setIsDbEncryptionEnabled] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(STORAGE_DB_ENCRYPTED_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
+  // Mandatory Always-On Room Database & Private External Storage Encryption
+  const isDbEncryptionEnabled = true;
   const [lastCleanupSummary, setLastCleanupSummary] = useState<string | null>(null);
 
-  // Notes state - transparently decrypts if Room DB encryption is active
+  // Notes state - transparently decrypts Room DB storage
   const [notes, setNotes] = useState<Note[]>(() => {
     try {
+      localStorage.setItem(STORAGE_DB_ENCRYPTED_KEY, 'true');
       const stored = localStorage.getItem(STORAGE_NOTES_KEY);
       if (stored) {
         const plainJson = stored.startsWith(ENC_STORAGE_PREFIX)
@@ -288,39 +283,22 @@ export default function App() {
     }
   };
 
-  // Save notes locally (Room DB + Private External Storage mirror)
-  const persistNotes = (updated: Note[], encryptOverride?: boolean) => {
-    const useEncryption =
-      typeof encryptOverride === 'boolean' ? encryptOverride : isDbEncryptionEnabled;
+  // Save notes locally (Always-Encrypted Room DB + Private External Storage mirror)
+  const persistNotes = (updated: Note[]) => {
     setNotes(updated);
     try {
       const serialized = JSON.stringify(updated);
-      const payload = useEncryption ? encryptStoragePayload(serialized) : serialized;
+      const payload = encryptStoragePayload(serialized);
       localStorage.setItem(STORAGE_NOTES_KEY, payload);
-      syncNotesToPrivateExternalStorage(updated, useEncryption);
+      syncNotesToPrivateExternalStorage(updated, true);
     } catch (e) {
       console.error('Failed to save notes locally', e);
       logger.error('STORAGE', 'Failed to save notes to localStorage', String(e));
     }
   };
 
-  const handleToggleDbEncryption = (enabled: boolean) => {
-    setIsDbEncryptionEnabled(enabled);
-    try {
-      localStorage.setItem(STORAGE_DB_ENCRYPTED_KEY, String(enabled));
-      persistNotes(notes, enabled);
-      setLastCleanupSummary(
-        enabled
-          ? 'Room database & private external files encrypted with AES-256-GCM'
-          : 'Room database & private external files decrypted to standard local storage'
-      );
-    } catch (e) {
-      logger.error('CRYPTO', 'Failed toggling Room database encryption', String(e));
-    }
-  };
-
   const handleCleanUpOrphanedFiles = () => {
-    const report = syncNotesToPrivateExternalStorage(notes, isDbEncryptionEnabled);
+    const report = syncNotesToPrivateExternalStorage(notes, true);
     const totalRemoved = report.orphanedRemoved + report.tempRemoved;
     setLastCleanupSummary(
       totalRemoved > 0
@@ -329,9 +307,15 @@ export default function App() {
     );
   };
 
-  // Run initial private storage sync & orphan cleanup on startup
+  // Run initial private storage encryption sync & orphan cleanup on startup
   useEffect(() => {
-    syncNotesToPrivateExternalStorage(notes, isDbEncryptionEnabled);
+    try {
+      const serialized = JSON.stringify(notes);
+      localStorage.setItem(STORAGE_NOTES_KEY, encryptStoragePayload(serialized));
+    } catch {
+      // ignore
+    }
+    syncNotesToPrivateExternalStorage(notes, true);
   }, []);
 
   const storageStats = useMemo(() => {
@@ -804,8 +788,7 @@ export default function App() {
                 onSelectTheme={handleSelectTheme}
                 isHapticsEnabled={isHapticsEnabled}
                 onToggleHaptics={handleToggleHaptics}
-                isDbEncryptionEnabled={isDbEncryptionEnabled}
-                onToggleDbEncryption={handleToggleDbEncryption}
+                isDbEncryptionEnabled={true}
                 storageStats={storageStats}
                 lastCleanupSummary={lastCleanupSummary}
                 onCleanUpOrphanedFiles={handleCleanUpOrphanedFiles}

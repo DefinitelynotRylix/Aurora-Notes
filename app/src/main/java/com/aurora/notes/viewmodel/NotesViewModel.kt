@@ -82,7 +82,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     private val _isHapticsEnabled = MutableStateFlow(prefs.getBoolean(KEY_HAPTICS_ENABLED, true))
     val isHapticsEnabled: StateFlow<Boolean> = _isHapticsEnabled.asStateFlow()
 
-    private val _isDbEncryptionEnabled = MutableStateFlow(prefs.getBoolean(KEY_DB_ENCRYPTION_ENABLED, false))
+    private val _isDbEncryptionEnabled = MutableStateFlow(true)
     val isDbEncryptionEnabled: StateFlow<Boolean> = _isDbEncryptionEnabled.asStateFlow()
 
     private val _storageStats = MutableStateFlow(
@@ -91,7 +91,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             syncedFileCount = 0,
             orphanedFileCount = 0,
             totalBytes = 0L,
-            isEncrypted = _isDbEncryptionEnabled.value
+            isEncrypted = true
         )
     )
     val storageStats: StateFlow<PrivateStorageStats> = _storageStats.asStateFlow()
@@ -100,11 +100,12 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     val lastCleanupSummary: StateFlow<String?> = _lastCleanupSummary.asStateFlow()
 
     init {
+        prefs.edit().putBoolean(KEY_DB_ENCRYPTION_ENABLED, true).apply()
         val noteDao = AuroraDatabase.getDatabase(application).noteDao()
         repository = AuroraRepository(
             context = application.applicationContext,
             noteDao = noteDao,
-            initialEncryptionEnabled = _isDbEncryptionEnabled.value
+            initialEncryptionEnabled = true
         )
 
         allActiveNotes = repository.activeNotes.stateIn(
@@ -432,18 +433,10 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         _isHapticsEnabled.value = enabled
     }
 
-    fun setDatabaseEncryptionEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_DB_ENCRYPTION_ENABLED, enabled).apply()
-        _isDbEncryptionEnabled.value = enabled
-        viewModelScope.launch(Dispatchers.IO) {
-            val stats = repository.setDatabaseEncryption(enabled)
-            _storageStats.value = stats
-            _lastCleanupSummary.value = if (enabled) {
-                "Room database & private external files encrypted with AES-256-GCM"
-            } else {
-                "Room database & private external files decrypted to standard local storage"
-            }
-        }
+    fun setDatabaseEncryptionEnabled(@Suppress("UNUSED_PARAMETER") enabled: Boolean) {
+        // Encryption is permanently enabled by default and cannot be disabled
+        prefs.edit().putBoolean(KEY_DB_ENCRYPTION_ENABLED, true).apply()
+        _isDbEncryptionEnabled.value = true
     }
 
     fun cleanUpOrphanedFiles(onComplete: (StorageCleanupReport) -> Unit = {}) {

@@ -874,47 +874,46 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       {/* 
         CLEAN FULL-SCREEN HEADER (PERFECT ALIGNMENT WITH SAFE AREA)
       */}
-      <div className="px-4 pt-3.5 pb-3 border-b border-[#EADBFC] dark:border-[#322742] flex items-center justify-between gap-3 shrink-0 bg-white/95 dark:bg-[#1B1524]/95 shadow-xs min-h-[56px]">
-        <div className="flex items-center gap-2">
+      <div className="px-3 py-2 border-b border-[#EADBFC] dark:border-[#322742] flex items-center justify-between gap-2 shrink-0 bg-white/95 dark:bg-[#1B1524]/95 shadow-xs min-h-[48px]">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
           {/* Back Button */}
           <button
             type="button"
             onClick={handleAutoSaveAndClose}
             aria-label={isReadOnly ? 'Return to Archive' : 'Save and return'}
-            className="w-9 h-9 rounded-xl bg-white dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
+            className="w-8 h-8 rounded-lg bg-white dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
             title={isReadOnly ? 'Close' : 'Auto-Save & Close'}
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4" />
           </button>
 
           {/* Current Category Pill or Read-Only Badge */}
           {isReadOnly ? (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-xs font-bold text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC]/80 dark:border-[#322742]">
-              <Lock className="w-3.5 h-3.5" />
-              <span>Archived • Read-Only</span>
+            <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[11px] font-bold text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC]/80 dark:border-[#322742] shrink-0">
+              <Lock className="w-3 h-3" />
+              <span>Archived</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-xs font-semibold text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC]/80 dark:border-[#322742]">
-              <Folder className="w-3.5 h-3.5" />
-              <span className="truncate max-w-[100px] sm:max-w-[150px]">{category}</span>
+            <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC]/80 dark:border-[#322742] shrink-0">
+              <Folder className="w-3 h-3" />
+              <span className="truncate max-w-[72px] sm:max-w-[120px]">{category}</span>
             </div>
           )}
 
-          {/* Live Word & Letter Counter on Top of Note Editor */}
+          {/* Compact Live Word & Letter Counter on Top of Note Editor */}
           <div
             data-testid="note-word-letter-counter"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742]"
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-[#FAF8FB] dark:bg-[#120E17] text-[10.5px] font-semibold text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742] whitespace-nowrap shrink-0"
             title="Live word and letter counter"
           >
             <span>
-              {wordLetterStats.words} {wordLetterStats.words === 1 ? 'word' : 'words'} •{' '}
-              {wordLetterStats.letters} {wordLetterStats.letters === 1 ? 'letter' : 'letters'}
+              {wordLetterStats.words}w • {wordLetterStats.letters}l
             </span>
           </div>
         </div>
 
-        {/* Right side: Restore + Delete when archived, or Share + Done when active */}
-        <div className="flex items-center gap-2">
+        {/* Right side: Restore + Delete when archived, or Share + Compact Done when active */}
+        <div className="flex items-center gap-1.5 shrink-0">
           {isReadOnly ? (
             <>
               {onUnarchive && (
@@ -925,9 +924,9 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
                     onUnarchive(note.id);
                     onClose();
                   }}
-                  className="px-3.5 py-2 rounded-xl bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                  className="h-7.5 px-2.5 rounded-lg bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-[11px] font-bold shadow-xs flex items-center gap-1 transition-all active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
                 >
-                  <ArchiveRestore className="w-3.5 h-3.5" />
+                  <ArchiveRestore className="w-3 h-3" />
                   <span>Restore</span>
                 </button>
               )}
@@ -939,9 +938,9 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
                     onDelete(note.id);
                     onClose();
                   }}
-                  className="px-3.5 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                  className="h-7.5 px-2.5 rounded-lg bg-rose-600 text-white text-[11px] font-bold shadow-xs flex items-center gap-1 transition-all active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3 h-3" />
                   <span>Delete</span>
                 </button>
               )}
@@ -952,18 +951,18 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
                 type="button"
                 onClick={() => setShowShareModal(true)}
                 aria-label="Share or export note"
-                className="w-9 h-9 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#5925DC] dark:text-[#C296FD] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+                className="w-7.5 h-7.5 rounded-lg bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#5925DC] dark:text-[#C296FD] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] flex items-center justify-center transition-all active:scale-95 cursor-pointer shrink-0"
                 title="Share note"
               >
-                <Share2 className="w-4 h-4" />
+                <Share2 className="w-3.5 h-3.5" />
               </button>
 
               <button
                 type="button"
                 onClick={() => setShowDoneModal(true)}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-semibold shadow-sm flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                className="h-7.5 px-2.5 rounded-lg bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-[11px] font-bold shadow-xs flex items-center gap-1 transition-all active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
               >
-                <Check className="w-4 h-4 stroke-[2.5]" />
+                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                 <span>Done</span>
               </button>
             </>

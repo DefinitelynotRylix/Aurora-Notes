@@ -748,43 +748,51 @@ fun NoteEditorScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .padding(end = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         IconButton(
                             onClick = { handleExitEditor() },
-                            modifier = Modifier.size(38.dp)
+                            modifier = Modifier.size(32.dp)
                         ) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                            Icon(
+                                Icons.Default.ArrowBack,
+                                contentDescription = "Back",
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
 
                         if (isReadOnly) {
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(8.dp),
                                 color = AuroraRoyalViolet.copy(alpha = 0.12f),
                                 border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.35f))
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
                                         Icons.Default.Lock,
                                         contentDescription = null,
                                         tint = AuroraRoyalViolet,
-                                        modifier = Modifier.size(13.dp)
+                                        modifier = Modifier.size(12.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "Archived • Read-Only",
+                                        text = "Archived",
+                                        maxLines = 1,
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
+                                            fontSize = 10.5.sp,
                                             color = AuroraRoyalViolet
                                         )
                                     )
@@ -792,46 +800,50 @@ fun NoteEditorScreen(
                             }
                         } else {
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(8.dp),
                                 color = MaterialTheme.colorScheme.background,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
                                 modifier = Modifier.clickable { showDoneDetailsDialog = true }
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
                                         Icons.Default.Tag,
                                         contentDescription = null,
                                         tint = AuroraRoyalViolet,
-                                        modifier = Modifier.size(14.dp)
+                                        modifier = Modifier.size(12.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
                                     Text(
-                                        text = if (tags.isNotEmpty()) "#${tags.first()}" else "Add Tag",
+                                        text = if (tags.isNotEmpty()) "#${tags.first().take(10)}" else "Tag",
+                                        maxLines = 1,
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp
+                                            fontSize = 10.5.sp
                                         )
                                     )
                                 }
                             }
                         }
-                        // Live Word & Letter Counter Pill on Top of Note Editor
+
+                        // Compact Live Word & Letter Counter Pill on Top of Note Editor
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(8.dp),
                             color = AuroraRoyalViolet.copy(alpha = 0.10f),
                             border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.28f))
                         ) {
                             Text(
-                                text = "${wordLetterStats.words} ${if (wordLetterStats.words == 1) "word" else "words"} • ${wordLetterStats.letters} ${if (wordLetterStats.letters == 1) "letter" else "letters"}",
+                                text = "${wordLetterStats.words}w • ${wordLetterStats.letters}l",
+                                maxLines = 1,
+                                softWrap = false,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.SemiBold,
-                                    fontSize = 11.sp,
+                                    fontSize = 10.5.sp,
                                     color = AuroraRoyalViolet
                                 ),
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                             )
                         }
                     }
@@ -842,70 +854,113 @@ fun NoteEditorScreen(
                     ) {
                         if (isReadOnly) {
                             if (onUnarchiveNote != null) {
-                                FilledTonalButton(
-                                    onClick = {
-                                        onUnarchiveNote(note.id)
-                                        onDiscardAndClose()
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = AuroraRoyalViolet,
-                                        contentColor = Color.White
-                                    ),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = AuroraRoyalViolet,
+                                    modifier = Modifier
+                                        .height(30.dp)
+                                        .clickable {
+                                            onUnarchiveNote(note.id)
+                                            onDiscardAndClose()
+                                        }
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Unarchive,
-                                        contentDescription = "Restore Note",
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Restore", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Unarchive,
+                                            contentDescription = "Restore Note",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Restore",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
                                 }
                             }
 
                             if (onDeleteNote != null) {
-                                Button(
-                                    onClick = {
-                                        onDeleteNote(note.id)
-                                        onDiscardAndClose()
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = AuroraDangerRed,
+                                    modifier = Modifier
+                                        .height(30.dp)
+                                        .clickable {
+                                            onDeleteNote(note.id)
+                                            onDiscardAndClose()
+                                        }
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete Note",
-                                        modifier = Modifier.size(15.dp),
-                                        tint = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Delete", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete Note",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Delete",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
                                 }
                             }
                         } else {
                             IconButton(
                                 onClick = { showShareDialog = true },
-                                modifier = Modifier.size(36.dp)
+                                modifier = Modifier.size(30.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Share,
                                     contentDescription = "Share Note",
                                     tint = AuroraRoyalViolet,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
 
-                            Button(
-                                onClick = { showDoneDetailsDialog = true },
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            // Compact Done Button sized to always fit cleanly in the top bar
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = AuroraRoyalViolet,
+                                modifier = Modifier
+                                    .height(30.dp)
+                                    .clickable { showDoneDetailsDialog = true }
                             ) {
-                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Done", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(13.dp),
+                                        tint = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = "Done",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
                             }
                         }
                     }

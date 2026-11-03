@@ -581,7 +581,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         )}
       </div>
 
-      {/* 2b. Private External Storage & Optional Room Database Encryption */}
+      {/* 2b. Private External Storage & Mandatory Room Database Encryption */}
       <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -597,14 +597,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </p>
           </div>
 
-          <span
-            className={`text-[10px] font-bold px-2.5 py-1 rounded-xl border ${
-              isDbEncryptionEnabled
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                : 'bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border-[#EADBFC] dark:border-[#322742]'
-            }`}
-          >
-            {isDbEncryptionEnabled ? 'AES-256 ON' : 'STANDARD'}
+          <span className="text-[10px] font-bold px-2.5 py-1 rounded-xl border bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
+            AES-256 ALWAYS ON
           </span>
         </div>
 
@@ -621,24 +615,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           <div className="space-y-0.5">
             <div className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
               <Lock className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
-              <span>Encrypt Room Database & Files</span>
+              <span>Room Database & File Encryption</span>
             </div>
             <p className="text-[11px] text-[#484455] dark:text-[#A39BAC] leading-relaxed">
-              Hardware-backed AndroidKeyStore AES-256-GCM encryption for Room SQLite records and mirrored device storage files.
+              Mandatory hardware-backed AndroidKeyStore AES-256-GCM encryption is permanently enabled for all Room SQLite records and mirrored device storage files.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onToggleDbEncryption?.(!isDbEncryptionEnabled)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
-              isDbEncryptionEnabled
-                ? 'bg-[#5925DC] dark:bg-[#9D5AF5] text-white border-transparent shadow-xs'
-                : 'bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border-[#EADBFC] dark:border-[#322742]'
-            }`}
+          <div
+            aria-label="Encryption locked on"
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border border-[#5925DC]/40 dark:border-[#9D5AF5]/40 flex items-center gap-1.5 shrink-0 select-none"
           >
-            {isDbEncryptionEnabled ? 'Encrypted' : 'Encrypt DB'}
-          </button>
+            <Lock className="w-3 h-3" />
+            <span>Locked ON</span>
+          </div>
         </div>
 
         {lastCleanupSummary && (

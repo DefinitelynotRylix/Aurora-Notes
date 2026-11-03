@@ -12,12 +12,10 @@ import kotlinx.coroutines.flow.map
 class AuroraRepository(
     private val context: Context,
     private val noteDao: NoteDao,
-    initialEncryptionEnabled: Boolean = false
+    initialEncryptionEnabled: Boolean = true
 ) {
 
-    @Volatile
-    var isDatabaseEncryptionEnabled: Boolean = initialEncryptionEnabled
-        private set
+    val isDatabaseEncryptionEnabled: Boolean = true
 
     val activeNotes: Flow<List<Note>> = noteDao.getActiveNotes().map { list ->
         list.map { PrivateStorageManager.decryptNoteFromRoom(it) }
@@ -146,11 +144,10 @@ class AuroraRepository(
         PrivateStorageManager.cleanupOrphanedFiles(context, emptySet())
     }
 
-    suspend fun setDatabaseEncryption(enabled: Boolean): PrivateStorageStats {
-        isDatabaseEncryptionEnabled = enabled
+    suspend fun setDatabaseEncryption(enabled: Boolean = true): PrivateStorageStats {
         val allRaw = noteDao.getAllNotesSnapshot()
         val migratedRoomEntities = allRaw.map { raw ->
-            PrivateStorageManager.encryptNoteForRoom(raw, encryptionEnabled = enabled)
+            PrivateStorageManager.encryptNoteForRoom(raw, encryptionEnabled = true)
         }
         if (migratedRoomEntities.isNotEmpty()) {
             noteDao.insertAll(migratedRoomEntities)
@@ -159,24 +156,30 @@ class AuroraRepository(
         PrivateStorageManager.syncAllNotesToPrivateStorage(
             context = context,
             allNotes = plainNotes,
-            encryptFileContent = enabled
+            encryptFileContent = true
         )
         return getStorageStats()
     }
 
     suspend fun syncAndCleanupOnStartup(): Pair<StorageCleanupReport, PrivateStorageStats> {
         val allRaw = noteDao.getAllNotesSnapshot()
+        val migratedRoomEntities = allRaw.map { raw ->
+            PrivateStorageManager.encryptNoteForRoom(raw, encryptionEnabled = true)
+        }
+        if (migratedRoomEntities.isNotEmpty()) {
+            noteDao.insertAll(migratedRoomEntities)
+        }
         val plainNotes = allRaw.map { PrivateStorageManager.decryptNoteFromRoom(it) }
         val report = PrivateStorageManager.syncAllNotesToPrivateStorage(
             context = context,
             allNotes = plainNotes,
-            encryptFileContent = isDatabaseEncryptionEnabled
+            encryptFileContent = true
         )
         val validIds = plainNotes.filter { !it.isDeleted }.map { it.id }.toSet()
         val stats = PrivateStorageManager.computeStorageStats(
             context = context,
             validNoteIds = validIds,
-            isEncrypted = isDatabaseEncryptionEnabled
+            isEncrypted = true
         )
         return report to stats
     }

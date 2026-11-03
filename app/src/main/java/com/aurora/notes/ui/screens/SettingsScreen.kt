@@ -852,13 +852,13 @@ fun SettingsScreen(
 
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = if (isDbEncryptionEnabled) Color(0xFF10B981).copy(alpha = 0.14f) else AuroraRoyalViolet.copy(alpha = 0.12f)
+                        color = Color(0xFF10B981).copy(alpha = 0.14f)
                     ) {
                         Text(
-                            text = if (isDbEncryptionEnabled) "AES-256 ON" else "STANDARD",
+                            text = "AES-256 ALWAYS ON",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (isDbEncryptionEnabled) Color(0xFF10B981) else AuroraRoyalViolet,
+                            color = Color(0xFF10B981),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
@@ -911,12 +911,12 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "Encrypt Room Database & Files",
+                                text = "Room Database & File Encryption",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Hardware-backed AndroidKeyStore AES-256-GCM encryption for Room SQLite records and mirrored device storage files.",
+                                text = "Mandatory hardware-backed AndroidKeyStore AES-256-GCM encryption is permanently enabled for all Room SQLite records and mirrored device storage files.",
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
@@ -926,18 +926,30 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    Switch(
-                        checked = isDbEncryptionEnabled,
-                        onCheckedChange = { enabled ->
-                            onSetDatabaseEncryption(enabled)
-                            val msg = if (enabled) {
-                                "Room database & private external storage encrypted (AES-256-GCM)"
-                            } else {
-                                "Room database & private external storage set to unencrypted mode"
-                            }
-                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = AuroraRoyalViolet.copy(alpha = 0.14f),
+                        border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.4f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = AuroraRoyalViolet,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Locked ON",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AuroraRoyalViolet
+                            )
                         }
-                    )
+                    }
                 }
 
                 if (!lastCleanupSummary.isNullOrBlank()) {
