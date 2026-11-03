@@ -127,6 +127,10 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
   const colItemWidth = containerWidth;
   const currentItemWidth = gridItemWidth + (colItemWidth - gridItemWidth) * p;
 
+  if (itemRefs.current.length > items.length) {
+    itemRefs.current.length = items.length;
+  }
+
   const itemHeights = items.map((_, idx) => {
     const el = itemRefs.current[idx];
     return el ? el.offsetHeight : 148;
@@ -165,7 +169,9 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
     >
       {items.map((child, i) => {
         const x = gridX[i] + (colX[i] - gridX[i]) * p;
-        const y = gridY[i] + (colY[i] - gridY[i]) * p;
+        const rawY = gridY[i] + (colY[i] - gridY[i]) * p;
+        // Strictly anchor the first note at y = 0, and the second note at y = 0 in grid view
+        const y = i === 0 ? 0 : (i === 1 && p <= 0.001 ? 0 : rawY);
         return (
           <div
             key={(child as React.ReactElement)?.key ?? i}

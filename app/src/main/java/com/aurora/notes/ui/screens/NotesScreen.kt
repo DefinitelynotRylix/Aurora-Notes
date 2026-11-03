@@ -642,7 +642,10 @@ fun NotesScreen(
                                 }
                             },
                             onTogglePin = { onTogglePin(note) },
-                            onDelete = { onDeleteNote(note.id) },
+                            onDelete = {
+                                selectedNoteIds.remove(note.id)
+                                onDeleteNote(note.id)
+                            },
                             onUnarchive = if (note.isArchived || isArchiveTab) {
                                 { onUnarchiveNote(note.id) }
                             } else null,

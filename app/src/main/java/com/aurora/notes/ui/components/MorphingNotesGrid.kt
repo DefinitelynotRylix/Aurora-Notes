@@ -10,12 +10,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -52,6 +56,8 @@ fun MorphingNotesGrid(
 
     val scrollState = rememberScrollState()
     val smoothedHeights = remember { HashMap<Int, Float>() }
+    val coroutineScope = rememberCoroutineScope()
+    var previousCount by remember { mutableIntStateOf(-1) }
 
     Layout(
         content = content,
@@ -62,7 +68,18 @@ fun MorphingNotesGrid(
     ) { measurables, constraints ->
         if (measurables.isEmpty()) {
             smoothedHeights.clear()
+            previousCount = 0
             return@Layout layout(constraints.maxWidth, 0) {}
+        }
+
+        if (previousCount != measurables.size) {
+            previousCount = measurables.size
+            smoothedHeights.clear()
+            if (measurables.size <= 2 && scrollState.value > 0) {
+                coroutineScope.launch {
+                    scrollState.scrollTo(0)
+                }
+            }
         }
 
         val totalWidth = constraints.maxWidth.coerceAtLeast(1)
@@ -127,7 +144,9 @@ fun MorphingNotesGrid(
         layout(totalWidth, interpolatedTotalHeight) {
             for (i in placeables.indices) {
                 val x = (gridX[i] + (colX[i] - gridX[i]) * p).roundToInt()
-                val y = (gridY[i] + (colY[i] - gridY[i]) * p).roundToInt()
+                val rawY = (gridY[i] + (colY[i] - gridY[i]) * p).roundToInt()
+                // Strictly anchor the first note at y = 0, and second note at y = 0 in grid mode
+                val y = if (i == 0) 0 else if (i == 1 && p <= 0.001f) 0 else rawY
                 placeables[i].placeRelative(x, y)
             }
         }

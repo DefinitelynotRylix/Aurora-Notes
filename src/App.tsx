@@ -518,6 +518,7 @@ export default function App() {
       n.id === id ? { ...n, isDeleted: true, deletedAt: Date.now() } : n
     );
     persistNotes(updated);
+    setSelectedNoteIds((prev) => prev.filter((item) => item !== id));
   };
 
   // Batch Soft Delete: moves multiple selected notes to Trash
@@ -709,6 +710,15 @@ export default function App() {
 
   const currentTabNotes = activeTab === 'archive' ? archivedFilteredNotes : allFilteredNotes;
 
+  // Automatically prune any stale IDs from selectedNoteIds when notes change
+  useEffect(() => {
+    const validIds = new Set(currentTabNotes.map((n) => n.id));
+    setSelectedNoteIds((prev) => {
+      const filtered = prev.filter((id) => validIds.has(id));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [currentTabNotes]);
+
   // Counts for pills
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {
@@ -837,21 +847,9 @@ export default function App() {
               />
             ) : (
               <>
-                {/* Category Filter Bar */}
-                <div className="mb-2">
-                  <CategoryFilterBar
-                    currentCategory={selectedCategory}
-                    onSelectCategory={setSelectedCategory}
-                    customCategories={customCategories}
-                    onAddCategory={handleAddCategory}
-                    onRemoveCategory={handleRemoveCategory}
-                    counts={categoryCounts}
-                  />
-                </div>
-
                 {/* Multi-Selection Action Bar (when user holds down on one or multiple notes) */}
                 {selectedNoteIds.length > 0 && (
-                  <div className="mb-4 p-3 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border-2 border-[#5925DC] dark:border-[#9D5AF5] flex items-center justify-between gap-2 shadow-sm animate-fade-in">
+                  <div className="mb-3 p-3 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border-2 border-[#5925DC] dark:border-[#9D5AF5] flex items-center justify-between gap-2 shadow-sm animate-fade-in">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -931,6 +929,18 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
+                {/* Category Filter Bar */}
+                <div className="mb-2.5">
+                  <CategoryFilterBar
+                    currentCategory={selectedCategory}
+                    onSelectCategory={setSelectedCategory}
+                    customCategories={customCategories}
+                    onAddCategory={handleAddCategory}
+                    onRemoveCategory={handleRemoveCategory}
+                    counts={categoryCounts}
+                  />
+                </div>
 
                 {/* Notes Grid or Empty State */}
                 {currentTabNotes.length === 0 ? (
