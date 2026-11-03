@@ -79,6 +79,9 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.decorView.isForceDarkAllowed = false
+        }
         if (intent?.getBooleanExtra("extra_updated_restarted", false) == true) {
             intent?.removeExtra("extra_updated_restarted")
             viewModel.onAppUpdatedRestart()
@@ -840,7 +843,7 @@ private fun WhatsNewDialog(
     val features = remember {
         listOf(
             WhatsNewFeatureItem(
-                title = "Mandatory AES-256-GCM Cryptography",
+                title = "AES-256-GCM Cryptography & Private Storage",
                 badge = "CRYPTOGRAPHY",
                 description = "Every note in the Room SQLite database and mirrored private device storage is now permanently encrypted at rest using hardware-backed AndroidKeyStore AES-256-GCM cryptography.",
                 icon = Icons.Default.Lock

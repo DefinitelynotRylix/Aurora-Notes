@@ -81,8 +81,12 @@ export default function App() {
     settings: 3,
   };
 
+  const lastTabSwitchRef = useRef<number>(0);
   const handleSelectNavTab = (nextTab: ActiveTab) => {
     if (nextTab === activeTab) return;
+    const now = performance.now();
+    if (now - lastTabSwitchRef.current < 260) return;
+    lastTabSwitchRef.current = now;
     setSlideDirection(TAB_ORDER[nextTab] >= TAB_ORDER[activeTab] ? 1 : -1);
     setSelectedNoteIds([]);
     setActiveTab(nextTab);

@@ -25,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -40,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aurora.notes.ui.theme.AuroraAmethyst
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
+import com.aurora.notes.ui.theme.LocalAuroraDarkTheme
 import com.aurora.notes.util.HapticHelper
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -66,6 +66,7 @@ fun FloatingPillNavigationBar(
 ) {
     val view = LocalView.current
     val context = LocalContext.current
+    val isDarkTheme = LocalAuroraDarkTheme.current
     val currentOnTabSelected by rememberUpdatedState(onTabSelected)
     val currentHapticsEnabled by rememberUpdatedState(isHapticsEnabled)
 
@@ -79,6 +80,8 @@ fun FloatingPillNavigationBar(
     // Hold-and-slide state for dragging the purple pill across the menus
     var isHoldingPill by remember { mutableStateOf(false) }
     var dragTabPos by remember { mutableFloatStateOf(selectedTab.toFloat()) }
+    var lastTabSwitchTime by remember { mutableLongStateOf(0L) }
+    val tabSwitchCooldownMs = 260L
 
     LaunchedEffect(selectedTab) {
         if (!isHoldingPill) {
@@ -117,6 +120,9 @@ fun FloatingPillNavigationBar(
         selectedTab
     }
 
+    val pillSurfaceColor = if (isDarkTheme) Color(0xFF1B1524) else Color(0xFFFFFFFF)
+    val unselectedItemColor = if (isDarkTheme) Color(0xFFD8CFE8) else Color(0xFF2B194D)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -126,9 +132,10 @@ fun FloatingPillNavigationBar(
     ) {
         Surface(
             shape = RoundedCornerShape(100.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-            tonalElevation = 12.dp,
-            shadowElevation = 20.dp,
+            color = pillSurfaceColor,
+            contentColor = unselectedItemColor,
+            tonalElevation = 0.dp,
+            shadowElevation = 12.dp,
             border = BorderStroke(
                 width = 1.5.dp,
                 brush = Brush.horizontalGradient(
@@ -143,19 +150,14 @@ fun FloatingPillNavigationBar(
                 .widthIn(max = 380.dp)
                 .fillMaxWidth()
                 .height(62.dp)
-                .shadow(
-                    elevation = 24.dp,
-                    shape = RoundedCornerShape(100.dp),
-                    ambientColor = AuroraRoyalViolet,
-                    spotColor = AuroraAmethyst
-                )
+                .clip(RoundedCornerShape(100.dp))
         ) {
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(5.dp)
                     .clip(RoundedCornerShape(100.dp))
-                    .pointerInput(items.size) {
+                    .pointerInput(items.size, selectedTab) {
                         val touchSlopPx = viewConfiguration.touchSlop
                         val holdTimeoutMs = 165L
 
@@ -167,8 +169,13 @@ fun FloatingPillNavigationBar(
                             var currentX = startX
                             val initialTappedTab = (startX / tabWidthPx).toInt().coerceIn(0, items.size - 1)
 
-                            // Haptic feedback on push (initial touch down)
-                            triggerNavbarHaptic(view, context, currentHapticsEnabled)
+                            val now = android.os.SystemClock.uptimeMillis()
+                            val isCooldownActive = (now - lastTabSwitchTime) < tabSwitchCooldownMs
+
+                            // Haptic feedback on push (initial touch down) only when not spamming and targeting a new tab
+                            if (!isCooldownActive && initialTappedTab != selectedTab) {
+                                triggerNavbarHaptic(view, context, currentHapticsEnabled)
+                            }
 
                             var holdModeActive = false
                             var pointerReleased = false
@@ -217,15 +224,23 @@ fun FloatingPillNavigationBar(
                                         .coerceIn(0f, (items.size - 1).toFloat())
                                 }
 
-                                // User let go of the hold phase: land on the selected page immediately and trigger haptic
+                                // User let go of the hold phase: land on the selected page with cooldown guard
                                 val landedTab = dragTabPos.roundToInt().coerceIn(0, items.size - 1)
                                 isHoldingPill = false
-                                currentOnTabSelected(landedTab)
-                                triggerNavbarHaptic(view, context, currentHapticsEnabled)
+                                val finishTime = android.os.SystemClock.uptimeMillis()
+                                if (landedTab != selectedTab && (finishTime - lastTabSwitchTime >= tabSwitchCooldownMs)) {
+                                    lastTabSwitchTime = finishTime
+                                    currentOnTabSelected(landedTab)
+                                    triggerNavbarHaptic(view, context, currentHapticsEnabled)
+                                }
                             } else {
-                                // Normal quick tap: switch to the tapped page immediately
+                                // Normal quick tap: switch to the tapped page with cooldown guard
                                 isHoldingPill = false
-                                currentOnTabSelected(initialTappedTab)
+                                val tapTime = android.os.SystemClock.uptimeMillis()
+                                if (initialTappedTab != selectedTab && (tapTime - lastTabSwitchTime >= tabSwitchCooldownMs)) {
+                                    lastTabSwitchTime = tapTime
+                                    currentOnTabSelected(initialTappedTab)
+                                }
                             }
                         }
                     }
@@ -303,7 +318,7 @@ fun FloatingPillNavigationBar(
                         val isSelected = visualSelectedTab == item.index
 
                         val contentColor by animateColorAsState(
-                            targetValue = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                            targetValue = if (isSelected) Color.White else unselectedItemColor,
                             animationSpec = tween(durationMillis = 220),
                             label = "tab_content_color"
                         )
@@ -326,7 +341,7 @@ fun FloatingPillNavigationBar(
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(horizontal = 4.dp)
+                                modifier = Modifier.padding(horizontal = 2.dp)
                             ) {
                                 Icon(
                                     imageVector = item.icon,
@@ -336,13 +351,17 @@ fun FloatingPillNavigationBar(
                                         .size(18.dp)
                                         .scale(iconScale)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
                                 Text(
                                     text = item.label,
                                     color = contentColor,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    maxLines = 1
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = contentColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
+                                    ),
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                                 if (item.badge > 0) {
                                     Spacer(modifier = Modifier.width(3.dp))

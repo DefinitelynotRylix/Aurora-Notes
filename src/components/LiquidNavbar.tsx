@@ -283,6 +283,9 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     return Math.min(items.length - 1, Math.max(0, relX / tabWidth - 0.5));
   };
 
+  const lastSwitchTimeRef = useRef<number>(0);
+  const TAB_COOLDOWN_MS = 260;
+
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!trackRef.current) return;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -294,8 +297,11 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
       Math.max(0, Math.floor(relX / tabWidth))
     );
 
-    // Haptic feedback at push
-    triggerWebHaptic(isHapticsEnabled);
+    // Haptic feedback at push only when not in rapid cooldown and targeting another tab
+    const now = performance.now();
+    if (tappedIndex !== targetIndex && now - lastSwitchTimeRef.current >= TAB_COOLDOWN_MS) {
+      triggerWebHaptic(isHapticsEnabled);
+    }
 
     if (gestureRef.current.holdTimer !== null) {
       window.clearTimeout(gestureRef.current.holdTimer);
@@ -351,19 +357,26 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     const finalDragPos = computeDragPosFromClientX(e.clientX);
     gestureRef.current.pointerId = null;
     gestureRef.current.holdModeActive = false;
+    setIsHoldingPill(false);
+
+    const now = performance.now();
 
     if (wasHolding) {
       const landedIndex = Math.min(
         items.length - 1,
         Math.max(0, Math.round(finalDragPos))
       );
-      setIsHoldingPill(false);
-      // Haptic feedback upon letting go of the hold phase
-      triggerWebHaptic(isHapticsEnabled);
-      onChangeTab(items[landedIndex].id);
+      if (landedIndex !== targetIndex && now - lastSwitchTimeRef.current >= TAB_COOLDOWN_MS) {
+        lastSwitchTimeRef.current = now;
+        // Haptic feedback upon letting go of the hold phase
+        triggerWebHaptic(isHapticsEnabled);
+        onChangeTab(items[landedIndex].id);
+      }
     } else {
-      setIsHoldingPill(false);
-      onChangeTab(items[tappedIdx].id);
+      if (tappedIdx !== targetIndex && now - lastSwitchTimeRef.current >= TAB_COOLDOWN_MS) {
+        lastSwitchTimeRef.current = now;
+        onChangeTab(items[tappedIdx].id);
+      }
     }
   };
 
@@ -433,10 +446,19 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
                 type="button"
                 aria-label={item.label}
                 aria-current={isSelected ? 'page' : undefined}
-                className={`relative py-2.5 rounded-full flex items-center justify-center gap-1.5 text-xs font-semibold transition-all duration-200 select-none focus:outline-none cursor-pointer w-full z-10 ${
+                onClick={(e) => {
+                  e.preventDefault();
+                  const now = performance.now();
+                  if (idx !== targetIndex && now - lastSwitchTimeRef.current >= TAB_COOLDOWN_MS) {
+                    lastSwitchTimeRef.current = now;
+                    triggerWebHaptic(isHapticsEnabled);
+                    onChangeTab(item.id);
+                  }
+                }}
+                className={`relative py-2.5 rounded-full flex items-center justify-center gap-1 text-xs font-semibold transition-all duration-200 select-none focus:outline-none cursor-pointer w-full z-10 ${
                   isSelected
                     ? 'text-white'
-                    : 'text-[#484455] dark:text-[#A39BAC] hover:text-[#5925DC] dark:hover:text-[#C296FD]'
+                    : 'text-[#2B194D] dark:text-[#D8CFE8] hover:text-[#5925DC] dark:hover:text-[#C296FD]'
                 }`}
               >
                 <span className="relative z-10 flex items-center justify-center gap-1">
@@ -445,7 +467,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
                       isSelected ? 'scale-105' : 'group-hover:scale-105'
                     }`}
                   />
-                  <span className="hidden sm:inline text-[11px] font-medium">{item.label}</span>
+                  <span className="text-[11px] font-semibold whitespace-nowrap">{item.label}</span>
                   {typeof item.badge === 'number' && item.badge > 0 && (
                     <span
                       className={`ml-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold ${

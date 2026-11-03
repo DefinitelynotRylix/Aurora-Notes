@@ -1,10 +1,6 @@
 package com.aurora.notes.ui.screens
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -14,10 +10,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
-import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -31,8 +23,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,7 +31,6 @@ import com.aurora.notes.model.Note
 import com.aurora.notes.ui.components.MorphingNotesGrid
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -194,39 +183,6 @@ fun TrashScreen(
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        val firstNoteHorizontalScale = remember { Animatable(1f) }
-        val otherNotesAlignProgress = remember { Animatable(1f) }
-        var previousGridView by remember { mutableStateOf(isGridView) }
-        LaunchedEffect(isGridView) {
-            if (previousGridView != isGridView) {
-                previousGridView = isGridView
-                if (!isGridView) {
-                    launch {
-                        firstNoteHorizontalScale.snapTo(0.86f)
-                        firstNoteHorizontalScale.animateTo(
-                            targetValue = 1f,
-                            animationSpec = spring(
-                                dampingRatio = 0.78f,
-                                stiffness = 190f
-                            )
-                        )
-                    }
-                } else {
-                    firstNoteHorizontalScale.snapTo(1f)
-                }
-                launch {
-                    otherNotesAlignProgress.snapTo(0.92f)
-                    otherNotesAlignProgress.animateTo(
-                        targetValue = 1f,
-                        animationSpec = spring(
-                            dampingRatio = 0.80f,
-                            stiffness = 195f
-                        )
-                    )
-                }
-            }
-        }
-
         if (trashedNotes.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -242,61 +198,24 @@ fun TrashScreen(
                 )
             }
         } else {
-            LazyVerticalStaggeredGrid(
-                columns = StaggeredGridCells.Fixed(2),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalItemSpacing = 10.dp,
-                contentPadding = PaddingValues(bottom = 80.dp),
-                modifier = Modifier.fillMaxSize()
+            MorphingNotesGrid(
+                isGridView = isGridView,
+                horizontalSpacing = 10.dp,
+                verticalSpacing = 10.dp,
+                contentPadding = PaddingValues(bottom = 88.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
             ) {
-                itemsIndexed(
-                    items = trashedNotes,
-                    key = { _, note -> note.id },
-                    span = { _, _ ->
-                        if (isGridView) {
-                            StaggeredGridItemSpan.SingleLane
-                        } else {
-                            StaggeredGridItemSpan.FullLine
-                        }
+                trashedNotes.forEach { note ->
+                    key(note.id) {
+                        TrashedNoteCard(
+                            note = note,
+                            onRestore = { onRestoreNote(note.id) },
+                            onDeletePermanent = { onDeletePermanently(note.id) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
-                ) { index, note ->
-                    val isFirstNote = index == 0
-                    TrashedNoteCard(
-                        note = note,
-                        onRestore = { onRestoreNote(note.id) },
-                        onDeletePermanent = { onDeletePermanently(note.id) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .animateItem(
-                                fadeInSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
-                                placementSpec = spring(
-                                    dampingRatio = 0.78f,
-                                    stiffness = 190f
-                                ),
-                                fadeOutSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
-                            )
-                            .graphicsLayer {
-                                if (isFirstNote && !isGridView) {
-                                    val sx = firstNoteHorizontalScale.value
-                                    transformOrigin = TransformOrigin(0f, 0.5f)
-                                    scaleX = sx
-                                    scaleY = 0.96f + 0.04f * sx
-                                    alpha = (0.45f + 0.55f * sx).coerceIn(0f, 1f)
-                                } else {
-                                    val s = otherNotesAlignProgress.value
-                                    transformOrigin = TransformOrigin(0f, 0f)
-                                    scaleX = s
-                                    scaleY = s
-                                    alpha = (0.4f + 0.6f * s).coerceIn(0f, 1f)
-                                }
-                            }
-                            .animateContentSize(
-                                animationSpec = spring(
-                                    dampingRatio = 0.78f,
-                                    stiffness = 190f
-                                )
-                            )
-                    )
                 }
             }
         }
@@ -317,14 +236,22 @@ private fun TrashedNoteCard(
 
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(
                 text = note.title.ifBlank { "Untitled Note" },
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 14.sp),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

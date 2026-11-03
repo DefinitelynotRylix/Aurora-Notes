@@ -251,7 +251,14 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         _selectedCategory.value = category
     }
 
+    private var lastTabSwitchTime = 0L
+    private val tabSwitchCooldownMs = 260L
+
     fun setSelectedTab(tab: Int) {
+        if (tab == _selectedTab.value) return
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastTabSwitchTime < tabSwitchCooldownMs) return
+        lastTabSwitchTime = now
         _selectedTab.value = tab
     }
 

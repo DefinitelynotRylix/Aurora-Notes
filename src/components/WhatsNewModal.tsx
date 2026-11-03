@@ -25,7 +25,7 @@ export const WhatsNewModal: React.FC<WhatsNewModalProps> = ({
   const highlights = [
     {
       icon: <Lock className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
-      title: 'Mandatory AES-256-GCM Cryptography & Private Storage',
+      title: 'AES-256-GCM Cryptography & Private Storage',
       badge: 'CRYPTOGRAPHY',
       description:
         'Every note in the Room SQLite database and mirrored private device storage is now permanently encrypted at rest using hardware-backed AndroidKeyStore AES-256-GCM cryptography.',
