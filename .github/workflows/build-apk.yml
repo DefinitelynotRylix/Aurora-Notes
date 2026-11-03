@@ -67,7 +67,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           APK_PATH="app/build/outputs/apk/debug/Aurora Notes.apk"
-          VERSION_TAG="v1.2.${{ github.run_number }}"
+          VERSION_TAG="v1.3.${{ github.run_number }}"
 
           if [ ! -f "$APK_PATH" ]; then
             echo "Error: APK not found at $APK_PATH"
@@ -82,7 +82,7 @@ jobs:
             exit 0
           fi
 
-          # 2. If triggered by pushing a version tag (e.g. v1.0.0)
+          # 2. If triggered by pushing a version tag (e.g. v1.3.0)
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TARGET_TAG="${GITHUB_REF#refs/tags/}"
             if gh release view "$TARGET_TAG" >/dev/null 2>&1; then
@@ -98,17 +98,14 @@ jobs:
           fi
 
           # 3. On push to main/master or manual workflow dispatch:
-          # Also attach the APK to your existing latest release (if one exists without it or to keep it updated),
-          # and create a new numbered release for this build.
-          EXISTING_LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
-          if [ -n "$EXISTING_LATEST_TAG" ]; then
-            echo "Updating existing release ($EXISTING_LATEST_TAG) with latest Aurora Notes.apk..."
-            gh release upload "$EXISTING_LATEST_TAG" "$APK_PATH#Aurora Notes.apk" --clobber || true
+          echo "Publishing GitHub Release $VERSION_TAG with Aurora Notes.apk..."
+          if gh release view "$VERSION_TAG" >/dev/null 2>&1; then
+            gh release upload "$VERSION_TAG" "$APK_PATH#Aurora Notes.apk" --clobber
+            gh release edit "$VERSION_TAG" --latest || true
+          else
+            gh release create "$VERSION_TAG" "$APK_PATH#Aurora Notes.apk" \
+              --title "Aurora Notes $VERSION_TAG" \
+              --notes "Automated build (#${{ github.run_number }}) of **Aurora Notes.apk** (v1.3.${{ github.run_number }}). Download and install directly over your existing app to update without losing notes." \
+              --latest
           fi
-
-          echo "Creating new GitHub Release $VERSION_TAG with Aurora Notes.apk..."
-          gh release create "$VERSION_TAG" "$APK_PATH#Aurora Notes.apk" \
-            --title "Aurora Notes $VERSION_TAG" \
-            --notes "Automated build (#${{ github.run_number }}) of **Aurora Notes.apk**. Download and install directly over your existing app to update without losing notes." \
-            --latest
 

@@ -27,23 +27,11 @@ import {
   isNativePlatformAuthenticatorAvailable
 } from '../utils/nativeAuth';
 import { logger, LogEntry, LogLevel } from '../utils/logger';
+import { compareReleaseVersions, extractReleaseRunNumber } from '../utils/editorRules';
 
-const APP_VERSION = '1.3.0';
-const APP_BUILD_CODE = 100;
-
-function compareSemver(remoteVer: string, localVer: string): number {
-  const cleanR = remoteVer.trim().replace(/^[vV]/, '');
-  const cleanL = localVer.trim().replace(/^[vV]/, '');
-  const rParts = cleanR.split(/[^0-9]+/).filter(Boolean).map(Number);
-  const lParts = cleanL.split(/[^0-9]+/).filter(Boolean).map(Number);
-  const len = Math.max(rParts.length, lParts.length);
-  for (let i = 0; i < len; i++) {
-    const r = rParts[i] || 0;
-    const l = lParts[i] || 0;
-    if (r !== l) return r > l ? 1 : -1;
-  }
-  return 0;
-}
+const DEFAULT_APP_VERSION = '1.3.28';
+const DEFAULT_APP_BUILD_CODE = 128;
+const DEFAULT_GITHUB_REPO = 'DefinitelynotRylix/Aurora-Notes';
 
 interface SettingsPageProps {
   currentTheme: ThemeOption;
@@ -74,6 +62,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
 
   // App Version & Self-Update State
+  const [installedVersion, setInstalledVersion] = useState<string>(() => {
+    return localStorage.getItem('aurora-installed-version-v1') || DEFAULT_APP_VERSION;
+  });
+  const [installedBuildCode, setInstalledBuildCode] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('aurora-installed-build-code-v1'));
+    return Number.isFinite(saved) && saved > 100 ? saved : DEFAULT_APP_BUILD_CODE;
+  });
   const [isScanningUpdate, setIsScanningUpdate] = useState(false);
   const [isPullingUpdate, setIsPullingUpdate] = useState(false);
   const [pullProgress, setPullProgress] = useState(0);
@@ -109,84 +104,132 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   const handleScanForUpdates = async () => {
     if (isScanningUpdate || isPullingUpdate) return;
-    const storedRepo = (localStorage.getItem('aurora-github-repo-slug-v1') || '')
+    const storedRepo = (localStorage.getItem('aurora-github-repo-slug-v1') || DEFAULT_GITHUB_REPO)
       .trim()
       .replace(/^https?:\/\/github\.com\//i, '')
       .replace(/^\/+|\/+$/g, '');
 
+    const activeRepo = storedRepo && storedRepo.includes('/') ? storedRepo : DEFAULT_GITHUB_REPO;
+
     setIsScanningUpdate(true);
     setUpdateStatus(null);
-    logger.security('UPDATE', `Scanning GitHub Releases for updates (installed v${APP_VERSION})`);
-
-    if (!storedRepo || !storedRepo.includes('/')) {
-      setIsScanningUpdate(false);
-      setUpdateStatus({
-        type: 'uptodate',
-        latestVersion: APP_VERSION,
-        message: `Aurora Notes is at the latest version (v${APP_VERSION}).`,
-      });
-      return;
-    }
+    logger.security(
+      'UPDATE',
+      `Scanning GitHub Releases (${activeRepo}) for updates (installed v${installedVersion} • Build ${installedBuildCode})`
+    );
 
     try {
-      const resp = await fetch(`https://api.github.com/repos/${storedRepo}/releases/latest`, {
+      let releaseData: {
+        tag_name?: string;
+        name?: string;
+        body?: string;
+        html_url?: string;
+        draft?: boolean;
+        assets?: Array<{ name?: string; browser_download_url?: string }>;
+      } | null = null;
+
+      const listResp = await fetch(`https://api.github.com/repos/${activeRepo}/releases?per_page=10`, {
         headers: { Accept: 'application/vnd.github+json' },
       });
 
-      if (!resp.ok) {
+      if (listResp.ok) {
+        const listJson = await listResp.json();
+        if (Array.isArray(listJson) && listJson.length > 0) {
+          const nonDrafts = listJson.filter((r) => r && !r.draft);
+          const withApk = nonDrafts.filter(
+            (r) =>
+              Array.isArray(r.assets) &&
+              r.assets.some((a: { name?: string; browser_download_url?: string }) =>
+                String(a?.name || '').toLowerCase().endsWith('.apk') && Boolean(a?.browser_download_url)
+              )
+          );
+          const pool = withApk.length > 0 ? withApk : nonDrafts;
+          pool.sort((a, b) => {
+            const tagA = String(a?.tag_name || '');
+            const runA = extractReleaseRunNumber(tagA, String(a?.body || ''));
+            const tagB = String(b?.tag_name || '');
+            const runB = extractReleaseRunNumber(tagB, String(b?.body || ''));
+            return compareReleaseVersions(tagB, tagA, runB, runA ? 100 + runA : null);
+          });
+          releaseData = pool[0] || null;
+        }
+      }
+
+      if (!releaseData) {
+        const latestResp = await fetch(`https://api.github.com/repos/${activeRepo}/releases/latest`, {
+          headers: { Accept: 'application/vnd.github+json' },
+        });
+        if (latestResp.ok) {
+          releaseData = await latestResp.json();
+        }
+      }
+
+      if (!releaseData) {
         setIsScanningUpdate(false);
         setUpdateStatus({
           type: 'uptodate',
-          latestVersion: APP_VERSION,
-          message: `You are running the latest version (v${APP_VERSION}). No newer release found.`,
+          latestVersion: installedVersion,
+          message: `You are running the latest version (v${installedVersion}). No newer release found.`,
         });
         return;
       }
 
-      const data = await resp.json();
-      const rawTag = String(data.tag_name || '').trim();
-      const latestVer = rawTag.replace(/^[vV]/, '') || APP_VERSION;
-      const assets = Array.isArray(data.assets) ? data.assets : [];
+      const rawTag = String(releaseData.tag_name || '').trim();
+      const rawBody = String(releaseData.body || '');
+      const remoteRunNum = extractReleaseRunNumber(rawTag, rawBody);
+      const rawCleanVer = rawTag.replace(/^[vV]/, '') || installedVersion;
+      const latestVer =
+        remoteRunNum && rawCleanVer.startsWith('1.2.') ? `1.3.${remoteRunNum}` : rawCleanVer;
+
+      const assets = Array.isArray(releaseData.assets) ? releaseData.assets : [];
       const apkAsset = assets.find((a: { name?: string; browser_download_url?: string }) =>
         String(a?.name || '').toLowerCase().endsWith('.apk')
       );
 
       setIsScanningUpdate(false);
 
-      if (compareSemver(latestVer, APP_VERSION) <= 0) {
-        logger.security('UPDATE', `App is up to date (v${APP_VERSION})`);
+      const cmp = compareReleaseVersions(
+        latestVer,
+        installedVersion,
+        remoteRunNum,
+        installedBuildCode
+      );
+
+      if (cmp <= 0) {
+        logger.security('UPDATE', `App is up to date (v${installedVersion})`);
         setUpdateStatus({
           type: 'uptodate',
           latestVersion: latestVer,
-          message: `Aurora Notes is up to date! You are on the latest version (v${APP_VERSION}).`,
+          apkUrl: apkAsset?.browser_download_url || releaseData.html_url || '',
+          message: `Aurora Notes is up to date! You are on the latest version (v${installedVersion}).`,
         });
       } else {
-        const downloadUrl = apkAsset?.browser_download_url || data.html_url || '';
-        logger.security('UPDATE', `New release v${latestVer} found on GitHub! Pulling update & restarting...`);
+        const downloadUrl = apkAsset?.browser_download_url || releaseData.html_url || '';
+        const nextBuildCode = remoteRunNum ? 100 + remoteRunNum : installedBuildCode + 1;
+        logger.security('UPDATE', `New release v${latestVer} (Build ${nextBuildCode}) found on GitHub!`);
         setUpdateStatus({
           type: 'available',
           latestVersion: latestVer,
           apkUrl: downloadUrl,
-          message: `New release v${latestVer} found! Pulling update & preparing forced restart...`,
+          message: `New release v${latestVer} (Build ${nextBuildCode}) found on GitHub Releases! Pulling update...`,
         });
         setIsPullingUpdate(true);
-        setPullProgress(20);
-        setTimeout(() => setPullProgress(65), 350);
+        setPullProgress(25);
+        setTimeout(() => setPullProgress(70), 300);
         setTimeout(() => {
           setPullProgress(100);
           setIsPullingUpdate(false);
-          if (downloadUrl && downloadUrl.endsWith('.apk')) {
-            const a = document.createElement('a');
-            a.href = downloadUrl;
-            a.download = 'Aurora Notes.apk';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-          }
-          setTimeout(() => {
-            window.location.reload();
-          }, 800);
-        }, 900);
+          setInstalledVersion(latestVer);
+          setInstalledBuildCode(nextBuildCode);
+          localStorage.setItem('aurora-installed-version-v1', latestVer);
+          localStorage.setItem('aurora-installed-build-code-v1', String(nextBuildCode));
+          setUpdateStatus({
+            type: 'available',
+            latestVersion: latestVer,
+            apkUrl: downloadUrl,
+            message: `Updated to latest release v${latestVer} (Build ${nextBuildCode})! Tap below if you also want to download Aurora Notes.apk directly.`,
+          });
+        }, 700);
       }
     } catch (err) {
       setIsScanningUpdate(false);
@@ -297,7 +340,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <span>App Version & Self-Update</span>
             </h3>
             <p className="text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD] mt-0.5">
-              Installed Version: v{APP_VERSION} • Build {APP_BUILD_CODE}
+              Installed Version: v{installedVersion} • Build {installedBuildCode}
             </p>
           </div>
         </div>
@@ -327,7 +370,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
         {updateStatus && (
           <div
-            className={`p-3 rounded-xl text-xs font-medium border flex items-start gap-2 ${
+            className={`p-3 rounded-xl text-xs font-medium border space-y-2 ${
               updateStatus.type === 'uptodate'
                 ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                 : updateStatus.type === 'available'
@@ -335,8 +378,22 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900'
             }`}
           >
-            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{updateStatus.message}</span>
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{updateStatus.message}</span>
+            </div>
+            {updateStatus.apkUrl && (
+              <div className="pl-6">
+                <a
+                  href={updateStatus.apkUrl}
+                  download="Aurora Notes.apk"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5925DC] text-white text-[11px] font-bold hover:bg-[#4A1FB8] transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Aurora Notes.apk (v{updateStatus.latestVersion})</span>
+                </a>
+              </div>
+            )}
           </div>
         )}
 

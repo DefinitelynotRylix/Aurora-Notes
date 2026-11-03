@@ -227,3 +227,69 @@ export function getNoteViewFormatAlignment(
     alignsToFirstNoteBounds: true,
   };
 }
+
+/**
+ * Extracts the monotonic GitHub Actions CI run_number from a release tag or release notes body.
+ */
+export function extractReleaseRunNumber(tag: string, body: string = ''): number | null {
+  const bodyMatch = body.match(/\(#(\d+)\)/);
+  if (bodyMatch && bodyMatch[1]) {
+    const parsed = Number(bodyMatch[1]);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  const cleanTag = tag.trim().replace(/^[vV]/, '');
+  const parts = cleanTag.split(/[^0-9]+/).filter(Boolean).map(Number);
+  if (parts.length >= 3 && parts[2] > 0) {
+    return parts[2];
+  }
+  return null;
+}
+
+/**
+ * Compares remote vs local release versions and CI run numbers.
+ * Handles both standard semantic versions (e.g. 1.3.30 vs 1.3.29) and CI build numbers
+ * when release tag prefixes transition (e.g. v1.2.29 vs 1.3.28).
+ */
+export function compareReleaseVersions(
+  remoteVer: string,
+  localVer: string,
+  remoteRunNumber?: number | null,
+  localBuildCode?: number | null
+): number {
+  if (
+    typeof remoteRunNumber === 'number' &&
+    remoteRunNumber > 0 &&
+    typeof localBuildCode === 'number' &&
+    localBuildCode > 100
+  ) {
+    const remoteCode = 100 + remoteRunNumber;
+    if (remoteCode !== localBuildCode) {
+      return remoteCode > localBuildCode ? 1 : -1;
+    }
+  }
+
+  const cleanR = remoteVer.trim().replace(/^[vV]/, '');
+  const cleanL = localVer.trim().replace(/^[vV]/, '');
+  const rParts = cleanR.split(/[^0-9]+/).filter(Boolean).map(Number);
+  const lParts = cleanL.split(/[^0-9]+/).filter(Boolean).map(Number);
+
+  if (
+    rParts.length >= 3 &&
+    lParts.length >= 3 &&
+    rParts[0] === lParts[0] &&
+    rParts[2] > 0 &&
+    lParts[2] > 0 &&
+    rParts[2] !== lParts[2]
+  ) {
+    return rParts[2] > lParts[2] ? 1 : -1;
+  }
+
+  const len = Math.max(rParts.length, lParts.length);
+  for (let i = 0; i < len; i++) {
+    const r = rParts[i] || 0;
+    const l = lParts[i] || 0;
+    if (r !== l) return r > l ? 1 : -1;
+  }
+  return 0;
+}
+

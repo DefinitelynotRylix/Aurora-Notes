@@ -59,24 +59,37 @@ object AppUpdateManager {
         get() = BuildConfig.VERSION_CODE
 
     fun getConfiguredRepoSlug(context: Context): String {
+        val bakedRepo = BuildConfig.GITHUB_REPO.trim()
+        if (bakedRepo.isNotBlank() && bakedRepo.contains("/")) {
+            return bakedRepo
+        }
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val savedOverride = prefs.getString(KEY_GITHUB_REPO_OVERRIDE, null)?.trim().orEmpty()
         if (savedOverride.isNotBlank() && savedOverride.contains("/")) {
             return savedOverride
         }
-        val bakedRepo = BuildConfig.GITHUB_REPO.trim()
-        return if (bakedRepo.isNotBlank() && bakedRepo.contains("/")) {
-            bakedRepo
-        } else {
-            "DefinitelynotRylix/Aurora-Notes"
-        }
+        return "DefinitelynotRylix/Aurora-Notes"
     }
 
     /**
-     * Compares two semantic/numeric version strings (e.g. "v1.2.15" vs "1.2.14").
+     * Compares two semantic/numeric version strings (e.g. "v1.3.30" vs "1.3.29", or "v1.2.29" vs "1.3.28"
+     * where the 3rd segment is the monotonic GitHub Actions run_number).
      * Returns > 0 if [remoteVersion] > [localVersion], 0 if equal, < 0 if [remoteVersion] < [localVersion].
      */
-    fun compareVersions(remoteVersion: String, localVersion: String): Int {
+    fun compareVersions(
+        remoteVersion: String,
+        localVersion: String,
+        remoteRunNumber: Int? = null,
+        localVersionCode: Int? = null
+    ): Int {
+        // 1. If both CI run_number and localVersionCode (100 + run_number) are known, compare build code first
+        if (remoteRunNumber != null && remoteRunNumber > 0 && localVersionCode != null && localVersionCode > 100) {
+            val remoteCode = 100 + remoteRunNumber
+            if (remoteCode != localVersionCode) {
+                return remoteCode.compareTo(localVersionCode)
+            }
+        }
+
         val cleanRemote = remoteVersion.trim().removePrefix("v").removePrefix("V")
         val cleanLocal = localVersion.trim().removePrefix("v").removePrefix("V")
 
@@ -85,6 +98,17 @@ object AppUpdateManager {
 
         if (remoteParts.isEmpty() && localParts.isEmpty()) {
             return cleanRemote.compareTo(cleanLocal, ignoreCase = true)
+        }
+
+        // 2. In Aurora Notes CI builds, the 3rd segment (X.Y.<run_number>) is the monotonic GitHub Actions run_number.
+        // If both versions have a positive CI run_number in index 2 and share the same major version,
+        // compare the monotonic CI run_number directly so tag prefix changes (e.g. 1.2.29 vs 1.3.28) still detect updates.
+        if (remoteParts.size >= 3 && localParts.size >= 3 &&
+            remoteParts[0] == localParts[0] &&
+            remoteParts[2] > 0 && localParts[2] > 0 &&
+            remoteParts[2] != localParts[2]
+        ) {
+            return remoteParts[2].compareTo(localParts[2])
         }
 
         val maxLen = maxOf(remoteParts.size, localParts.size)
@@ -96,6 +120,20 @@ object AppUpdateManager {
             }
         }
         return 0
+    }
+
+    private fun extractCiRunNumber(tag: String, releaseBody: String): Int? {
+        val bodyMatch = Regex("""\(#(\d+)\)""").find(releaseBody)
+        if (bodyMatch != null) {
+            val parsed = bodyMatch.groupValues.getOrNull(1)?.toIntOrNull()
+            if (parsed != null && parsed > 0) return parsed
+        }
+        val cleanTag = tag.trim().removePrefix("v").removePrefix("V")
+        val parts = cleanTag.split(Regex("[^0-9]+")).filter { it.isNotEmpty() }.mapNotNull { it.toIntOrNull() }
+        if (parts.size >= 3 && parts[2] > 0) {
+            return parts[2]
+        }
+        return null
     }
 
     suspend fun scanForUpdate(context: Context, repoSlugOverride: String? = null): UpdateScanResult =
@@ -112,7 +150,7 @@ object AppUpdateManager {
                 )
             }
 
-            LocalLogger.security("UPDATE", "Scanning GitHub Releases for updates (current v$currentVersionName)")
+            LocalLogger.security("UPDATE", "Scanning GitHub Releases for updates (current v$currentVersionName • build $currentVersionCode)")
 
             try {
                 val releaseObj = fetchLatestReleaseJson(repoSlug)
@@ -124,8 +162,20 @@ object AppUpdateManager {
                 val releaseTitle = releaseObj.get("name")?.asString?.trim().takeUnless { it.isNullOrBlank() } ?: rawTag
                 val releaseBody = releaseObj.get("body")?.asString?.trim().orEmpty()
 
-                val latestCleanVersion = rawTag.removePrefix("v").removePrefix("V").ifBlank { "0.0.0" }
-                val cmp = compareVersions(latestCleanVersion, currentVersionName)
+                val remoteRunNum = extractCiRunNumber(rawTag, releaseBody)
+                val rawCleanVersion = rawTag.removePrefix("v").removePrefix("V").ifBlank { "0.0.0" }
+                val latestCleanVersion = if (remoteRunNum != null && rawCleanVersion.startsWith("1.2.")) {
+                    "1.3.$remoteRunNum"
+                } else {
+                    rawCleanVersion
+                }
+
+                val cmp = compareVersions(
+                    remoteVersion = latestCleanVersion,
+                    localVersion = currentVersionName,
+                    remoteRunNumber = remoteRunNum,
+                    localVersionCode = currentVersionCode
+                )
 
                 // Find APK asset in release assets
                 val assetsArray: JsonArray? = releaseObj.getAsJsonArray("assets")
@@ -187,31 +237,25 @@ object AppUpdateManager {
             }
         }
 
-    private fun fetchLatestReleaseJson(repoSlug: String): JsonObject? {
-        // 1. Try /releases/latest first
-        val latestUrl = URL("https://api.github.com/repos/$repoSlug/releases/latest")
-        val latestConn = (latestUrl.openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 10000
-            readTimeout = 10000
-            setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "AuroraNotes-Android-Updater/${BuildConfig.VERSION_NAME}")
-        }
-
-        try {
-            if (latestConn.responseCode in 200..299) {
-                val body = latestConn.inputStream.bufferedReader().use { it.readText() }
-                val parsed = JsonParser.parseString(body)
-                if (parsed.isJsonObject) {
-                    return parsed.asJsonObject
-                }
+    private fun hasApkAsset(releaseObj: JsonObject): Boolean {
+        val assets = releaseObj.getAsJsonArray("assets") ?: return false
+        for (el in assets) {
+            if (!el.isJsonObject) continue
+            val obj = el.asJsonObject
+            val name = obj.get("name")?.asString.orEmpty()
+            val url = obj.get("browser_download_url")?.asString.orEmpty()
+            if (name.endsWith(".apk", ignoreCase = true) && url.isNotBlank()) {
+                return true
             }
-        } finally {
-            latestConn.disconnect()
         }
+        return false
+    }
 
-        // 2. Fallback to /releases list (in case latest release is marked pre-release)
-        val listUrl = URL("https://api.github.com/repos/$repoSlug/releases?per_page=5")
+    private fun fetchLatestReleaseJson(repoSlug: String): JsonObject? {
+        val candidates = mutableListOf<JsonObject>()
+
+        // 1. Fetch recent releases list first so we can inspect the newest releases with APK assets
+        val listUrl = URL("https://api.github.com/repos/$repoSlug/releases?per_page=10")
         val listConn = (listUrl.openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 10000
@@ -224,15 +268,70 @@ object AppUpdateManager {
             if (listConn.responseCode in 200..299) {
                 val body = listConn.inputStream.bufferedReader().use { it.readText() }
                 val parsed = JsonParser.parseString(body)
-                if (parsed.isJsonArray && parsed.asJsonArray.size() > 0) {
-                    return parsed.asJsonArray.get(0).asJsonObject
+                if (parsed.isJsonArray) {
+                    for (item in parsed.asJsonArray) {
+                        if (item.isJsonObject) {
+                            val obj = item.asJsonObject
+                            val isDraft = obj.get("draft")?.asBoolean ?: false
+                            if (!isDraft) {
+                                candidates.add(obj)
+                            }
+                        }
+                    }
                 }
             }
+        } catch (_: Exception) {
+            // Fall through to /releases/latest fallback
         } finally {
             listConn.disconnect()
         }
 
-        return null
+        // 2. Also check /releases/latest if candidates list is empty
+        if (candidates.isEmpty()) {
+            val latestUrl = URL("https://api.github.com/repos/$repoSlug/releases/latest")
+            val latestConn = (latestUrl.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 10000
+                readTimeout = 10000
+                setRequestProperty("Accept", "application/vnd.github+json")
+                setRequestProperty("User-Agent", "AuroraNotes-Android-Updater/${BuildConfig.VERSION_NAME}")
+            }
+
+            try {
+                if (latestConn.responseCode in 200..299) {
+                    val body = latestConn.inputStream.bufferedReader().use { it.readText() }
+                    val parsed = JsonParser.parseString(body)
+                    if (parsed.isJsonObject) {
+                        candidates.add(parsed.asJsonObject)
+                    }
+                }
+            } finally {
+                latestConn.disconnect()
+            }
+        }
+
+        if (candidates.isEmpty()) return null
+
+        // Prefer releases that have an attached .apk asset, sorted by highest version / CI run number
+        val withApk = candidates.filter { hasApkAsset(it) }
+        val pool = if (withApk.isNotEmpty()) withApk else candidates
+
+        return pool.maxWithOrNull { a, b ->
+            val tagA = a.get("tag_name")?.asString.orEmpty()
+            val bodyA = a.get("body")?.asString.orEmpty()
+            val runA = extractCiRunNumber(tagA, bodyA)
+
+            val tagB = b.get("tag_name")?.asString.orEmpty()
+            val bodyB = b.get("body")?.asString.orEmpty()
+            val runB = extractCiRunNumber(tagB, bodyB)
+
+            compareVersions(
+                remoteVersion = tagA,
+                localVersion = tagB,
+                remoteRunNumber = runA,
+                localVersionCode = if (runB != null) 100 + runB else null
+            )
+        }
     }
 
     suspend fun downloadUpdateApk(
@@ -250,26 +349,50 @@ object AppUpdateManager {
                 targetFile.delete()
             }
 
-            val url = URL(downloadUrl)
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                instanceFollowRedirects = true
-                connectTimeout = 15000
-                readTimeout = 30000
-                setRequestProperty("Accept", "application/octet-stream")
-                setRequestProperty("User-Agent", "AuroraNotes-Android-Updater/${BuildConfig.VERSION_NAME}")
+            var currentUrl = downloadUrl
+            var redirectCount = 0
+            var connection: HttpURLConnection? = null
+
+            while (redirectCount < 6) {
+                val url = URL(currentUrl)
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    instanceFollowRedirects = false
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    setRequestProperty("User-Agent", "AuroraNotes-Android-Updater/${BuildConfig.VERSION_NAME}")
+                }
+                conn.connect()
+                val code = conn.responseCode
+                if (code in 301..308) {
+                    val location = conn.getHeaderField("Location")
+                    conn.disconnect()
+                    if (location.isNullOrBlank()) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Redirect missing Location header while downloading APK")
+                        )
+                    }
+                    currentUrl = URL(url, location).toString()
+                    redirectCount++
+                } else {
+                    connection = conn
+                    break
+                }
             }
 
-            connection.connect()
-            if (connection.responseCode !in 200..299) {
-                connection.disconnect()
+            val activeConn = connection
+                ?: return@withContext Result.failure(IllegalStateException("Too many redirects while downloading APK"))
+
+            if (activeConn.responseCode !in 200..299) {
+                val errCode = activeConn.responseCode
+                activeConn.disconnect()
                 return@withContext Result.failure(
-                    IllegalStateException("HTTP ${connection.responseCode} while downloading APK")
+                    IllegalStateException("HTTP $errCode while downloading APK")
                 )
             }
 
-            val totalBytes = connection.contentLengthLong
-            BufferedInputStream(connection.inputStream).use { input ->
+            val totalBytes = activeConn.contentLengthLong
+            BufferedInputStream(activeConn.inputStream).use { input ->
                 FileOutputStream(targetFile).use { output ->
                     val buffer = ByteArray(16 * 1024)
                     var downloadedBytes = 0L
@@ -290,7 +413,7 @@ object AppUpdateManager {
                     output.flush()
                 }
             }
-            connection.disconnect()
+            activeConn.disconnect()
             onProgress(100)
             LocalLogger.security("UPDATE", "Downloaded update APK (${targetFile.length()} bytes)")
             Result.success(targetFile)

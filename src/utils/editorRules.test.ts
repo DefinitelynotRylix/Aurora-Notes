@@ -6,6 +6,8 @@ import {
   clampSelectionToMinusOneRule,
   toggleCheckboxCheckedStateAtOffset,
   getNoteViewFormatAlignment,
+  compareReleaseVersions,
+  extractReleaseRunNumber,
 } from './editorRules';
 
 test('toggleLineCheckboxAtCursor enables and disables checkbox on every specific line with -1 rule', () => {
@@ -77,3 +79,16 @@ test('getNoteViewFormatAlignment expands first note horizontally and aligns subs
   const singleGrid = getNoteViewFormatAlignment(0, 1, true);
   assert.equal(singleGrid.spansFullHorizontalWidth, true);
 });
+
+test('compareReleaseVersions detects newer GitHub Releases across standard semver and CI run numbers', () => {
+  // Standard semver
+  assert.equal(compareReleaseVersions('v1.3.30', '1.3.29'), 1);
+  assert.equal(compareReleaseVersions('v1.3.30', '1.3.30'), 0);
+  assert.equal(compareReleaseVersions('v1.3.28', '1.3.29'), -1);
+
+  // CI run_number transition (e.g. v1.2.29 release vs 1.3.28 installed build)
+  const runNum = extractReleaseRunNumber('v1.2.29', 'Automated build (#29) of Aurora Notes.apk');
+  assert.equal(runNum, 29);
+  assert.equal(compareReleaseVersions('v1.2.29', '1.3.28', runNum, 128), 1);
+});
+
