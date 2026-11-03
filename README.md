@@ -40,10 +40,23 @@ Aurora Notes is a privacy-first, local-only note-taking app built natively for A
 
 ---
 
-## Open Source License
+## Open Source License (GNU General Public License v3.0)
 
-Under GitHub's terms and standard copyright law, a public repository without a license file defaults to *"All Rights Reserved"*, meaning it is not legally open source unless a license is explicitly included.
+Under GitHub's terms and standard copyright law, a public repository without a license file defaults to *"All Rights Reserved"*, meaning it is not legally open source unless a license is explicitly declared.
 
-To make **Aurora Notes** properly open source, this project is licensed under the permissive **[MIT License](./LICENSE)** — allowing anyone to inspect, use, modify, and distribute the code freely while preserving copyright and license notices.
+To safeguard user freedom, prevent closed-source proprietary forks, and guarantee that Aurora Notes remains 100% free software forever, this project is licensed under the **[GNU General Public License v3.0 (GPL-3.0)](./LICENSE)**:
+
+- **Strong Copyleft Protection**: Anyone is free to inspect, run, modify, and distribute Aurora Notes. However, any modified versions, forks, or derivative works distributed to others (including modified APKs or web distributions) **must also remain open source under the GPL-3.0** with corresponding source code made publicly available.
+- **Privacy & Security Integrity**: Guarantees that no third party can strip out the offline-only, zero-telemetry, AES-256-GCM encryption architecture and turn it into a closed proprietary tracking or subscription service.
+- **Explicit Patent Protection**: Protects contributors and end users through express patent grants against patent claims or patent troll litigation.
+- **Anti-Tivoization**: Guarantees users the right and capability to run modified versions of the software on their own devices.
+
+---
+
+## Community & Discussion
+
+Join the official **Aurora Notes Community** on Telegram to share feedback, ask questions, propose new features, and connect with other users:
+
+👉 **[Join Aurora Notes Community Server (Telegram)](https://t.me/GithubAuroraNotes)**
 
 

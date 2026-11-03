@@ -20,7 +20,10 @@ import {
   CheckCircle2,
   Folder,
   Lock,
-  Sparkles
+  Sparkles,
+  MessageCircle,
+  ExternalLink,
+  Send
 } from 'lucide-react';
 import {
   isNativeLockEnabled,
@@ -356,7 +359,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <span>App Version & Self-Update</span>
             </h3>
             <p className="text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD] mt-0.5">
-              Installed Version: v{installedVersion} • Build {installedBuildCode}
+              Installed Version: v{installedVersion} • Build {installedBuildCode} • GPL-3.0 Open Source
             </p>
           </div>
         </div>
@@ -669,6 +672,34 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               What&apos;s New
             </button>
           )}
+        </div>
+      </div>
+
+      {/* 3b. Aurora Notes Community Card */}
+      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-2">
+            <MessageCircle className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
+            <span>Aurora Notes Community</span>
+          </h3>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD]">
+            TELEGRAM
+          </span>
+        </div>
+        <p className="text-xs text-[#484455] dark:text-[#A39BAC] leading-relaxed">
+          Join the official Aurora Notes community server on Telegram for user discussions, questions, feature proposals, and direct announcements.
+        </p>
+        <div className="pt-1">
+          <a
+            href="https://t.me/GithubAuroraNotes"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-bold shadow-xs hover:opacity-95 active:scale-95 transition-all cursor-pointer"
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>Join Community Server</span>
+            <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+          </a>
         </div>
       </div>
 
