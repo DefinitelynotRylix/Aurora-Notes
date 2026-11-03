@@ -13,7 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
@@ -294,7 +293,7 @@ fun ShareNoteDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Action Buttons
-                // 1. Share text to Apps & Contacts
+                // 1. Share to Apps & Contacts
                 Button(
                     onClick = {
                         NoteShareHelper.shareToAppsAndContacts(
@@ -326,39 +325,7 @@ fun ShareNoteDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // 2. Share as actual .md / .txt file attachment
-                OutlinedButton(
-                    onClick = {
-                        NoteShareHelper.shareToAppsAndContacts(
-                            context = context,
-                            notes = notes,
-                            format = selectedFormat,
-                            asFileAttachment = true
-                        )
-                        onDismiss()
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.5f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AttachFile,
-                        contentDescription = null,
-                        tint = AuroraRoyalViolet,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Send as .${selectedFormat.extension} File to Apps",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = AuroraRoyalViolet
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // 3. Save to Preferred Folder inside Android File Picker
+                // 2. Save to Preferred Folder inside Android File Picker
                 OutlinedButton(
                     onClick = { launchAndroidFolderFilePicker() },
                     shape = RoundedCornerShape(14.dp),

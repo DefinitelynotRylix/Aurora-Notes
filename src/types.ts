@@ -12,6 +12,7 @@ export interface Note {
   tags: string[];
   category: string;
   isPinned: boolean;
+  isArchived?: boolean;
   isDeleted?: boolean;
   deletedAt?: number;
   createdAt: number;
@@ -19,4 +20,4 @@ export interface Note {
 }
 
 export type ThemeOption = 'light' | 'dark' | 'system';
-export type ActiveTab = 'notes' | 'pinned' | 'trash' | 'settings';
+export type ActiveTab = 'notes' | 'archive' | 'trash' | 'settings';

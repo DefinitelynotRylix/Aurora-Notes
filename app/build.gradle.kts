@@ -16,8 +16,8 @@ if ((!persistentKeystoreFile.exists() || persistentKeystoreFile.length() == 0L) 
 
 val ghRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
 val computedVersionCode = if (ghRunNumber != null) 100 + ghRunNumber else 100
-val computedVersionName = if (ghRunNumber != null) "1.2.$ghRunNumber" else "1.2.0"
-val ghRepository = System.getenv("GITHUB_REPOSITORY") ?: ""
+val computedVersionName = if (ghRunNumber != null) "1.3.$ghRunNumber" else "1.3.0"
+val ghRepository = System.getenv("GITHUB_REPOSITORY") ?: "DefinitelynotRylix/Aurora-Notes"
 
 android {
     namespace = "com.aurora.notes"

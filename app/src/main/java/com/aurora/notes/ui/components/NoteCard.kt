@@ -8,11 +8,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Unarchive
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.aurora.notes.model.Note
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
+import com.aurora.notes.util.LinkHelper
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,6 +45,7 @@ fun NoteCard(
     onTogglePin: () -> Unit,
     onDelete: () -> Unit,
     onToggleCheckItem: (String) -> Unit,
+    onUnarchive: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     onDeleteTag: ((String) -> Unit)? = null,
     isSelectionMode: Boolean = false,
@@ -123,53 +127,113 @@ fun NoteCard(
 
                 if (!isSelectionMode) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (onShare != null) {
+                        if (note.isArchived) {
+                            if (onUnarchive != null) {
+                                IconButton(
+                                    onClick = onUnarchive,
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Unarchive,
+                                        contentDescription = "Restore Note from Archive",
+                                        tint = AuroraRoyalViolet,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                             IconButton(
-                                onClick = onShare,
+                                onClick = onDelete,
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Share,
-                                    contentDescription = "Share Note",
-                                    tint = AuroraRoyalViolet.copy(alpha = 0.85f),
-                                    modifier = Modifier.size(15.dp)
+                                    imageVector = Icons.Outlined.Delete,
+                                    contentDescription = "Delete",
+                                    tint = AuroraDangerRed.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        } else {
+                            if (onShare != null) {
+                                IconButton(
+                                    onClick = onShare,
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Share,
+                                        contentDescription = "Share Note",
+                                        tint = AuroraRoyalViolet.copy(alpha = 0.85f),
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = onTogglePin,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (note.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                                    contentDescription = if (note.isPinned) "Unpin" else "Pin",
+                                    tint = if (note.isPinned) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = onDelete,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Delete,
+                                    contentDescription = "Delete",
+                                    tint = AuroraDangerRed.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
+                    }
+                }
+            }
 
-                        IconButton(
-                            onClick = onTogglePin,
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (note.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                                contentDescription = if (note.isPinned) "Unpin" else "Pin",
-                                tint = if (note.isPinned) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                                modifier = Modifier.size(16.dp)
+            if (note.isArchived) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = AuroraRoyalViolet.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Lock,
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(10.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Read-Only • Archived",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AuroraRoyalViolet
                             )
-                        }
-
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Delete,
-                                contentDescription = "Delete",
-                                tint = AuroraDangerRed.copy(alpha = 0.7f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                        )
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Body Preview
+            // Body Preview (with purple link highlighting)
             if (plainTextPreview.isNotBlank()) {
+                val annotatedPreview = remember(plainTextPreview) {
+                    LinkHelper.buildLinkAnnotatedString(plainTextPreview)
+                }
                 Text(
-                    text = plainTextPreview,
+                    text = annotatedPreview,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                         fontSize = 12.sp
@@ -180,7 +244,7 @@ fun NoteCard(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Inline Checklist Preview
+            // Inline Checklist Preview (Read-only when archived)
             if (note.checklist.isNotEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -192,7 +256,7 @@ fun NoteCard(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    if (isSelectionMode) {
+                                    if (isSelectionMode || note.isArchived) {
                                         onClick()
                                     } else {
                                         onToggleCheckItem(item.id)
@@ -205,8 +269,9 @@ fun NoteCard(
                             ) {
                                 Checkbox(
                                     checked = item.completed,
+                                    enabled = !note.isArchived,
                                     onCheckedChange = { _ ->
-                                        if (isSelectionMode) {
+                                        if (isSelectionMode || note.isArchived) {
                                             onClick()
                                         } else {
                                             onToggleCheckItem(item.id)
@@ -217,7 +282,7 @@ fun NoteCard(
                             }
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = item.text,
+                                text = LinkHelper.buildLinkAnnotatedString(item.text),
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontSize = 11.sp,
                                     textDecoration = if (item.completed) TextDecoration.LineThrough else TextDecoration.None,
@@ -241,11 +306,11 @@ fun NoteCard(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Tags Row with Long Press Deletion
+            // Tags Row with Long Press Deletion (disabled when archived)
             if (note.tags.isNotEmpty()) {
                 var pendingDeleteTag by remember { mutableStateOf<String?>(null) }
 
-                if (pendingDeleteTag != null) {
+                if (pendingDeleteTag != null && !note.isArchived) {
                     AlertDialog(
                         onDismissRequest = { pendingDeleteTag = null },
                         title = { Text("Delete Tag #${pendingDeleteTag}?") },
@@ -288,7 +353,11 @@ fun NoteCard(
                             border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.25f)),
                             modifier = Modifier.combinedClickable(
                                 onClick = { onClick() },
-                                onLongClick = { pendingDeleteTag = tag }
+                                onLongClick = {
+                                    if (!note.isArchived) {
+                                        pendingDeleteTag = tag
+                                    }
+                                }
                             )
                         ) {
                             Text(
@@ -309,12 +378,25 @@ fun NoteCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), thickness = 0.8.dp)
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Footer Row: Updated Date
+            // Footer Row: Restore shortcut (when archived) & Updated Date
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (note.isArchived && onUnarchive != null && !isSelectionMode) {
+                    Text(
+                        text = "Restore",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AuroraRoyalViolet
+                        ),
+                        modifier = Modifier.clickable { onUnarchive() }
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
+                }
                 Text(
                     text = formattedDate,
                     style = MaterialTheme.typography.labelSmall.copy(

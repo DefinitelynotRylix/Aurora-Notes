@@ -1,15 +1,22 @@
 package com.aurora.notes.ui.screens
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -23,6 +30,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -163,15 +171,40 @@ fun TrashScreen(
             )
 
             IconButton(onClick = onToggleGridView, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
-                    contentDescription = "Toggle Grid Layout",
-                    modifier = Modifier.size(18.dp)
-                )
+                AnimatedContent(
+                    targetState = isGridView,
+                    transitionSpec = {
+                        (scaleIn(initialScale = 0.75f, animationSpec = tween(220)) + fadeIn(tween(220)))
+                            .togetherWith(scaleOut(targetScale = 0.75f, animationSpec = tween(160)) + fadeOut(tween(160)))
+                    },
+                    label = "trash_masonry_column_icon_anim"
+                ) { gridMode ->
+                    Icon(
+                        imageVector = if (gridMode) Icons.Default.ViewList else Icons.Default.GridView,
+                        contentDescription = "Toggle Grid Layout",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(6.dp))
+
+        val layoutMorphScale = remember { Animatable(1f) }
+        var previousGridView by remember { mutableStateOf(isGridView) }
+        LaunchedEffect(isGridView) {
+            if (previousGridView != isGridView) {
+                previousGridView = isGridView
+                layoutMorphScale.snapTo(0.94f)
+                layoutMorphScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = 0.76f,
+                        stiffness = 210f
+                    )
+                )
+            }
+        }
 
         if (trashedNotes.isEmpty()) {
             Box(
@@ -188,10 +221,10 @@ fun TrashScreen(
                 )
             }
         } else {
-            LazyVerticalGrid(
-                columns = if (isGridView) GridCells.Fixed(2) else GridCells.Fixed(1),
+            LazyVerticalStaggeredGrid(
+                columns = StaggeredGridCells.Fixed(if (isGridView) 2 else 1),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalItemSpacing = 10.dp,
                 contentPadding = PaddingValues(bottom = 80.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -202,17 +235,23 @@ fun TrashScreen(
                         onDeletePermanent = { onDeletePermanently(note.id) },
                         modifier = Modifier
                             .animateItem(
-                                fadeInSpec = tween(durationMillis = 220),
+                                fadeInSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
                                 placementSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
+                                    dampingRatio = 0.78f,
+                                    stiffness = 190f
                                 ),
-                                fadeOutSpec = tween(durationMillis = 180)
+                                fadeOutSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
                             )
+                            .graphicsLayer {
+                                val s = layoutMorphScale.value
+                                scaleX = s
+                                scaleY = s
+                                alpha = (0.35f + 0.65f * s).coerceIn(0f, 1f)
+                            }
                             .animateContentSize(
                                 animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
+                                    dampingRatio = 0.78f,
+                                    stiffness = 190f
                                 )
                             )
                     )

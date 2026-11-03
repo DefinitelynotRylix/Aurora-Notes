@@ -68,21 +68,8 @@ object AppUpdateManager {
         return if (bakedRepo.isNotBlank() && bakedRepo.contains("/")) {
             bakedRepo
         } else {
-            ""
+            "DefinitelynotRylix/Aurora-Notes"
         }
-    }
-
-    fun setConfiguredRepoSlug(context: Context, repoSlug: String) {
-        val clean = repoSlug
-            .trim()
-            .removePrefix("https://github.com/")
-            .removePrefix("http://github.com/")
-            .trim('/')
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_GITHUB_REPO_OVERRIDE, clean)
-            .apply()
-        LocalLogger.security("UPDATE", "Configured GitHub release repository slug: '$clean'")
     }
 
     /**
@@ -121,16 +108,16 @@ object AppUpdateManager {
 
             if (repoSlug.isBlank() || !repoSlug.contains("/")) {
                 return@withContext UpdateScanResult.Error(
-                    "GitHub repository slug (owner/Aurora-Notes) is not set yet. Enter your GitHub owner/repo below to scan Releases."
+                    "Release update source is not available right now."
                 )
             }
 
-            LocalLogger.security("UPDATE", "Scanning GitHub Releases on '$repoSlug' (current v$currentVersionName)")
+            LocalLogger.security("UPDATE", "Scanning GitHub Releases for updates (current v$currentVersionName)")
 
             try {
                 val releaseObj = fetchLatestReleaseJson(repoSlug)
                     ?: return@withContext UpdateScanResult.Error(
-                        "No published releases found on https://github.com/$repoSlug/releases."
+                        "No published releases found on GitHub Releases."
                     )
 
                 val rawTag = releaseObj.get("tag_name")?.asString?.trim().orEmpty()

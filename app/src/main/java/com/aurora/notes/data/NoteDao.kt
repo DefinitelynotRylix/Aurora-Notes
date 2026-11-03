@@ -11,8 +11,11 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface NoteDao {
-    @Query("SELECT * FROM notes WHERE isDeleted = 0 ORDER BY isPinned DESC, updatedAt DESC")
+    @Query("SELECT * FROM notes WHERE isDeleted = 0 AND isArchived = 0 ORDER BY isPinned DESC, updatedAt DESC")
     fun getActiveNotes(): Flow<List<Note>>
+
+    @Query("SELECT * FROM notes WHERE isDeleted = 0 AND isArchived = 1 ORDER BY updatedAt DESC")
+    fun getArchivedNotes(): Flow<List<Note>>
 
     @Query("SELECT * FROM notes WHERE isDeleted = 1 ORDER BY deletedAt DESC")
     fun getTrashedNotes(): Flow<List<Note>>
@@ -28,6 +31,18 @@ interface NoteDao {
 
     @Update
     suspend fun update(note: Note)
+
+    @Query("UPDATE notes SET isArchived = 1, isPinned = 0, updatedAt = :timestamp WHERE id = :id")
+    suspend fun archiveNote(id: String, timestamp: Long)
+
+    @Query("UPDATE notes SET isArchived = 1, isPinned = 0, updatedAt = :timestamp WHERE id IN (:ids)")
+    suspend fun archiveNotesBatch(ids: List<String>, timestamp: Long)
+
+    @Query("UPDATE notes SET isArchived = 0, updatedAt = :timestamp WHERE id = :id")
+    suspend fun unarchiveNote(id: String, timestamp: Long)
+
+    @Query("UPDATE notes SET isArchived = 0, updatedAt = :timestamp WHERE id IN (:ids)")
+    suspend fun unarchiveNotesBatch(ids: List<String>, timestamp: Long)
 
     @Query("UPDATE notes SET isDeleted = 1, deletedAt = :timestamp WHERE id = :id")
     suspend fun moveToTrash(id: String, timestamp: Long)
@@ -47,7 +62,7 @@ interface NoteDao {
     @Query("DELETE FROM notes")
     suspend fun wipeAllNotes(): Int
 
-    @Query("SELECT COUNT(*) FROM notes WHERE isDeleted = 0")
+    @Query("SELECT COUNT(*) FROM notes WHERE isDeleted = 0 AND isArchived = 0")
     suspend fun getActiveCount(): Int
 
     @Query("SELECT COUNT(*) FROM notes WHERE isDeleted = 1")

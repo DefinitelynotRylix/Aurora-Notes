@@ -24,6 +24,8 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         private const val PREFS_NAME = "aurora_notes_preferences"
         private const val KEY_BIOMETRIC_LOCK = "key_biometric_lock_enabled"
         private const val KEY_WELCOME_SEEN = "key_welcome_tour_seen_v1"
+        private const val KEY_WHATS_NEW_SEEN_VERSION = "key_whats_new_seen_version_v1"
+        const val CURRENT_MAJOR_UPDATE_ID = "1.3.0"
         private const val KEY_USER_TAGS = "key_user_created_tags_v1"
         private const val KEY_THEME_MODE = "key_theme_mode_v1"
         private const val KEY_HAPTICS_ENABLED = "key_haptics_enabled_v1"
@@ -35,6 +37,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: AuroraRepository
 
     val allActiveNotes: StateFlow<List<Note>>
+    val allArchivedNotes: StateFlow<List<Note>>
     val allTrashedNotes: StateFlow<List<Note>>
 
     private val _searchQuery = MutableStateFlow("")
@@ -43,7 +46,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory = _selectedCategory.asStateFlow()
 
-    private val _selectedTab = MutableStateFlow(0) // 0: Notes, 1: Pinned, 2: Trash, 3: Settings
+    private val _selectedTab = MutableStateFlow(0) // 0: Notes, 1: Archive, 2: Trash, 3: Settings
     val selectedTab = _selectedTab.asStateFlow()
 
     private val _activeEditingNote = MutableStateFlow<Note?>(null)
@@ -61,6 +64,9 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     private val _isWelcomeOpen = MutableStateFlow(!prefs.getBoolean(KEY_WELCOME_SEEN, false))
     val isWelcomeOpen = _isWelcomeOpen.asStateFlow()
 
+    private val _isWhatsNewOpen = MutableStateFlow(checkAndConsumeWhatsNewOnce())
+    val isWhatsNewOpen = _isWhatsNewOpen.asStateFlow()
+
     private val _userTags = MutableStateFlow<List<String>>(loadSavedTags())
     val userTags = _userTags.asStateFlow()
 
@@ -75,6 +81,12 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         repository = AuroraRepository(noteDao)
 
         allActiveNotes = repository.activeNotes.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        allArchivedNotes = repository.archivedNotes.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
             emptyList()
@@ -128,11 +140,28 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         list
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val filteredPinnedNotes: StateFlow<List<Note>> = combine(
-        filteredActiveNotes,
-        _searchQuery
-    ) { notes, _ ->
-        notes.filter { it.isPinned }
+    val filteredArchivedNotes: StateFlow<List<Note>> = combine(
+        allArchivedNotes,
+        _searchQuery,
+        _selectedCategory
+    ) { notes, query, category ->
+        var list = notes
+        if (category != "All") {
+            list = list.filter { note ->
+                note.tags.any { it.equals(category, ignoreCase = true) } ||
+                    note.category.equals(category, ignoreCase = true)
+            }
+        }
+        if (query.isNotBlank()) {
+            val q = query.trim().lowercase()
+            list = list.filter { note ->
+                note.title.lowercase().contains(q) ||
+                    note.content.lowercase().contains(q) ||
+                    note.tags.any { it.lowercase().contains(q) } ||
+                    note.checklist.any { it.text.lowercase().contains(q) }
+            }
+        }
+        list
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val filteredTrashedNotes: StateFlow<List<Note>> = combine(
@@ -166,6 +195,26 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleGridView() {
         _isGridView.value = !_isGridView.value
+    }
+
+    private fun checkAndConsumeWhatsNewOnce(): Boolean {
+        val lastSeenVersion = prefs.getString(KEY_WHATS_NEW_SEEN_VERSION, null)
+        if (lastSeenVersion != CURRENT_MAJOR_UPDATE_ID) {
+            prefs.edit().putString(KEY_WHATS_NEW_SEEN_VERSION, CURRENT_MAJOR_UPDATE_ID).apply()
+            return true
+        }
+        return false
+    }
+
+    fun onAppUpdatedRestart() {
+        if (checkAndConsumeWhatsNewOnce()) {
+            _isWhatsNewOpen.value = true
+        }
+    }
+
+    fun dismissWhatsNew() {
+        prefs.edit().putString(KEY_WHATS_NEW_SEEN_VERSION, CURRENT_MAJOR_UPDATE_ID).apply()
+        _isWhatsNewOpen.value = false
     }
 
     fun dismissWelcome() {
@@ -207,6 +256,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveNote(note: Note) {
+        if (note.isArchived) return
         val cleanTitle = note.title.trim()
         val cleanContent = note.content
             .replace(Regex("<[^>]*>"), "")
@@ -246,6 +296,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePin(note: Note) {
+        if (note.isArchived) return
         viewModelScope.launch {
             repository.togglePin(note)
         }
@@ -254,6 +305,32 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleChecklistItem(noteId: String, itemId: String) {
         viewModelScope.launch {
             repository.toggleChecklistItem(noteId, itemId)
+        }
+    }
+
+    fun archiveNote(id: String) {
+        viewModelScope.launch {
+            repository.archiveNote(id)
+        }
+    }
+
+    fun archiveNotesBatch(ids: List<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            repository.archiveNotesBatch(ids)
+        }
+    }
+
+    fun unarchiveNote(id: String) {
+        viewModelScope.launch {
+            repository.unarchiveNote(id)
+        }
+    }
+
+    fun unarchiveNotesBatch(ids: List<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            repository.unarchiveNotesBatch(ids)
         }
     }
 

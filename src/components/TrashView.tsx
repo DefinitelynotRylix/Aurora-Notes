@@ -296,8 +296,8 @@ export const TrashView: React.FC<TrashViewProps> = ({
       ) : (
         <motion.div
           layout
-          transition={{ layout: { type: 'spring', stiffness: 280, damping: 28 } }}
-          className={`grid gap-2.5 sm:gap-4 ${
+          transition={{ layout: { type: 'spring', stiffness: 190, damping: 24 } }}
+          className={`grid gap-2.5 sm:gap-4 items-start ${
             isGridView
               ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
               : 'grid-cols-1 max-w-2xl mx-auto'
@@ -315,7 +315,13 @@ export const TrashView: React.FC<TrashViewProps> = ({
               <motion.div
                 key={note.id}
                 layout
-                transition={{ layout: { type: 'spring', stiffness: 280, damping: 28 } }}
+                initial={{ opacity: 0.85, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{
+                  layout: { type: 'spring', stiffness: 190, damping: 24 },
+                  opacity: { duration: 0.24 },
+                  scale: { duration: 0.26 },
+                }}
                 className="glass-card rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex flex-col justify-between border border-[#EADBFC]/80 dark:border-[#322742]/80 bg-white/70 dark:bg-[#1A1423]/70 hover:shadow-md transition-shadow relative group"
               >
                 <div>

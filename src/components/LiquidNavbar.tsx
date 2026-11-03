@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActiveTab } from '../types';
-import { FileText, Pin, Trash2, Settings } from 'lucide-react';
+import { FileText, Archive, Trash2, Settings } from 'lucide-react';
 
 interface LiquidNavbarProps {
   activeTab: ActiveTab;
   onChangeTab: (tab: ActiveTab) => void;
-  pinnedCount: number;
+  archivedCount: number;
   trashCount?: number;
   isHapticsEnabled?: boolean;
 }
@@ -124,13 +124,13 @@ function buildMetaballDropPath(
 export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   activeTab,
   onChangeTab,
-  pinnedCount,
+  archivedCount,
   trashCount = 0,
   isHapticsEnabled = true,
 }) => {
   const items: NavItem[] = [
     { id: 'notes', label: 'Notes', icon: FileText },
-    { id: 'pinned', label: 'Pinned', icon: Pin, badge: pinnedCount },
+    { id: 'archive', label: 'Archive', icon: Archive, badge: archivedCount },
     { id: 'trash', label: 'Trash', icon: Trash2, badge: trashCount },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
@@ -198,8 +198,8 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     let raf = 0;
     const step = () => {
       const state = animRef.current;
-      const nextDrop = state.currentDrop + (dragTabPos - state.currentDrop) * 0.42;
-      const nextBody = state.currentBody + (dragTabPos - state.currentBody) * 0.22;
+      const nextDrop = state.currentDrop + (dragTabPos - state.currentDrop) * 0.36;
+      const nextBody = state.currentBody + (dragTabPos - state.currentBody) * 0.18;
       state.currentDrop = nextDrop;
       state.currentBody = nextBody;
       setAnimState({
@@ -217,7 +217,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     return () => cancelAnimationFrame(raf);
   }, [isHoldingPill, dragTabPos]);
 
-  // Animate fluid drop going slightly past the target button and settling back into place
+  // Animate fluid drop going slightly past the target button and settling back into place smoothly
   useEffect(() => {
     if (isHoldingPill) return;
     const state = animRef.current;
@@ -236,12 +236,12 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     state.startTime = performance.now();
 
     const DROP_DURATION = 420;
-    const BODY_DURATION = 680;
+    const BODY_DURATION = 660;
 
     const tick = (now: number) => {
       const elapsed = Math.max(0, now - state.startTime);
-      const dropProgress = easeFluidOvershoot(elapsed / DROP_DURATION, 1.38);
-      const bodyProgress = easeFluidOvershoot(elapsed / BODY_DURATION, 1.15);
+      const dropProgress = easeFluidOvershoot(elapsed / DROP_DURATION, 1.32);
+      const bodyProgress = easeFluidOvershoot(elapsed / BODY_DURATION, 1.12);
 
       const nextDrop = Math.min(
         items.length - 1,

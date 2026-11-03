@@ -21,6 +21,7 @@ data class Note(
     val tags: List<String> = emptyList(),
     val category: String = "",
     val isPinned: Boolean = false,
+    val isArchived: Boolean = false,
     val isDeleted: Boolean = false,
     val deletedAt: Long? = null,
     val createdAt: Long = System.currentTimeMillis(),

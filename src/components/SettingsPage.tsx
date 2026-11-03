@@ -28,9 +28,8 @@ import {
 } from '../utils/nativeAuth';
 import { logger, LogEntry, LogLevel } from '../utils/logger';
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const APP_BUILD_CODE = 100;
-const REPO_STORAGE_KEY = 'aurora-github-repo-slug-v1';
 
 function compareSemver(remoteVer: string, localVer: string): number {
   const cleanR = remoteVer.trim().replace(/^[vV]/, '');
@@ -75,10 +74,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
 
   // App Version & Self-Update State
-  const [repoSlug, setRepoSlug] = useState<string>(() => {
-    return localStorage.getItem(REPO_STORAGE_KEY) || '';
-  });
-  const [showRepoInput, setShowRepoInput] = useState<boolean>(() => !localStorage.getItem(REPO_STORAGE_KEY));
   const [isScanningUpdate, setIsScanningUpdate] = useState(false);
   const [isPullingUpdate, setIsPullingUpdate] = useState(false);
   const [pullProgress, setPullProgress] = useState(0);
@@ -114,33 +109,27 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   const handleScanForUpdates = async () => {
     if (isScanningUpdate || isPullingUpdate) return;
-    const cleanRepo = repoSlug
+    const storedRepo = (localStorage.getItem('aurora-github-repo-slug-v1') || '')
       .trim()
       .replace(/^https?:\/\/github\.com\//i, '')
       .replace(/^\/+|\/+$/g, '');
-
-    if (cleanRepo && cleanRepo.includes('/')) {
-      localStorage.setItem(REPO_STORAGE_KEY, cleanRepo);
-      setRepoSlug(cleanRepo);
-      setShowRepoInput(false);
-    }
 
     setIsScanningUpdate(true);
     setUpdateStatus(null);
     logger.security('UPDATE', `Scanning GitHub Releases for updates (installed v${APP_VERSION})`);
 
-    if (!cleanRepo || !cleanRepo.includes('/')) {
+    if (!storedRepo || !storedRepo.includes('/')) {
       setIsScanningUpdate(false);
       setUpdateStatus({
         type: 'uptodate',
         latestVersion: APP_VERSION,
-        message: `Aurora Notes is at the latest version (v${APP_VERSION}). Enter your GitHub owner/Aurora-Notes repository slug if you want to check a custom release feed.`,
+        message: `Aurora Notes is at the latest version (v${APP_VERSION}).`,
       });
       return;
     }
 
     try {
-      const resp = await fetch(`https://api.github.com/repos/${cleanRepo}/releases/latest`, {
+      const resp = await fetch(`https://api.github.com/repos/${storedRepo}/releases/latest`, {
         headers: { Accept: 'application/vnd.github+json' },
       });
 
@@ -149,7 +138,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         setUpdateStatus({
           type: 'uptodate',
           latestVersion: APP_VERSION,
-          message: `You are running the latest version (v${APP_VERSION}). No newer release found on ${cleanRepo}.`,
+          message: `You are running the latest version (v${APP_VERSION}). No newer release found.`,
         });
         return;
       }
@@ -204,7 +193,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       logger.error('UPDATE', 'Failed checking GitHub Releases', String(err));
       setUpdateStatus({
         type: 'error',
-        message: 'Could not reach GitHub Releases API. Check your internet connection or repository name.',
+        message: 'Could not reach GitHub Releases API. Check your internet connection.',
       });
     }
   };
@@ -311,13 +300,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               Installed Version: v{APP_VERSION} • Build {APP_BUILD_CODE}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowRepoInput((v) => !v)}
-            className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] hover:opacity-90 cursor-pointer"
-          >
-            {repoSlug ? repoSlug : 'Set GitHub Repo'}
-          </button>
         </div>
 
         {/* Minimal Internet Access Warning Box */}
@@ -327,21 +309,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <strong className="text-[#1E1A24] dark:text-[#F7EEFC]">Minimal Internet Access Notice:</strong> All your notes, checklists, and tags remain 100% offline on your device. Internet access is strictly limited to manual update scans when you tap <strong>Scan for Updates</strong> below to pull the latest <code className="font-mono">Aurora Notes.apk</code> from GitHub Releases.
           </p>
         </div>
-
-        {showRepoInput && (
-          <div className="pt-1">
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-[#797487] dark:text-[#A39BAC] mb-1">
-              GitHub Repository (owner/Aurora-Notes)
-            </label>
-            <input
-              type="text"
-              value={repoSlug}
-              onChange={(e) => setRepoSlug(e.target.value)}
-              placeholder="e.g. username/Aurora-Notes"
-              className="w-full px-3 py-2 text-xs rounded-xl border border-[#EADBFC] dark:border-[#322742] bg-[#FAF8FB] dark:bg-[#120E17] text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none focus:border-[#5925DC]"
-            />
-          </div>
-        )}
 
         {isPullingUpdate && (
           <div className="space-y-1.5 pt-1">

@@ -7,13 +7,19 @@ import {
   Trash2,
   Share2,
   CheckCircle2,
-  Circle
+  Circle,
+  Archive,
+  ArchiveRestore,
+  Lock
 } from 'lucide-react';
+import { parseTextWithLinks, openUrlInDefaultBrowser } from '../utils/linkUtils';
 
 interface NoteCardProps {
   note: Note;
   onSelect: (note: Note) => void;
   onTogglePin: (id: string, e: React.MouseEvent) => void;
+  onArchive?: (id: string, e?: React.MouseEvent) => void;
+  onUnarchive?: (id: string, e?: React.MouseEvent) => void;
   onDelete: (id: string, e?: React.MouseEvent | React.TouchEvent | null) => void;
   onToggleCheckItem: (noteId: string, itemId: string, e: React.MouseEvent) => void;
   onShare?: (note: Note) => void;
@@ -29,6 +35,8 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   note,
   onSelect,
   onTogglePin,
+  onArchive,
+  onUnarchive,
   onDelete,
   onToggleCheckItem,
   onShare,
@@ -42,6 +50,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [pendingDeleteTag, setPendingDeleteTag] = useState<string | null>(null);
   const [isHolding, setIsHolding] = useState(false);
+  const isArchived = Boolean(note.isArchived);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -175,7 +184,14 @@ export const NoteCard: React.FC<NoteCardProps> = ({
         }`}
       >
         <div>
-          {/* Top Header: Selection Indicator, Title, Share, Pin & More Actions */}
+          {isArchived && (
+            <div className="mb-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-[9px] font-bold tracking-wide border border-[#EADBFC] dark:border-[#322742]">
+              <Lock className="w-2.5 h-2.5" />
+              <span>Read-Only • Archived</span>
+            </div>
+          )}
+
+          {/* Top Header: Selection Indicator, Title, Actions */}
           <div className="flex items-start justify-between gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
               {isSelectionMode && (
@@ -194,142 +210,221 @@ export const NoteCard: React.FC<NoteCardProps> = ({
 
             {!isSelectionMode && (
               <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                {/* Share Button */}
-                {onShare && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onShare(note);
-                    }}
-                    aria-label={`Share ${note.title || 'note'}`}
-                    className="p-1 rounded-lg text-[#5925DC] dark:text-[#C296FD] opacity-75 hover:opacity-100 hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] transition-colors cursor-pointer"
-                    title="Share or save note (.md / .txt)"
-                  >
-                    <Share2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                {isArchived ? (
+                  <>
+                    {/* Restore (Unarchive) Button */}
+                    {onUnarchive && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUnarchive(note.id, e);
+                        }}
+                        aria-label={`Restore ${note.title || 'note'} from Archive`}
+                        className="p-1 rounded-lg bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] hover:opacity-90 transition-colors cursor-pointer"
+                        title="Restore note"
+                      >
+                        <ArchiveRestore className="w-3.5 h-3.5" />
+                      </button>
+                    )}
 
-                {/* Pin Button */}
-                <button
-                  type="button"
-                  onClick={(e) => onTogglePin(note.id, e)}
-                  aria-label={note.isPinned ? `Unpin ${note.title || 'note'}` : `Pin ${note.title || 'note'}`}
-                  className={`p-1 rounded-lg transition-colors cursor-pointer ${
-                    note.isPinned
-                      ? 'text-[#5925DC] dark:text-[#C296FD] bg-[#F4EBFF] dark:bg-[#2B1E3E]'
-                      : 'text-[#797487] dark:text-[#A39BAC] opacity-40 hover:opacity-100 hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC]'
-                  }`}
-                  title={note.isPinned ? 'Unpin' : 'Pin to top'}
-                >
-                  <Pin className={`w-3.5 h-3.5 ${note.isPinned ? 'fill-current' : ''}`} />
-                </button>
-
-                {/* More Menu */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowMenu((prev) => !prev);
-                    }}
-                    aria-label={`Options for ${note.title || 'note'}`}
-                    className="p-1 rounded-lg text-[#797487] dark:text-[#A39BAC] hover:text-[#1E1A24] dark:hover:text-[#F7EEFC] hover:bg-[#FAF8FB] dark:hover:bg-[#120E17] transition-all cursor-pointer"
-                  >
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
-
-                  {showMenu && (
-                    <div
-                      className="absolute right-0 top-7 z-20 w-44 bg-white/95 dark:bg-[#1B1524]/95 backdrop-blur-md rounded-xl border border-[#EADBFC] dark:border-[#322742] shadow-[0_12px_28px_rgba(89,37,220,0.14)] p-1 flex flex-col text-xs font-medium text-[#1E1A24] dark:text-[#F7EEFC]"
-                      onClick={(e) => e.stopPropagation()}
+                    {/* Delete Button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowDeleteConfirm(true);
+                      }}
+                      aria-label={`Delete ${note.title || 'note'}`}
+                      className="p-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors cursor-pointer"
+                      title="Delete note"
                     >
-                      {onShare && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowMenu(false);
-                            onShare(note);
-                          }}
-                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <Share2 className="w-3.5 h-3.5" />
-                          <span>Share (.md / .txt)</span>
-                        </button>
-                      )}
-                      {onToggleSelection && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowMenu(false);
-                            onToggleSelection(note.id);
-                          }}
-                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Select multiple</span>
-                        </button>
-                      )}
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* Share Button */}
+                    {onShare && (
                       <button
                         type="button"
                         onClick={(e) => {
-                          setShowMenu(false);
-                          onTogglePin(note.id, e);
+                          e.stopPropagation();
+                          onShare(note);
                         }}
-                        className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center gap-1.5 cursor-pointer"
+                        aria-label={`Share ${note.title || 'note'}`}
+                        className="p-1 rounded-lg text-[#5925DC] dark:text-[#C296FD] opacity-75 hover:opacity-100 hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] transition-colors cursor-pointer"
+                        title="Share note"
                       >
-                        <Pin className="w-3.5 h-3.5" />
-                        <span>{note.isPinned ? 'Unpin' : 'Pin to top'}</span>
+                        <Share2 className="w-3.5 h-3.5" />
                       </button>
-                      <div className="my-1 border-t border-[#EADBFC]/60 dark:border-[#322742]" />
+                    )}
+
+                    {/* Pin Button */}
+                    <button
+                      type="button"
+                      onClick={(e) => onTogglePin(note.id, e)}
+                      aria-label={note.isPinned ? `Unpin ${note.title || 'note'}` : `Pin ${note.title || 'note'}`}
+                      className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                        note.isPinned
+                          ? 'text-[#5925DC] dark:text-[#C296FD] bg-[#F4EBFF] dark:bg-[#2B1E3E]'
+                          : 'text-[#797487] dark:text-[#A39BAC] opacity-40 hover:opacity-100 hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC]'
+                      }`}
+                      title={note.isPinned ? 'Unpin' : 'Pin to top'}
+                    >
+                      <Pin className={`w-3.5 h-3.5 ${note.isPinned ? 'fill-current' : ''}`} />
+                    </button>
+
+                    {/* More Menu */}
+                    <div className="relative">
                       <button
                         type="button"
                         onClick={(e) => {
-                          setShowMenu(false);
-                          onDelete(note.id, e);
+                          e.stopPropagation();
+                          setShowMenu((prev) => !prev);
                         }}
-                        className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center gap-1.5 cursor-pointer"
+                        aria-label={`Options for ${note.title || 'note'}`}
+                        className="p-1 rounded-lg text-[#797487] dark:text-[#A39BAC] hover:text-[#1E1A24] dark:hover:text-[#F7EEFC] hover:bg-[#FAF8FB] dark:hover:bg-[#120E17] transition-all cursor-pointer"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Delete note</span>
+                        <MoreVertical className="w-3.5 h-3.5" />
                       </button>
+
+                      {showMenu && (
+                        <div
+                          className="absolute right-0 top-7 z-20 w-44 bg-white/95 dark:bg-[#1B1524]/95 backdrop-blur-md rounded-xl border border-[#EADBFC] dark:border-[#322742] shadow-[0_12px_28px_rgba(89,37,220,0.14)] p-1 flex flex-col text-xs font-medium text-[#1E1A24] dark:text-[#F7EEFC]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {onShare && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowMenu(false);
+                                onShare(note);
+                              }}
+                              className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Share2 className="w-3.5 h-3.5" />
+                              <span>Share note</span>
+                            </button>
+                          )}
+                          {onArchive && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                setShowMenu(false);
+                                onArchive(note.id, e);
+                              }}
+                              className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Archive className="w-3.5 h-3.5" />
+                              <span>Archive note</span>
+                            </button>
+                          )}
+                          {onToggleSelection && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowMenu(false);
+                                onToggleSelection(note.id);
+                              }}
+                              className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Select multiple</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              setShowMenu(false);
+                              onTogglePin(note.id, e);
+                            }}
+                            className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Pin className="w-3.5 h-3.5" />
+                            <span>{note.isPinned ? 'Unpin' : 'Pin to top'}</span>
+                          </button>
+                          <div className="my-1 border-t border-[#EADBFC]/60 dark:border-[#322742]" />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              setShowMenu(false);
+                              onDelete(note.id, e);
+                            }}
+                            className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete note</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </>
+                )}
               </div>
             )}
           </div>
 
-          {/* Note Body Preview */}
+          {/* Note Body Preview with Clickable Purple Links */}
           {plainTextPreview && (
             <p className="text-[11px] sm:text-xs leading-[17px] text-[#484455] dark:text-[#A39BAC] line-clamp-2 sm:line-clamp-3 mb-2 font-normal whitespace-pre-wrap">
-              {plainTextPreview}
+              {parseTextWithLinks(plainTextPreview).map((seg, idx) =>
+                seg.type === 'link' && seg.url ? (
+                  <a
+                    key={idx}
+                    href={seg.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isSelectionMode && onToggleSelection) {
+                        e.preventDefault();
+                        onToggleSelection(note.id);
+                      } else {
+                        e.preventDefault();
+                        openUrlInDefaultBrowser(seg.url!);
+                      }
+                    }}
+                    className="text-[#8B3DFF] dark:text-[#C296FD] underline decoration-[#8B3DFF] dark:decoration-[#C296FD] font-semibold cursor-pointer hover:opacity-85 break-all"
+                  >
+                    {seg.text}
+                  </a>
+                ) : (
+                  <React.Fragment key={idx}>{seg.text}</React.Fragment>
+                )
+              )}
             </p>
           )}
 
           {/* Inline Checklists Preview */}
           {note.checklist && note.checklist.length > 0 && (
-            <div className="space-y-1 mb-2.5" onClick={(e) => e.stopPropagation()}>
+            <div className="space-y-1 mb-2.5" onClick={(e) => !isArchived && e.stopPropagation()}>
               {note.checklist.slice(0, 2).map((item) => (
                 <div
                   key={item.id}
                   onClick={(e) => {
                     if (isSelectionMode && onToggleSelection) {
+                      e.stopPropagation();
                       onToggleSelection(note.id);
-                    } else {
+                    } else if (!isArchived) {
                       onToggleCheckItem(note.id, item.id, e);
                     }
                   }}
                   role="checkbox"
                   aria-checked={item.completed}
-                  tabIndex={0}
+                  aria-disabled={isArchived}
+                  tabIndex={isArchived ? -1 : 0}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
+                    if (!isArchived && (e.key === 'Enter' || e.key === ' ')) {
                       e.preventDefault();
                       onToggleCheckItem(note.id, item.id, e as unknown as React.MouseEvent);
                     }
                   }}
-                  className="flex items-center gap-2 text-[11px] sm:text-xs text-[#1E1A24] dark:text-[#F7EEFC] cursor-pointer hover:bg-[#FAF8FB] dark:hover:bg-[#120E17] p-0.5 rounded transition-all group/item focus:outline-none"
+                  className={`flex items-center gap-2 text-[11px] sm:text-xs text-[#1E1A24] dark:text-[#F7EEFC] p-0.5 rounded transition-all group/item focus:outline-none ${
+                    isArchived
+                      ? 'cursor-default opacity-80'
+                      : 'cursor-pointer hover:bg-[#FAF8FB] dark:hover:bg-[#120E17]'
+                  }`}
                 >
                   <div
                     className={`w-3.5 h-3.5 rounded-[5px] border flex items-center justify-center transition-all ${
@@ -347,7 +442,26 @@ export const NoteCard: React.FC<NoteCardProps> = ({
                         : 'text-[#1E1A24] dark:text-[#F7EEFC]'
                     }`}
                   >
-                    {item.text}
+                    {parseTextWithLinks(item.text).map((seg, idx) =>
+                      seg.type === 'link' && seg.url ? (
+                        <a
+                          key={idx}
+                          href={seg.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            openUrlInDefaultBrowser(seg.url!);
+                          }}
+                          className="text-[#8B3DFF] dark:text-[#C296FD] underline decoration-[#8B3DFF] dark:decoration-[#C296FD] font-semibold cursor-pointer"
+                        >
+                          {seg.text}
+                        </a>
+                      ) : (
+                        <React.Fragment key={idx}>{seg.text}</React.Fragment>
+                      )
+                    )}
                   </span>
                 </div>
               ))}
@@ -359,19 +473,22 @@ export const NoteCard: React.FC<NoteCardProps> = ({
             </div>
           )}
 
-          {/* Tags with long press deletion */}
+          {/* Tags with long press deletion (disabled when archived) */}
           {note.tags && note.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-2" onClick={(e) => e.stopPropagation()}>
+            <div className="flex flex-wrap gap-1 mb-2" onClick={(e) => !isArchived && e.stopPropagation()}>
               {note.tags.slice(0, 3).map((tag) => (
                 <span
                   key={tag}
                   onContextMenu={(e) => {
+                    if (isArchived) return;
                     e.preventDefault();
                     e.stopPropagation();
                     setPendingDeleteTag(tag);
                   }}
-                  title="Right-click / long press to delete tag"
-                  className="text-[9px] sm:text-[10px] font-medium px-1.5 py-0.2 rounded bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border border-[#EADBFC]/60 dark:border-[#322742] cursor-pointer hover:border-rose-400"
+                  title={isArchived ? 'Archived note (read-only)' : 'Right-click / long press to delete tag'}
+                  className={`text-[9px] sm:text-[10px] font-medium px-1.5 py-0.2 rounded bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border border-[#EADBFC]/60 dark:border-[#322742] ${
+                    isArchived ? 'cursor-default' : 'cursor-pointer hover:border-rose-400'
+                  }`}
                 >
                   #{tag}
                 </span>

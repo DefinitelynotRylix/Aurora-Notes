@@ -23,9 +23,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.*
@@ -58,6 +60,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         if (intent?.getBooleanExtra("extra_updated_restarted", false) == true) {
             intent?.removeExtra("extra_updated_restarted")
+            viewModel.onAppUpdatedRestart()
             Toast.makeText(
                 this,
                 "Aurora Notes updated & restarted (v${BuildConfig.VERSION_NAME})",
@@ -141,16 +144,17 @@ fun AuroraApp(
     val isGridView by viewModel.isGridView.collectAsState()
     val filteredTrashedNotes by viewModel.filteredTrashedNotes.collectAsState()
     val allActiveNotes by viewModel.allActiveNotes.collectAsState()
+    val allArchivedNotes by viewModel.allArchivedNotes.collectAsState()
     val userTags by viewModel.userTags.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
 
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
     val isAppLocked by viewModel.isAppLocked.collectAsState()
     val isWelcomeOpen by viewModel.isWelcomeOpen.collectAsState()
+    val isWhatsNewOpen by viewModel.isWhatsNewOpen.collectAsState()
     val isHapticsEnabled by viewModel.isHapticsEnabled.collectAsState()
 
-    // Synchronously compute All Notes (Tab 0) and Pinned Notes (Tab 1) so there is zero
-    // coroutine delay or 1ms flash of the main notes menu when switching between navbar tabs
+    // Synchronously compute Active Notes (Tab 0) and Archived Notes (Tab 1)
     val allFilteredNotes = remember(allActiveNotes, searchQuery, selectedCategory) {
         var list = allActiveNotes
         if (selectedCategory != "All") {
@@ -171,11 +175,27 @@ fun AuroraApp(
         list
     }
 
-    val pinnedFilteredNotes = remember(allFilteredNotes) {
-        allFilteredNotes.filter { it.isPinned }
+    val archivedFilteredNotes = remember(allArchivedNotes, searchQuery, selectedCategory) {
+        var list = allArchivedNotes
+        if (selectedCategory != "All") {
+            list = list.filter { note ->
+                note.tags.any { it.equals(selectedCategory, ignoreCase = true) } ||
+                    note.category.equals(selectedCategory, ignoreCase = true)
+            }
+        }
+        if (searchQuery.isNotBlank()) {
+            val q = searchQuery.trim().lowercase()
+            list = list.filter { note ->
+                note.title.lowercase().contains(q) ||
+                    note.content.lowercase().contains(q) ||
+                    note.tags.any { it.lowercase().contains(q) } ||
+                    note.checklist.any { it.text.lowercase().contains(q) }
+            }
+        }
+        list
     }
 
-    val pinnedCount = remember(allActiveNotes) { allActiveNotes.count { it.isPinned } }
+    val archivedCount = remember(allArchivedNotes) { allArchivedNotes.size }
     val trashCount = remember(filteredTrashedNotes) { filteredTrashedNotes.size }
 
     LaunchedEffect(isAppLocked) {
@@ -256,6 +276,12 @@ fun AuroraApp(
             onDiscardAndClose = {
                 viewModel.closeEditor()
             },
+            onUnarchiveNote = { noteId ->
+                viewModel.unarchiveNote(noteId)
+            },
+            onDeleteNote = { noteId ->
+                viewModel.moveToTrash(noteId)
+            },
             onDeleteTagGlobal = { tag ->
                 viewModel.deleteTagAndDetachFromNotes(tag)
             }
@@ -265,11 +291,15 @@ fun AuroraApp(
             WelcomeTourDialog(
                 onDismiss = { viewModel.dismissWelcome() }
             )
+        } else if (isWhatsNewOpen) {
+            WhatsNewDialog(
+                onDismiss = { viewModel.dismissWhatsNew() }
+            )
         }
 
         Scaffold(
             floatingActionButton = {
-                if (selectedTab == 0 || selectedTab == 1) {
+                if (selectedTab == 0) {
                     FloatingActionButton(
                         onClick = { viewModel.openNewNote() },
                         containerColor = AuroraRoyalViolet,
@@ -284,7 +314,7 @@ fun AuroraApp(
                 FloatingPillNavigationBar(
                     selectedTab = selectedTab,
                     onTabSelected = { viewModel.setSelectedTab(it) },
-                    pinnedCount = pinnedCount,
+                    archivedCount = archivedCount,
                     trashCount = trashCount,
                     isHapticsEnabled = isHapticsEnabled
                 )
@@ -295,16 +325,16 @@ fun AuroraApp(
                 transitionSpec = {
                     val direction = if (targetState >= initialState) 1 else -1
                     (slideInHorizontally(
-                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                        animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
                         initialOffsetX = { fullWidth -> direction * fullWidth }
                     ) + fadeIn(
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
                     )).togetherWith(
                         slideOutHorizontally(
-                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
                             targetOffsetX = { fullWidth -> -direction * fullWidth }
                         ) + fadeOut(
-                            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
                         )
                     ).using(SizeTransform(clip = false))
                 },
@@ -325,19 +355,20 @@ fun AuroraApp(
                             onTogglePin = { viewModel.togglePin(it) },
                             onDeleteNote = { viewModel.moveToTrash(it) },
                             onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
+                            onArchiveNotesBatch = { ids -> viewModel.archiveNotesBatch(ids) },
                             onToggleCheckItem = { noteId, itemId ->
                                 viewModel.toggleChecklistItem(noteId, itemId)
                             },
                             onAddNote = { viewModel.openNewNote() },
                             onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
                             onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
-                            isPinnedTab = false,
+                            isArchiveTab = false,
                             modifier = Modifier.padding(paddingValues)
                         )
                     }
                     1 -> {
                         NotesScreen(
-                            notes = pinnedFilteredNotes,
+                            notes = archivedFilteredNotes,
                             userTags = userTags,
                             searchQuery = searchQuery,
                             onSearchChange = { viewModel.setSearchQuery(it) },
@@ -349,13 +380,15 @@ fun AuroraApp(
                             onTogglePin = { viewModel.togglePin(it) },
                             onDeleteNote = { viewModel.moveToTrash(it) },
                             onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
+                            onUnarchiveNote = { id -> viewModel.unarchiveNote(id) },
+                            onUnarchiveNotesBatch = { ids -> viewModel.unarchiveNotesBatch(ids) },
                             onToggleCheckItem = { noteId, itemId ->
                                 viewModel.toggleChecklistItem(noteId, itemId)
                             },
                             onAddNote = { viewModel.openNewNote() },
                             onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
                             onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
-                            isPinnedTab = true,
+                            isArchiveTab = true,
                             modifier = Modifier.padding(paddingValues)
                         )
                     }
@@ -579,3 +612,183 @@ private fun WelcomeTourDialog(
         }
     }
 }
+
+private data class WhatsNewFeatureItem(
+    val title: String,
+    val badge: String,
+    val description: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+@Composable
+private fun WhatsNewDialog(
+    onDismiss: () -> Unit
+) {
+    val features = remember {
+        listOf(
+            WhatsNewFeatureItem(
+                title = "Clickable Purple Links in Notes",
+                badge = "NEW",
+                description = "Links pasted or typed into any note automatically highlight in a vibrant purple color. Tap any link to open it directly in your Android default browser.",
+                icon = Icons.Default.Link
+            ),
+            WhatsNewFeatureItem(
+                title = "Read-Only Archive Menu",
+                badge = "MAJOR",
+                description = "Replaced the Pinned tab with a dedicated Archive menu. Hold one or multiple notes to archive them as read-only while keeping Restore and Delete ready.",
+                icon = Icons.Default.Archive
+            ),
+            WhatsNewFeatureItem(
+                title = "Fluid Pill & Smooth Layout Morphing",
+                badge = "REFINED",
+                description = "Hold and slide the purple navigation pill across menus, feel tactile haptic pulses, and switch between Masonry and Column views with smooth spring motion.",
+                icon = Icons.Default.AutoAwesome
+            ),
+            WhatsNewFeatureItem(
+                title = "Streamlined Sharing & Privacy Care",
+                badge = "PRIVACY",
+                description = "Clean one-tap sharing to apps & contacts, streamlined self-update controls, and 100% local offline note storage.",
+                icon = Icons.Default.CheckCircle
+            )
+        )
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.5.dp, AuroraRoyalViolet.copy(alpha = 0.45f)),
+            tonalElevation = 12.dp,
+            shadowElevation = 24.dp,
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 430.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = AuroraRoyalViolet,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "MAJOR UPDATE • v${NotesViewModel.CURRENT_MAJOR_UPDATE_ID}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AuroraRoyalViolet
+                        )
+                        Text(
+                            text = "What's New in Aurora Notes",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    features.forEach { item ->
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.background,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = AuroraRoyalViolet.copy(alpha = 0.14f),
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = item.icon,
+                                            contentDescription = null,
+                                            tint = AuroraRoyalViolet,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = item.title,
+                                            style = MaterialTheme.typography.labelLarge.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = item.description,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = 11.5.sp,
+                                            lineHeight = 16.sp,
+                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.78f)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Got It, Let's Go",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+

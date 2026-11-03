@@ -119,25 +119,15 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
   if (!notes.length) return null;
 
   const handleShareToAppsAndContacts = async () => {
-    const mimeType = format === 'md' ? 'text/markdown' : 'text/plain';
     const title = notes.length === 1 ? notes[0].title || 'Aurora Note' : `${notes.length} Aurora Notes`;
 
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
-        const file = new File([formattedOutput], suggestedFileName, { type: mimeType });
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            title,
-            text: formattedOutput,
-            files: [file],
-          });
-        } else {
-          await navigator.share({
-            title,
-            text: formattedOutput,
-          });
-        }
-        logger.security('SHARE', `Shared ${notes.length} note(s) as .${format}`);
+        await navigator.share({
+          title,
+          text: formattedOutput,
+        });
+        logger.security('SHARE', `Shared ${notes.length} note(s) to apps & contacts (.${format})`);
         onClose();
         return;
       } catch (err) {

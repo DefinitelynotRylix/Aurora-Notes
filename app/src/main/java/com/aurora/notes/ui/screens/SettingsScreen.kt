@@ -99,8 +99,6 @@ fun SettingsScreen(
     // App Version & Self-Update states
     val currentVersionName = remember { AppUpdateManager.currentVersionName }
     val currentVersionCode = remember { AppUpdateManager.currentVersionCode }
-    var repoSlugInput by remember { mutableStateOf(AppUpdateManager.getConfiguredRepoSlug(context)) }
-    var showRepoEditor by remember { mutableStateOf(repoSlugInput.isBlank()) }
     var isScanningUpdate by remember { mutableStateOf(false) }
     var isDownloadingUpdate by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableStateOf(0) }
@@ -164,20 +162,10 @@ fun SettingsScreen(
 
     fun scanAndAutoPullUpdate() {
         if (isScanningUpdate || isDownloadingUpdate) return
-        val cleanSlug = repoSlugInput
-            .trim()
-            .removePrefix("https://github.com/")
-            .removePrefix("http://github.com/")
-            .trim('/')
-        if (cleanSlug.isNotBlank() && cleanSlug.contains("/")) {
-            AppUpdateManager.setConfiguredRepoSlug(context, cleanSlug)
-            repoSlugInput = cleanSlug
-            showRepoEditor = false
-        }
         isScanningUpdate = true
         scanResult = null
         coroutineScope.launch {
-            val res = AppUpdateManager.scanForUpdate(context, cleanSlug)
+            val res = AppUpdateManager.scanForUpdate(context)
             isScanningUpdate = false
             scanResult = res
             when (res) {
@@ -197,9 +185,6 @@ fun SettingsScreen(
                     triggerPullAndSelfUpdate(res)
                 }
                 is UpdateScanResult.Error -> {
-                    if (cleanSlug.isBlank()) {
-                        showRepoEditor = true
-                    }
                     Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
                 }
             }
@@ -333,37 +318,23 @@ fun SettingsScreen(
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.Start,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.SystemUpdate,
-                            contentDescription = null,
-                            tint = AuroraRoyalViolet,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = "App Version & Self-Update",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Text(
-                                text = "Installed: v$currentVersionName • Build $currentVersionCode",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = AuroraRoyalViolet
-                            )
-                        }
-                    }
-
-                    TextButton(
-                        onClick = { showRepoEditor = !showRepoEditor },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
+                    Icon(
+                        imageVector = Icons.Default.SystemUpdate,
+                        contentDescription = null,
+                        tint = AuroraRoyalViolet,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
                         Text(
-                            text = if (repoSlugInput.isNotBlank()) repoSlugInput else "Set Repo",
+                            text = "App Version & Self-Update",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "Installed: v$currentVersionName • Build $currentVersionCode",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = AuroraRoyalViolet
@@ -394,25 +365,12 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Minimal Internet Access Notice: All your notes, tags, and checklists remain 100% offline on your device. Internet permission is strictly limited to manual update scans when you tap 'Scan for Updates' below to pull the latest Aurora Notes.apk from GitHub Releases.",
+                            text = "Minimal Internet Access Notice: All your notes, tags, and checklists remain 100% offline on your device. Internet permission is strictly limited to manual update scans when you tap 'Scan for New Update' below to pull the latest Aurora Notes.apk release.",
                             fontSize = 11.sp,
                             lineHeight = 15.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                         )
                     }
-                }
-
-                if (showRepoEditor) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = repoSlugInput,
-                        onValueChange = { repoSlugInput = it },
-                        label = { Text("GitHub Repository (owner/Aurora-Notes)", fontSize = 11.sp) },
-                        placeholder = { Text("e.g. username/Aurora-Notes", fontSize = 12.sp) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
 
                 // Live Download Progress Bar

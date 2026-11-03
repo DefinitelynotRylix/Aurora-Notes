@@ -14,9 +14,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -59,7 +59,7 @@ fun triggerNavbarHaptic(view: View, context: Context, enabled: Boolean = true) {
 fun FloatingPillNavigationBar(
     selectedTab: Int,
     onTabSelected: (Int) -> Unit,
-    pinnedCount: Int = 0,
+    archivedCount: Int = 0,
     trashCount: Int = 0,
     isHapticsEnabled: Boolean = true,
     modifier: Modifier = Modifier
@@ -71,7 +71,7 @@ fun FloatingPillNavigationBar(
 
     val items = listOf(
         NavTabItem(0, "Notes", Icons.Default.Description),
-        NavTabItem(1, "Pinned", Icons.Default.PushPin, badge = pinnedCount),
+        NavTabItem(1, "Archive", Icons.Default.Archive, badge = archivedCount),
         NavTabItem(2, "Trash", Icons.Default.Delete, badge = trashCount),
         NavTabItem(3, "Settings", Icons.Default.Settings)
     )
@@ -88,15 +88,15 @@ fun FloatingPillNavigationBar(
 
     val targetPillPos = if (isHoldingPill) dragTabPos else selectedTab.toFloat()
 
-    // Dual fluid-drop springs with smooth horizontal overshoot:
-    // 1. dropTabPos: Glides to the selected button, goes past it a little bit toward the next button,
-    //    and smoothly settles back into place.
+    // Dual fluid-drop springs with horizontal overshoot:
+    // 1. dropTabPos: Glides smoothly to the selected button, goes past it a little bit toward the next button,
+    //    and settles back into place without blocking or delaying menu transitions.
     // 2. bodyTabPos: Follows along the connected liquid bridge and settles into the leading drop.
     val dropTabPos by animateFloatAsState(
         targetValue = targetPillPos,
         animationSpec = spring(
             dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.62f,
-            stiffness = if (isHoldingPill) 680f else 240f
+            stiffness = if (isHoldingPill) 540f else 220f
         ),
         label = "fluid_drop_lead_pos"
     )
@@ -104,13 +104,13 @@ fun FloatingPillNavigationBar(
     val bodyTabPos by animateFloatAsState(
         targetValue = targetPillPos,
         animationSpec = spring(
-            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.68f,
-            stiffness = if (isHoldingPill) 240f else 115f
+            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.70f,
+            stiffness = if (isHoldingPill) 210f else 110f
         ),
         label = "fluid_pill_body_pos"
     )
 
-    // Highlight the hovered menu dynamically while holding & sliding the pill
+    // Highlight the hovered or selected menu immediately
     val visualSelectedTab = if (isHoldingPill) {
         dragTabPos.roundToInt().coerceIn(0, items.size - 1)
     } else {
@@ -217,13 +217,13 @@ fun FloatingPillNavigationBar(
                                         .coerceIn(0f, (items.size - 1).toFloat())
                                 }
 
-                                // User let go of the hold phase: land on the selected page and apply haptic feedback
+                                // User let go of the hold phase: land on the selected page immediately and trigger haptic
                                 val landedTab = dragTabPos.roundToInt().coerceIn(0, items.size - 1)
                                 isHoldingPill = false
-                                triggerNavbarHaptic(view, context, currentHapticsEnabled)
                                 currentOnTabSelected(landedTab)
+                                triggerNavbarHaptic(view, context, currentHapticsEnabled)
                             } else {
-                                // Normal quick tap: animate to the tapped tab
+                                // Normal quick tap: switch to the tapped page immediately
                                 isHoldingPill = false
                                 currentOnTabSelected(initialTappedTab)
                             }

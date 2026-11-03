@@ -9,15 +9,17 @@ import { TrashView } from './components/TrashView';
 import { NoteEditorModal } from './components/NoteEditorModal';
 import { SettingsPage } from './components/SettingsPage';
 import { WelcomeTourModal } from './components/WelcomeTourModal';
+import { WhatsNewModal, CURRENT_WHATS_NEW_VERSION } from './components/WhatsNewModal';
 import { ShareNoteModal } from './components/ShareNoteModal';
 import { isNativeLockEnabled, verifyWithAndroidNativeLock } from './utils/nativeAuth';
 import { logger } from './utils/logger';
-import { FileText, Plus, Fingerprint, Smartphone, Share2, Trash2, X, CheckSquare } from 'lucide-react';
+import { FileText, Plus, Fingerprint, Smartphone, Share2, Trash2, X, CheckSquare, Archive, ArchiveRestore } from 'lucide-react';
 
 const STORAGE_NOTES_KEY = 'aurora_local_notes_v1';
 const STORAGE_CATEGORIES_KEY = 'aurora_custom_categories_v1';
 const STORAGE_THEME_KEY = 'aurora_theme_v1';
 const STORAGE_WELCOME_KEY = 'aurora_notes_welcome_seen_v1';
+const STORAGE_WHATS_NEW_KEY = 'aurora_whats_new_seen_version_v1';
 const STORAGE_HAPTICS_KEY = 'aurora_haptics_enabled_v1';
 
 export default function App() {
@@ -63,7 +65,7 @@ export default function App() {
 
   const TAB_ORDER: Record<ActiveTab, number> = {
     notes: 0,
-    pinned: 1,
+    archive: 1,
     trash: 2,
     settings: 3,
   };
@@ -71,6 +73,7 @@ export default function App() {
   const handleSelectNavTab = (nextTab: ActiveTab) => {
     if (nextTab === activeTab) return;
     setSlideDirection(TAB_ORDER[nextTab] >= TAB_ORDER[activeTab] ? 1 : -1);
+    setSelectedNoteIds([]);
     setActiveTab(nextTab);
   };
 
@@ -98,8 +101,9 @@ export default function App() {
     return [];
   });
 
-  // Active vs Trashed note partitions
-  const activeNotes = useMemo(() => notes.filter((n) => !n.isDeleted), [notes]);
+  // Active, Archived, and Trashed note partitions
+  const activeNotes = useMemo(() => notes.filter((n) => !n.isDeleted && !n.isArchived), [notes]);
+  const archivedNotes = useMemo(() => notes.filter((n) => !n.isDeleted && n.isArchived), [notes]);
   const trashedNotes = useMemo(() => notes.filter((n) => n.isDeleted), [notes]);
 
   // UI States
@@ -123,12 +127,35 @@ export default function App() {
     }
   });
 
+  // What's New introduction modal shown ONCE after the first restart of a major update
+  const [isWhatsNewOpen, setIsWhatsNewOpen] = useState(() => {
+    try {
+      const seenVersion = localStorage.getItem(STORAGE_WHATS_NEW_KEY);
+      if (seenVersion !== CURRENT_WHATS_NEW_VERSION) {
+        localStorage.setItem(STORAGE_WHATS_NEW_KEY, CURRENT_WHATS_NEW_VERSION);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  });
+
   const handleCloseWelcome = () => {
     setIsWelcomeOpen(false);
     try {
       localStorage.setItem(STORAGE_WELCOME_KEY, 'true');
     } catch (e) {
       console.warn('Failed to save welcome state', e);
+    }
+  };
+
+  const handleCloseWhatsNew = () => {
+    setIsWhatsNewOpen(false);
+    try {
+      localStorage.setItem(STORAGE_WHATS_NEW_KEY, CURRENT_WHATS_NEW_VERSION);
+    } catch (e) {
+      console.warn('Failed to save whats new state', e);
     }
   };
 
@@ -260,7 +287,8 @@ export default function App() {
       checklist: [],
       tags: initialTag ? [initialTag] : [],
       category: initialTag,
-      isPinned: activeTab === 'pinned',
+      isPinned: false,
+      isArchived: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -269,6 +297,7 @@ export default function App() {
   };
 
   const handleSaveActiveNote = (savedNote: Note) => {
+    if (savedNote.isArchived) return;
     const exists = notes.some((n) => n.id === savedNote.id);
     let updatedNotes: Note[];
     if (exists) {
@@ -277,6 +306,54 @@ export default function App() {
       updatedNotes = [savedNote, ...notes];
     }
     persistNotes(updatedNotes);
+  };
+
+  // Archive single note (makes it read-only and moves to Archive menu)
+  const handleArchiveNote = (id: string, e?: React.MouseEvent) => {
+    if (e && typeof e.stopPropagation === 'function') {
+      e.stopPropagation();
+    }
+    const updated = notes.map((n) =>
+      n.id === id ? { ...n, isArchived: true, isPinned: false } : n
+    );
+    persistNotes(updated);
+    setSelectedNoteIds((prev) => prev.filter((item) => item !== id));
+    logger.security('ARCHIVE', `Archived note (ID: ${id})`);
+  };
+
+  // Batch Archive selected notes
+  const handleArchiveNotesBatch = (ids: string[]) => {
+    const idSet = new Set(ids);
+    const updated = notes.map((n) =>
+      idSet.has(n.id) ? { ...n, isArchived: true, isPinned: false } : n
+    );
+    persistNotes(updated);
+    setSelectedNoteIds([]);
+    logger.security('ARCHIVE', `Batch archived ${ids.length} selected notes`);
+  };
+
+  // Restore (Unarchive) single note back to Notes menu
+  const handleUnarchiveNote = (id: string, e?: React.MouseEvent) => {
+    if (e && typeof e.stopPropagation === 'function') {
+      e.stopPropagation();
+    }
+    const updated = notes.map((n) =>
+      n.id === id ? { ...n, isArchived: false } : n
+    );
+    persistNotes(updated);
+    setSelectedNoteIds((prev) => prev.filter((item) => item !== id));
+    logger.security('ARCHIVE', `Restored note from Archive (ID: ${id})`);
+  };
+
+  // Batch Restore (Unarchive) selected notes back to Notes menu
+  const handleUnarchiveNotesBatch = (ids: string[]) => {
+    const idSet = new Set(ids);
+    const updated = notes.map((n) =>
+      idSet.has(n.id) ? { ...n, isArchived: false } : n
+    );
+    persistNotes(updated);
+    setSelectedNoteIds([]);
+    logger.security('ARCHIVE', `Batch restored ${ids.length} archived notes`);
   };
 
   // Soft Delete: moves note to Trash
@@ -408,12 +485,33 @@ export default function App() {
     return [...pinned, ...unpinned];
   }, [activeNotes, searchQuery, selectedCategory]);
 
-  const pinnedFilteredNotes = useMemo(
-    () => allFilteredNotes.filter((n) => n.isPinned),
-    [allFilteredNotes]
-  );
+  const archivedFilteredNotes = useMemo(() => {
+    let result = [...archivedNotes];
 
-  const filteredNotes = activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (n) =>
+          n.title.toLowerCase().includes(q) ||
+          n.content.toLowerCase().includes(q) ||
+          n.tags?.some((t) => t.toLowerCase().includes(q)) ||
+          n.checklist?.some((c) => c.text.toLowerCase().includes(q))
+      );
+    }
+
+    if (selectedCategory !== 'All') {
+      const target = selectedCategory.toLowerCase();
+      result = result.filter(
+        (n) =>
+          n.tags?.some((t) => t.toLowerCase() === target) ||
+          n.category?.toLowerCase() === target
+      );
+    }
+
+    return result;
+  }, [archivedNotes, searchQuery, selectedCategory]);
+
+  const currentTabNotes = activeTab === 'archive' ? archivedFilteredNotes : allFilteredNotes;
 
   // Counts for pills
   const categoryCounts = useMemo(() => {
@@ -502,7 +600,7 @@ export default function App() {
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           >
             {activeTab === 'settings' ? (
               <SettingsPage
@@ -549,7 +647,7 @@ export default function App() {
                   />
                 </div>
 
-                {/* Multi-Selection Action Bar (when user holds down on notes) */}
+                {/* Multi-Selection Action Bar (when user holds down on one or multiple notes) */}
                 {selectedNoteIds.length > 0 && (
                   <div className="mb-4 p-3 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border-2 border-[#5925DC] dark:border-[#9D5AF5] flex items-center justify-between gap-2 shadow-sm animate-fade-in">
                     <div className="flex items-center gap-2">
@@ -570,37 +668,55 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => {
-                          const targetList = activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes;
-                          if (selectedNoteIds.length === targetList.length) {
+                          if (selectedNoteIds.length === currentTabNotes.length) {
                             setSelectedNoteIds([]);
                           } else {
-                            setSelectedNoteIds(targetList.map((n) => n.id));
+                            setSelectedNoteIds(currentTabNotes.map((n) => n.id));
                           }
                         }}
                         className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] text-xs font-semibold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 cursor-pointer"
                       >
                         <CheckSquare className="w-3.5 h-3.5" />
                         <span>
-                          {selectedNoteIds.length === (activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes).length
-                            ? 'None'
-                            : 'All'}
+                          {selectedNoteIds.length === currentTabNotes.length ? 'None' : 'All'}
                         </span>
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const targetList = activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes;
-                          const selected = targetList.filter((n) => selectedNoteIds.includes(n.id));
-                          if (selected.length > 0) {
-                            setNotesToShare(selected);
-                          }
-                        }}
-                        className="px-3 py-1.5 rounded-xl bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                        <span>Share</span>
-                      </button>
+                      {activeTab === 'archive' ? (
+                        <button
+                          type="button"
+                          onClick={() => handleUnarchiveNotesBatch(selectedNoteIds)}
+                          className="px-3 py-1.5 rounded-xl bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+                        >
+                          <ArchiveRestore className="w-3.5 h-3.5" />
+                          <span>Restore ({selectedNoteIds.length})</span>
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleArchiveNotesBatch(selectedNoteIds)}
+                            className="px-3 py-1.5 rounded-xl bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+                          >
+                            <Archive className="w-3.5 h-3.5" />
+                            <span>Archive ({selectedNoteIds.length})</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const selected = currentTabNotes.filter((n) => selectedNoteIds.includes(n.id));
+                              if (selected.length > 0) {
+                                setNotesToShare(selected);
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] text-xs font-bold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 shadow-xs cursor-pointer"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                            <span>Share</span>
+                          </button>
+                        </>
+                      )}
 
                       <button
                         type="button"
@@ -615,44 +731,50 @@ export default function App() {
                 )}
 
                 {/* Notes Grid or Empty State */}
-                {(activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes).length === 0 ? (
+                {currentTabNotes.length === 0 ? (
                   <div className="py-16 text-center flex flex-col items-center justify-center animate-glide-in">
                     <div className="w-14 h-14 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center text-[#5925DC] dark:text-[#C296FD] mb-3 shadow-sm">
-                      <FileText className="w-7 h-7 stroke-[1.5]" />
+                      {activeTab === 'archive' ? (
+                        <Archive className="w-7 h-7 stroke-[1.5]" />
+                      ) : (
+                        <FileText className="w-7 h-7 stroke-[1.5]" />
+                      )}
                     </div>
                     <h3 className="font-bold text-base text-[#1E1A24] dark:text-[#F7EEFC] mb-1">
                       {searchQuery
                         ? 'No matching notes found'
-                        : activeTab === 'pinned'
-                        ? 'No pinned notes yet'
+                        : activeTab === 'archive'
+                        ? 'No archived notes'
                         : 'No notes has been created.'}
                     </h3>
                     <p className="text-xs text-[#797487] dark:text-[#A39BAC] max-w-xs mb-5">
                       {searchQuery
                         ? 'Try a different keyword or reset the filter.'
-                        : activeTab === 'pinned'
-                        ? 'Pin any note to keep it at the top of your workspace.'
+                        : activeTab === 'archive'
+                        ? 'Hold any note in the Notes menu to archive one or multiple notes as read-only.'
                         : 'Tap the circular button in the bottom right corner to write a note.'}
                     </p>
-                    <button
-                      onClick={handleCreateNote}
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Create Note</span>
-                    </button>
+                    {activeTab === 'notes' && (
+                      <button
+                        onClick={handleCreateNote}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Create Note</span>
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <motion.div
                     layout
-                    transition={{ layout: { type: 'spring', stiffness: 280, damping: 28 } }}
-                    className={`grid gap-2.5 sm:gap-4 ${
+                    transition={{ layout: { type: 'spring', stiffness: 190, damping: 24 } }}
+                    className={`grid gap-2.5 sm:gap-4 items-start ${
                       isGridView
                         ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
                         : 'grid-cols-1 max-w-2xl mx-auto'
                     }`}
                   >
-                    {(activeTab === 'pinned' ? pinnedFilteredNotes : allFilteredNotes).map((note) => {
+                    {currentTabNotes.map((note) => {
                       const animateMovement = note.id === lastPinnedId;
 
                       const handleDeleteTagAndDetach = (tagToDelete: string) => {
@@ -663,7 +785,13 @@ export default function App() {
                         <motion.div
                           key={note.id}
                           layout
-                          transition={{ layout: { type: 'spring', stiffness: 280, damping: 28 } }}
+                          initial={{ opacity: 0.85, scale: 0.96 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{
+                            layout: { type: 'spring', stiffness: 190, damping: 24 },
+                            opacity: { duration: 0.24 },
+                            scale: { duration: 0.26 },
+                          }}
                         >
                           <NoteCard
                             note={note}
@@ -674,6 +802,8 @@ export default function App() {
                             onToggleSelection={handleToggleNoteSelection}
                             onSelect={(selected) => setActiveNote(selected)}
                             onTogglePin={handleTogglePin}
+                            onArchive={handleArchiveNote}
+                            onUnarchive={handleUnarchiveNote}
                             onDelete={handleDeleteNote}
                             onShare={(noteToShare) => setNotesToShare([noteToShare])}
                             onToggleCheckItem={handleToggleCheckItem}
@@ -729,7 +859,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Share & Export Modal (.md / .txt) */}
+      {/* Share & Export Modal */}
       {notesToShare.length > 0 && (
         <ShareNoteModal
           notes={notesToShare}
@@ -737,23 +867,25 @@ export default function App() {
         />
       )}
 
-      {/* Floating Circular UI Element in the Down Right Corner - safely elevated above bottom bar on phones */}
-      <motion.button
-        type="button"
-        onClick={handleCreateNote}
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.92 }}
-        aria-label="Create note"
-        className="fixed bottom-24 right-4 sm:bottom-8 sm:right-8 z-40 w-14 h-14 rounded-full bg-gradient-to-tr from-[#5925DC] via-[#7B35E8] to-[#9B51E0] dark:from-[#7839EE] dark:via-[#9D5AF5] dark:to-[#C296FD] text-white shadow-[0_8px_24px_rgba(89,37,220,0.45)] dark:shadow-[0_8px_24px_rgba(157,90,245,0.45)] border border-white/30 flex items-center justify-center cursor-pointer hover:shadow-[0_12px_32px_rgba(89,37,220,0.6)] transition-all group"
-      >
-        <Plus className="w-7 h-7 stroke-[2.5] transition-transform duration-300 group-hover:rotate-90" />
-      </motion.button>
+      {/* Floating Circular UI Element in the Down Right Corner (only on active Notes tab) */}
+      {activeTab === 'notes' && (
+        <motion.button
+          type="button"
+          onClick={handleCreateNote}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.92 }}
+          aria-label="Create note"
+          className="fixed bottom-24 right-4 sm:bottom-8 sm:right-8 z-40 w-14 h-14 rounded-full bg-gradient-to-tr from-[#5925DC] via-[#7B35E8] to-[#9B51E0] dark:from-[#7839EE] dark:via-[#9D5AF5] dark:to-[#C296FD] text-white shadow-[0_8px_24px_rgba(89,37,220,0.45)] dark:shadow-[0_8px_24px_rgba(157,90,245,0.45)] border border-white/30 flex items-center justify-center cursor-pointer hover:shadow-[0_12px_32px_rgba(89,37,220,0.6)] transition-all group"
+        >
+          <Plus className="w-7 h-7 stroke-[2.5] transition-transform duration-300 group-hover:rotate-90" />
+        </motion.button>
+      )}
 
       {/* Liquid Navigation Bar */}
       <LiquidNavbar
         activeTab={activeTab}
         onChangeTab={handleSelectNavTab}
-        pinnedCount={activeNotes.filter((n) => n.isPinned).length}
+        archivedCount={archivedNotes.length}
         trashCount={trashedNotes.length}
         isHapticsEnabled={isHapticsEnabled}
       />
@@ -765,6 +897,8 @@ export default function App() {
             note={activeNote}
             customCategories={customCategories}
             onSave={handleSaveActiveNote}
+            onUnarchive={handleUnarchiveNote}
+            onDelete={(id) => handleDeleteNote(id, null)}
             onClose={() => setActiveNote(null)}
           />
         )}
@@ -774,6 +908,12 @@ export default function App() {
       <WelcomeTourModal
         isOpen={isWelcomeOpen}
         onClose={handleCloseWelcome}
+      />
+
+      {/* What's New Introduction Modal (Shown once after update restart) */}
+      <WhatsNewModal
+        isOpen={!isWelcomeOpen && isWhatsNewOpen}
+        onClose={handleCloseWhatsNew}
       />
     </div>
   );

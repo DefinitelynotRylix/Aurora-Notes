@@ -14,15 +14,25 @@ import {
   ArrowLeft,
   X,
   Plus,
-  Share2
+  Share2,
+  ArchiveRestore,
+  Trash2,
+  Lock
 } from 'lucide-react';
 import { logger } from '../utils/logger';
+import {
+  convertPlainTextToLinkedHtml,
+  linkifyDomContainer,
+  openUrlInDefaultBrowser,
+} from '../utils/linkUtils';
 import { ShareNoteModal } from './ShareNoteModal';
 
 interface NoteEditorModalProps {
   note: Note;
   customCategories: string[];
   onSave: (updatedNote: Note) => void;
+  onUnarchive?: (id: string) => void;
+  onDelete?: (id: string) => void;
   onClose: () => void;
 }
 
@@ -30,8 +40,11 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   note,
   customCategories,
   onSave,
+  onUnarchive,
+  onDelete,
   onClose,
 }) => {
+  const isReadOnly = Boolean(note.isArchived);
   const [title, setTitle] = useState(note.title);
   const [category, setCategory] = useState(note.category || 'General');
   const [isPinned, setIsPinned] = useState(note.isPinned);
@@ -88,17 +101,22 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
   const allCategoryOptions = Array.from(new Set(['General', ...customCategories, note.category].filter(Boolean)));
 
-  // Populate editor initial content on mount & sync checkboxes
+  // Populate editor initial content on mount & sync checkboxes and clickable purple links
   useEffect(() => {
     if (editorRef.current) {
       editorRef.current.innerHTML = note.content || '';
+      linkifyDomContainer(editorRef.current);
 
       // Sync checkbox checked states and strikethrough styling
       const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
       checkboxes.forEach((cb) => {
         const checkbox = cb as HTMLInputElement;
         checkbox.setAttribute('contenteditable', 'false');
+        checkbox.disabled = isReadOnly;
         const textDiv = checkbox.nextElementSibling as HTMLElement;
+        if (textDiv && isReadOnly) {
+          textDiv.setAttribute('contenteditable', 'false');
+        }
         if (checkbox.hasAttribute('checked') || checkbox.checked) {
           checkbox.checked = true;
           if (textDiv) {
@@ -108,12 +126,15 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         }
       });
     }
-  }, [note.id]);
+  }, [note.id, isReadOnly]);
 
   /**
    * Constructs latest note object from state & editor
    */
   const getConstructedNote = (): Note => {
+    if (editorRef.current) {
+      linkifyDomContainer(editorRef.current);
+    }
     const rawHtml = editorRef.current ? editorRef.current.innerHTML : note.content;
 
     // Extract inline checklist items for note metadata
@@ -156,6 +177,11 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   const handleAutoSaveAndClose = () => {
     if (hasSavedRef.current) return;
     hasSavedRef.current = true;
+
+    if (isReadOnly) {
+      onClose();
+      return;
+    }
 
     const rawContent = editorRef.current ? editorRef.current.innerHTML : note.content;
     const cleanText = (rawContent || '')
@@ -428,6 +454,45 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     requestAnimationFrame(ensureCaretVisible);
   };
 
+  const handleEditorPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    if (isReadOnly) {
+      e.preventDefault();
+      return;
+    }
+    const plainText = e.clipboardData?.getData('text/plain') || '';
+    if (plainText && /((?:https?:\/\/|www\.)[^\s<>"']+)/i.test(plainText)) {
+      e.preventDefault();
+      const linkedHtml = convertPlainTextToLinkedHtml(plainText);
+      document.execCommand('insertHTML', false, `${linkedHtml}&nbsp;`);
+      requestAnimationFrame(ensureCaretVisible);
+    } else {
+      setTimeout(() => {
+        if (editorRef.current) {
+          linkifyDomContainer(editorRef.current);
+        }
+      }, 0);
+    }
+  };
+
+  const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement | null;
+    if (target) {
+      const anchor = target.closest('a') as HTMLAnchorElement | null;
+      if (anchor) {
+        const href = anchor.getAttribute('href') || anchor.textContent || '';
+        if (href) {
+          e.preventDefault();
+          e.stopPropagation();
+          openUrlInDefaultBrowser(href);
+          return;
+        }
+      }
+    }
+    if (!isReadOnly) {
+      requestAnimationFrame(ensureCaretVisible);
+    }
+  };
+
   const handleAddTag = (e: React.KeyboardEvent | React.MouseEvent) => {
     const clean = newTagInput.trim().replace(/^#/, '');
     if (clean && !tags.includes(clean)) {
@@ -451,40 +516,82 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           <button
             type="button"
             onClick={handleAutoSaveAndClose}
-            aria-label="Save and return"
+            aria-label={isReadOnly ? 'Return to Archive' : 'Save and return'}
             className="w-9 h-9 rounded-xl bg-white dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
-            title="Auto-Save & Close"
+            title={isReadOnly ? 'Close' : 'Auto-Save & Close'}
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
 
-          {/* Current Category Pill */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-xs font-semibold text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC]/80 dark:border-[#322742]">
-            <Folder className="w-3.5 h-3.5" />
-            <span className="truncate max-w-[100px] sm:max-w-[150px]">{category}</span>
-          </div>
+          {/* Current Category Pill or Read-Only Badge */}
+          {isReadOnly ? (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-xs font-bold text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC]/80 dark:border-[#322742]">
+              <Lock className="w-3.5 h-3.5" />
+              <span>Archived • Read-Only</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-xs font-semibold text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC]/80 dark:border-[#322742]">
+              <Folder className="w-3.5 h-3.5" />
+              <span className="truncate max-w-[100px] sm:max-w-[150px]">{category}</span>
+            </div>
+          )}
         </div>
 
-        {/* Right side: Share & Done Buttons */}
+        {/* Right side: Restore + Delete when archived, or Share + Done when active */}
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowShareModal(true)}
-            aria-label="Share or export note"
-            className="w-9 h-9 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#5925DC] dark:text-[#C296FD] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] flex items-center justify-center transition-all active:scale-95 cursor-pointer"
-            title="Share or save note (.md / .txt)"
-          >
-            <Share2 className="w-4 h-4" />
-          </button>
+          {isReadOnly ? (
+            <>
+              {onUnarchive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    hasSavedRef.current = true;
+                    onUnarchive(note.id);
+                    onClose();
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                >
+                  <ArchiveRestore className="w-3.5 h-3.5" />
+                  <span>Restore</span>
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    hasSavedRef.current = true;
+                    onDelete(note.id);
+                    onClose();
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete</span>
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowShareModal(true)}
+                aria-label="Share or export note"
+                className="w-9 h-9 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#5925DC] dark:text-[#C296FD] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+                title="Share note"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
 
-          <button
-            type="button"
-            onClick={() => setShowDoneModal(true)}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-semibold shadow-sm flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-          >
-            <Check className="w-4 h-4 stroke-[2.5]" />
-            <span>Done</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => setShowDoneModal(true)}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-semibold shadow-sm flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+              >
+                <Check className="w-4 h-4 stroke-[2.5]" />
+                <span>Done</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -512,13 +619,20 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         ref={scrollContainerRef}
         className="p-4 sm:p-8 pb-40 overflow-y-auto space-y-4 flex-1 max-w-3xl mx-auto w-full scroll-smooth"
       >
+        {isReadOnly && (
+          <div className="p-3 rounded-xl bg-[#F4EBFF]/70 dark:bg-[#2B1E3E]/60 border border-[#EADBFC] dark:border-[#322742] text-xs font-medium text-[#5925DC] dark:text-[#C296FD]">
+            This archived note is read-only. Tap <strong>Restore</strong> above to edit it again, or <strong>Delete</strong> to move it to Trash.
+          </div>
+        )}
+
         {/* Note Title Input */}
         <input
           type="text"
+          readOnly={isReadOnly}
           aria-label="Note title"
           placeholder="Title"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => !isReadOnly && setTitle(e.target.value)}
           className="w-full text-2xl sm:text-3xl font-bold text-[#1E1A24] dark:text-[#F7EEFC] placeholder-[#797487]/50 dark:placeholder-[#A39BAC]/50 border-none focus:outline-none focus:ring-0 bg-transparent tracking-tight py-1"
         />
 
@@ -527,20 +641,36 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         */}
         <div
           ref={editorRef}
-          contentEditable={true}
-          onKeyDown={handleKeyDown}
-          onKeyUp={() => requestAnimationFrame(ensureCaretVisible)}
-          onInput={() => requestAnimationFrame(ensureCaretVisible)}
-          onClick={() => requestAnimationFrame(ensureCaretVisible)}
+          contentEditable={!isReadOnly}
+          onPaste={handleEditorPaste}
+          onBlur={() => {
+            if (editorRef.current) {
+              linkifyDomContainer(editorRef.current);
+            }
+          }}
+          onKeyDown={isReadOnly ? undefined : handleKeyDown}
+          onKeyUp={
+            isReadOnly
+              ? undefined
+              : (e) => {
+                  if ((e.key === ' ' || e.key === 'Enter') && editorRef.current) {
+                    linkifyDomContainer(editorRef.current);
+                  }
+                  requestAnimationFrame(ensureCaretVisible);
+                }
+          }
+          onInput={isReadOnly ? undefined : () => requestAnimationFrame(ensureCaretVisible)}
+          onClick={handleEditorClick}
           aria-label="Note content editor"
           data-placeholder="Start typing your note here..."
-          className="w-full min-h-[360px] pb-36 text-sm sm:text-base leading-relaxed text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none bg-transparent font-normal space-y-2 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:space-y-1 [&_b]:font-bold [&_strong]:font-bold [&_i]:italic [&_em]:italic empty:before:content-[attr(data-placeholder)] empty:before:text-[#797487]/50 empty:before:dark:text-[#A39BAC]/50"
+          className="w-full min-h-[360px] pb-36 text-sm sm:text-base leading-relaxed text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none bg-transparent font-normal space-y-2 [&_a]:text-[#8B3DFF] dark:[&_a]:text-[#C296FD] [&_a]:underline [&_a]:font-semibold [&_a]:cursor-pointer [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:space-y-1 [&_b]:font-bold [&_strong]:font-bold [&_i]:italic [&_em]:italic empty:before:content-[attr(data-placeholder)] empty:before:text-[#797487]/50 empty:before:dark:text-[#A39BAC]/50"
         />
       </div>
 
       {/* 
-        STICKY FLOATING FORMATTING TOOLBAR (Directly above soft keyboard)
+        STICKY FLOATING FORMATTING TOOLBAR (Only shown when note is editable)
       */}
+      {!isReadOnly && (
       <div className="sticky bottom-0 z-30 p-2 sm:p-3 bg-white/95 dark:bg-[#1B1524]/95 backdrop-blur-md border-t border-[#EADBFC] dark:border-[#322742] flex items-center justify-between gap-1 overflow-x-auto custom-scrollbar shadow-lg shrink-0 max-w-3xl mx-auto w-full">
         <div className="flex items-center gap-1.5">
           {/* Bold */}
@@ -625,6 +755,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           </button>
         </div>
       </div>
+      )}
 
       {/* 
         NOTE DETAILS / SAVE MODAL (WHEN USER TAPS "DONE")

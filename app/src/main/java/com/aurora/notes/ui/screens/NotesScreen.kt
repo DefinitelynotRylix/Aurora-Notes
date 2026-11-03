@@ -1,35 +1,45 @@
 package com.aurora.notes.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,11 +64,14 @@ fun NotesScreen(
     onTogglePin: (Note) -> Unit,
     onDeleteNote: (String) -> Unit,
     onDeleteNotesBatch: (List<String>) -> Unit = { ids -> ids.forEach(onDeleteNote) },
+    onArchiveNotesBatch: (List<String>) -> Unit = {},
+    onUnarchiveNote: (String) -> Unit = {},
+    onUnarchiveNotesBatch: (List<String>) -> Unit = { ids -> ids.forEach(onUnarchiveNote) },
     onToggleCheckItem: (String, String) -> Unit,
     onAddNote: () -> Unit,
     onCreateTag: (String) -> Unit = {},
     onDeleteTag: ((String) -> Unit)? = null,
-    isPinnedTab: Boolean = false,
+    isArchiveTab: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // Combine persisted user-created tags + any tags present on notes
@@ -74,7 +87,7 @@ fun NotesScreen(
     var newTagName by remember { mutableStateOf("") }
     var pendingDeleteTag by remember { mutableStateOf<String?>(null) }
 
-    // Multi-selection state (Hold down on note to select multiple notes)
+    // Multi-selection state (Hold down on note to select one or multiple notes)
     val selectedNoteIds = remember { mutableStateListOf<String>() }
     val isSelectionMode = selectedNoteIds.isNotEmpty()
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
@@ -227,14 +240,18 @@ fun NotesScreen(
 
         // Header Title
         Text(
-            text = if (isPinnedTab) "Pinned Notes" else "Aurora Notes",
+            text = if (isArchiveTab) "Archive" else "Aurora Notes",
             style = MaterialTheme.typography.titleLarge.copy(
                 fontWeight = FontWeight.Bold,
                 fontSize = 22.sp
             )
         )
         Text(
-            text = if (isPinnedTab) "Quick access to your pinned high-priority notes." else "Local Only Privacy Focused Note Taking App.",
+            text = if (isArchiveTab) {
+                "Archived notes are read-only. Restore a note anytime to edit it again."
+            } else {
+                "Local Only Privacy Focused Note Taking App."
+            },
             style = MaterialTheme.typography.bodySmall.copy(
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                 fontSize = 11.sp
@@ -243,7 +260,7 @@ fun NotesScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Multi-Select Action Bar (when user holds down on notes to select multiple)
+        // Multi-Select Action Bar (when user holds down on notes to select one or multiple)
         if (isSelectionMode) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -256,6 +273,7 @@ fun NotesScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -280,6 +298,8 @@ fun NotesScreen(
                             color = AuroraRoyalViolet
                         )
                     }
+
+                    Spacer(modifier = Modifier.width(8.dp))
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -312,28 +332,76 @@ fun NotesScreen(
                             )
                         }
 
-                        // Share Selected
-                        FilledTonalButton(
-                            onClick = {
-                                val selectedNotes = notes.filter { it.id in selectedNoteIds }
-                                if (selectedNotes.isNotEmpty()) {
-                                    notesToShare = selectedNotes
-                                }
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = AuroraRoyalViolet,
-                                contentColor = Color.White
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = "Share Selected",
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Share", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        if (isArchiveTab) {
+                            // Restore (Unarchive) Selected Notes
+                            FilledTonalButton(
+                                onClick = {
+                                    val idsToRestore = selectedNoteIds.toList()
+                                    selectedNoteIds.clear()
+                                    onUnarchiveNotesBatch(idsToRestore)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = AuroraRoyalViolet,
+                                    contentColor = Color.White
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Unarchive,
+                                    contentDescription = "Restore Selected",
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Restore", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            // Archive Selected Notes (1 or multiple)
+                            FilledTonalButton(
+                                onClick = {
+                                    val idsToArchive = selectedNoteIds.toList()
+                                    selectedNoteIds.clear()
+                                    onArchiveNotesBatch(idsToArchive)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = AuroraRoyalViolet,
+                                    contentColor = Color.White
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Archive,
+                                    contentDescription = "Archive Selected",
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Archive", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            // Share Selected
+                            FilledTonalButton(
+                                onClick = {
+                                    val selectedNotes = notes.filter { it.id in selectedNoteIds }
+                                    if (selectedNotes.isNotEmpty()) {
+                                        notesToShare = selectedNotes
+                                    }
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = AuroraRoyalViolet.copy(alpha = 0.85f),
+                                    contentColor = Color.White
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Share Selected",
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Share", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
 
                         // Delete Selected
@@ -365,7 +433,7 @@ fun NotesScreen(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = onSearchChange,
-                placeholder = { Text("Search notes...", fontSize = 13.sp) },
+                placeholder = { Text(if (isArchiveTab) "Search archived notes..." else "Search notes...", fontSize = 13.sp) },
                 leadingIcon = {
                     Icon(
                         Icons.Default.Search,
@@ -391,21 +459,32 @@ fun NotesScreen(
                 onClick = onToggleGridView,
                 modifier = Modifier.size(44.dp)
             ) {
-                Icon(
-                    imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
-                    contentDescription = "Toggle View Layout"
-                )
+                AnimatedContent(
+                    targetState = isGridView,
+                    transitionSpec = {
+                        (scaleIn(initialScale = 0.75f, animationSpec = tween(220)) + fadeIn(tween(220)))
+                            .togetherWith(scaleOut(targetScale = 0.75f, animationSpec = tween(160)) + fadeOut(tween(160)))
+                    },
+                    label = "masonry_column_icon_anim"
+                ) { gridMode ->
+                    Icon(
+                        imageVector = if (gridMode) Icons.Default.ViewList else Icons.Default.GridView,
+                        contentDescription = "Toggle View Layout"
+                    )
+                }
             }
 
-            IconButton(
-                onClick = onAddNote,
-                modifier = Modifier.size(44.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "New Note",
-                    tint = AuroraRoyalViolet
-                )
+            if (!isArchiveTab) {
+                IconButton(
+                    onClick = onAddNote,
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "New Note",
+                        tint = AuroraRoyalViolet
+                    )
+                }
             }
         }
 
@@ -441,36 +520,38 @@ fun NotesScreen(
                 )
             }
 
-            // 2. "+ Create Tag" Button
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = AuroraRoyalViolet.copy(alpha = 0.10f),
-                border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.45f)),
-                modifier = Modifier.clickable {
-                    showCreateTagDialog = true
-                }
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+            // 2. "+ Create Tag" Button (shown on main Notes tab)
+            if (!isArchiveTab) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = AuroraRoyalViolet.copy(alpha = 0.10f),
+                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.45f)),
+                    modifier = Modifier.clickable {
+                        showCreateTagDialog = true
+                    }
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Create Tag",
-                        tint = AuroraRoyalViolet,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Create Tag",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = AuroraRoyalViolet
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Create Tag",
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Create Tag",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = AuroraRoyalViolet
+                        )
+                    }
                 }
             }
 
-            // 3. User-Created Tags (long-tap to delete)
+            // 3. User-Created Tags (long-tap to delete on active notes tab)
             createdTags.forEach { tag ->
                 val isTagSelected = selectedCategory.equals(tag, ignoreCase = true)
                 Surface(
@@ -489,7 +570,9 @@ fun NotesScreen(
                             }
                         },
                         onLongClick = {
-                            pendingDeleteTag = tag
+                            if (!isArchiveTab) {
+                                pendingDeleteTag = tag
+                            }
                         }
                     )
                 ) {
@@ -506,7 +589,24 @@ fun NotesScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Notes Grid / List
+        // Smooth morphing scale/alpha when switching between Masonry (2-col) and Column (1-col) views
+        val layoutMorphScale = remember { Animatable(1f) }
+        var previousGridView by remember { mutableStateOf(isGridView) }
+        LaunchedEffect(isGridView) {
+            if (previousGridView != isGridView) {
+                previousGridView = isGridView
+                layoutMorphScale.snapTo(0.94f)
+                layoutMorphScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = 0.76f,
+                        stiffness = 210f
+                    )
+                )
+            }
+        }
+
+        // Notes Masonry / Column View
         if (notes.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -518,7 +618,7 @@ fun NotesScreen(
                     Text(
                         text = when {
                             searchQuery.isNotBlank() -> "No matching notes found"
-                            isPinnedTab -> "No pinned notes yet"
+                            isArchiveTab -> "No archived notes"
                             else -> "No notes yet"
                         },
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
@@ -527,7 +627,7 @@ fun NotesScreen(
                     Text(
                         text = when {
                             searchQuery.isNotBlank() -> "Try clearing your search query"
-                            isPinnedTab -> "Pin any note to keep it at the top of your workspace"
+                            isArchiveTab -> "Hold any note in the Notes tab to archive one or multiple notes"
                             else -> "Tap + to create your first note"
                         },
                         style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
@@ -535,10 +635,10 @@ fun NotesScreen(
                 }
             }
         } else {
-            LazyVerticalGrid(
-                columns = if (isGridView) GridCells.Fixed(2) else GridCells.Fixed(1),
+            LazyVerticalStaggeredGrid(
+                columns = StaggeredGridCells.Fixed(if (isGridView) 2 else 1),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalItemSpacing = 10.dp,
                 contentPadding = PaddingValues(bottom = 96.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -568,22 +668,31 @@ fun NotesScreen(
                         },
                         onTogglePin = { onTogglePin(note) },
                         onDelete = { onDeleteNote(note.id) },
+                        onUnarchive = if (note.isArchived || isArchiveTab) {
+                            { onUnarchiveNote(note.id) }
+                        } else null,
                         onShare = { notesToShare = listOf(note) },
                         onToggleCheckItem = { itemId -> onToggleCheckItem(note.id, itemId) },
                         onDeleteTag = onDeleteTag,
                         modifier = Modifier
                             .animateItem(
-                                fadeInSpec = tween(durationMillis = 220),
+                                fadeInSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
                                 placementSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
+                                    dampingRatio = 0.78f,
+                                    stiffness = 190f
                                 ),
-                                fadeOutSpec = tween(durationMillis = 180)
+                                fadeOutSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
                             )
+                            .graphicsLayer {
+                                val s = layoutMorphScale.value
+                                scaleX = s
+                                scaleY = s
+                                alpha = (0.35f + 0.65f * s).coerceIn(0f, 1f)
+                            }
                             .animateContentSize(
                                 animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
+                                    dampingRatio = 0.78f,
+                                    stiffness = 190f
                                 )
                             )
                     )

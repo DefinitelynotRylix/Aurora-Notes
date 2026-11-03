@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -19,20 +20,26 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tag
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -56,6 +63,7 @@ import com.aurora.notes.model.Note
 import com.aurora.notes.ui.components.ShareNoteDialog
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
+import com.aurora.notes.util.LinkHelper
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlin.math.min
@@ -187,9 +195,12 @@ fun NoteEditorScreen(
     userTags: List<String> = emptyList(),
     onSaveAndClose: (Note) -> Unit,
     onDiscardAndClose: () -> Unit = {},
+    onUnarchiveNote: ((String) -> Unit)? = null,
+    onDeleteNote: ((String) -> Unit)? = null,
     onDeleteTagGlobal: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val isReadOnly = note.isArchived
     var title by remember(note.id) { mutableStateOf(note.title) }
     var isPinned by remember(note.id) { mutableStateOf(note.isPinned) }
     val tags = remember(note.id) { mutableStateListOf(*note.tags.toTypedArray()) }
@@ -236,6 +247,7 @@ fun NoteEditorScreen(
         imeBottomPx,
         editorScrollState.maxValue
     ) {
+        if (isReadOnly) return@LaunchedEffect
         val layout = textLayoutResult ?: return@LaunchedEffect
         if (viewportHeightPx <= 0) return@LaunchedEffect
 
@@ -272,7 +284,12 @@ fun NoteEditorScreen(
         }
     }
 
-    // VisualTransformation keeps IME typing 100% lag-free and allows native Enter new lines
+    val context = LocalContext.current
+    val detectedBodyLinks = remember(bodyValue.text) {
+        LinkHelper.extractLinks(bodyValue.text)
+    }
+
+    // VisualTransformation keeps IME typing 100% lag-free, styles user spans, and highlights links in purple
     val richVisualTransformation = remember(charSpans) {
         VisualTransformation { text ->
             val annotated = buildAnnotatedString {
@@ -298,12 +315,32 @@ fun NoteEditorScreen(
                         )
                     }
                 }
+                val links = LinkHelper.extractLinks(text.text)
+                for (link in links) {
+                    val ls = link.start.coerceIn(0, len)
+                    val le = link.end.coerceIn(0, len)
+                    if (ls < le) {
+                        addStyle(
+                            style = SpanStyle(
+                                color = LinkHelper.LinkPurpleColor,
+                                fontWeight = FontWeight.SemiBold,
+                                textDecoration = TextDecoration.Underline
+                            ),
+                            start = ls,
+                            end = le
+                        )
+                    }
+                }
             }
             TransformedText(annotated, OffsetMapping.Identity)
         }
     }
 
     fun handleExitEditor() {
+        if (isReadOnly) {
+            onDiscardAndClose()
+            return
+        }
         val cleanTitle = title.trim()
         val cleanBody = bodyValue.text.trim()
         val validChecklists = checklistItems.filter { it.text.trim().isNotEmpty() }
@@ -331,7 +368,7 @@ fun NoteEditorScreen(
         handleExitEditor()
     }
 
-    if (pendingDeleteTag != null) {
+    if (pendingDeleteTag != null && !isReadOnly) {
         AlertDialog(
             onDismissRequest = { pendingDeleteTag = null },
             title = { Text("Delete Tag #${pendingDeleteTag}?") },
@@ -364,7 +401,7 @@ fun NoteEditorScreen(
         )
     }
 
-    if (showAddChecklistDialog) {
+    if (showAddChecklistDialog && !isReadOnly) {
         AlertDialog(
             onDismissRequest = { showAddChecklistDialog = false },
             title = { Text("Add Checklist Item", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
@@ -400,7 +437,7 @@ fun NoteEditorScreen(
         )
     }
 
-    if (showDoneDetailsDialog) {
+    if (showDoneDetailsDialog && !isReadOnly) {
         AlertDialog(
             onDismissRequest = { showDoneDetailsDialog = false },
             title = {
@@ -574,30 +611,59 @@ fun NoteEditorScreen(
                             Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                         }
 
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.background,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-                            modifier = Modifier.clickable { showDoneDetailsDialog = true }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                        if (isReadOnly) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = AuroraRoyalViolet.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.35f))
                             ) {
-                                Icon(
-                                    Icons.Default.Tag,
-                                    contentDescription = null,
-                                    tint = AuroraRoyalViolet,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (tags.isNotEmpty()) "#${tags.first()}" else "Add Tag",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Lock,
+                                        contentDescription = null,
+                                        tint = AuroraRoyalViolet,
+                                        modifier = Modifier.size(13.dp)
                                     )
-                                )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Archived • Read-Only",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            color = AuroraRoyalViolet
+                                        )
+                                    )
+                                }
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.background,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                                modifier = Modifier.clickable { showDoneDetailsDialog = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Tag,
+                                        contentDescription = null,
+                                        tint = AuroraRoyalViolet,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (tags.isNotEmpty()) "#${tags.first()}" else "Add Tag",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    )
+                                }
                             }
                         }
                     }
@@ -606,207 +672,255 @@ fun NoteEditorScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        IconButton(
-                            onClick = { showShareDialog = true },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = "Share Note",
-                                tint = AuroraRoyalViolet,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                        if (isReadOnly) {
+                            if (onUnarchiveNote != null) {
+                                FilledTonalButton(
+                                    onClick = {
+                                        onUnarchiveNote(note.id)
+                                        onDiscardAndClose()
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = AuroraRoyalViolet,
+                                        contentColor = Color.White
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Unarchive,
+                                        contentDescription = "Restore Note",
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Restore", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
 
-                        Button(
-                            onClick = { showDoneDetailsDialog = true },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Done", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            if (onDeleteNote != null) {
+                                Button(
+                                    onClick = {
+                                        onDeleteNote(note.id)
+                                        onDiscardAndClose()
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete Note",
+                                        modifier = Modifier.size(15.dp),
+                                        tint = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Delete", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+                            }
+                        } else {
+                            IconButton(
+                                onClick = { showShareDialog = true },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Share Note",
+                                    tint = AuroraRoyalViolet,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Button(
+                                onClick = { showDoneDetailsDialog = true },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Done", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
                         }
                     }
                 }
             }
         },
         bottomBar = {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .imePadding(),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
-            ) {
-                Row(
+            if (!isReadOnly) {
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 6.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .navigationBarsPadding()
+                        .imePadding(),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                 ) {
-                    // Narrower Bold Toggle Button
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isBoldActive) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
-                        border = BorderStroke(
-                            1.dp,
-                            if (isBoldActive) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-                        ),
-                        modifier = Modifier
-                            .height(34.dp)
-                            .width(32.dp)
-                            .clickable {
-                                isBoldActive = !isBoldActive
-                            }
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.FormatBold,
-                                contentDescription = "Bold",
-                                tint = if (isBoldActive) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-
-                    // Narrower Italic Toggle Button
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isItalicActive) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
-                        border = BorderStroke(
-                            1.dp,
-                            if (isItalicActive) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-                        ),
-                        modifier = Modifier
-                            .height(34.dp)
-                            .width(32.dp)
-                            .clickable {
-                                isItalicActive = !isItalicActive
-                            }
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.FormatItalic,
-                                contentDescription = "Italic",
-                                tint = if (isItalicActive) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-
-                    // Text Sizing Buttons:
-                    // Default is Small (neither Medium nor Large is enabled by default).
-                    // Tapping Medium toggles Medium on/off (reverting to Small when turned off).
-                    // Tapping Large toggles Large on/off (reverting to Small when turned off).
                     Row(
                         modifier = Modifier
-                            .background(
-                                MaterialTheme.colorScheme.background,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            .padding(2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 6.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TextSizeButton(
-                            label = "Medium",
-                            selected = activeSizeMode == TextSizeMode.MEDIUM,
-                            onClick = {
-                                activeSizeMode = if (activeSizeMode == TextSizeMode.MEDIUM) {
-                                    TextSizeMode.SMALL
-                                } else {
-                                    TextSizeMode.MEDIUM
+                        // Narrower Bold Toggle Button
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isBoldActive) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                if (isBoldActive) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                            ),
+                            modifier = Modifier
+                                .height(34.dp)
+                                .width(32.dp)
+                                .clickable {
+                                    isBoldActive = !isBoldActive
                                 }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.FormatBold,
+                                    contentDescription = "Bold",
+                                    tint = if (isBoldActive) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
-                        )
-                        TextSizeButton(
-                            label = "Large",
-                            selected = activeSizeMode == TextSizeMode.LARGE,
-                            onClick = {
-                                activeSizeMode = if (activeSizeMode == TextSizeMode.LARGE) {
-                                    TextSizeMode.SMALL
-                                } else {
-                                    TextSizeMode.LARGE
-                                }
-                            }
-                        )
-                    }
+                        }
 
-                    // Insert Bullet on Current Line
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
-                        modifier = Modifier
-                            .height(34.dp)
-                            .width(36.dp)
-                            .clickable {
-                                val text = bodyValue.text
-                                val cursor = bodyValue.selection.start.coerceIn(0, text.length)
-                                val lineStart = text.lastIndexOf('\n', (cursor - 1).coerceAtLeast(0)).let {
-                                    if (it == -1) 0 else it + 1
+                        // Narrower Italic Toggle Button
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isItalicActive) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                if (isItalicActive) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                            ),
+                            modifier = Modifier
+                                .height(34.dp)
+                                .width(32.dp)
+                                .clickable {
+                                    isItalicActive = !isItalicActive
                                 }
-                                val hasBullet = text.startsWith("• ", lineStart)
-                                val newText = if (hasBullet) {
-                                    text.removeRange(lineStart, lineStart + 2)
-                                } else {
-                                    text.substring(0, lineStart) + "• " + text.substring(lineStart)
-                                }
-                                val newCursor = if (hasBullet) {
-                                    (cursor - 2).coerceAtLeast(lineStart)
-                                } else {
-                                    cursor + 2
-                                }
-                                charSpans = applyTextEditToSpans(
-                                    oldText = text,
-                                    newText = newText,
-                                    oldSpans = charSpans,
-                                    activeSizeMode = TextSizeMode.SMALL,
-                                    isBoldActive = false,
-                                    isItalicActive = false
-                                )
-                                bodyValue = TextFieldValue(
-                                    text = newText,
-                                    selection = TextRange(newCursor.coerceIn(0, newText.length))
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.FormatItalic,
+                                    contentDescription = "Italic",
+                                    tint = if (isItalicActive) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.FormatListBulleted,
-                                contentDescription = "Bullet List",
-                                modifier = Modifier.size(16.dp)
+                        }
+
+                        // Text Sizing Buttons:
+                        // Default is Small (neither Medium nor Large is enabled by default).
+                        // Tapping Medium toggles Medium on/off (reverting to Small when turned off).
+                        // Tapping Large toggles Large on/off (reverting to Small when turned off).
+                        Row(
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.background,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .padding(2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            TextSizeButton(
+                                label = "Medium",
+                                selected = activeSizeMode == TextSizeMode.MEDIUM,
+                                onClick = {
+                                    activeSizeMode = if (activeSizeMode == TextSizeMode.MEDIUM) {
+                                        TextSizeMode.SMALL
+                                    } else {
+                                        TextSizeMode.MEDIUM
+                                    }
+                                }
+                            )
+                            TextSizeButton(
+                                label = "Large",
+                                selected = activeSizeMode == TextSizeMode.LARGE,
+                                onClick = {
+                                    activeSizeMode = if (activeSizeMode == TextSizeMode.LARGE) {
+                                        TextSizeMode.SMALL
+                                    } else {
+                                        TextSizeMode.LARGE
+                                    }
+                                }
                             )
                         }
-                    }
 
-                    // Add Interactive Checklist Item
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (checklistItems.isNotEmpty()) AuroraRoyalViolet.copy(alpha = 0.12f) else Color.Transparent,
-                        border = BorderStroke(
-                            1.dp,
-                            if (checklistItems.isNotEmpty()) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-                        ),
-                        modifier = Modifier
-                            .height(34.dp)
-                            .width(36.dp)
-                            .clickable {
-                                showAddChecklistDialog = true
+                        // Insert Bullet on Current Line
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
+                            modifier = Modifier
+                                .height(34.dp)
+                                .width(36.dp)
+                                .clickable {
+                                    val text = bodyValue.text
+                                    val cursor = bodyValue.selection.start.coerceIn(0, text.length)
+                                    val lineStart = text.lastIndexOf('\n', (cursor - 1).coerceAtLeast(0)).let {
+                                        if (it == -1) 0 else it + 1
+                                    }
+                                    val hasBullet = text.startsWith("• ", lineStart)
+                                    val newText = if (hasBullet) {
+                                        text.removeRange(lineStart, lineStart + 2)
+                                    } else {
+                                        text.substring(0, lineStart) + "• " + text.substring(lineStart)
+                                    }
+                                    val newCursor = if (hasBullet) {
+                                        (cursor - 2).coerceAtLeast(lineStart)
+                                    } else {
+                                        cursor + 2
+                                    }
+                                    charSpans = applyTextEditToSpans(
+                                        oldText = text,
+                                        newText = newText,
+                                        oldSpans = charSpans,
+                                        activeSizeMode = TextSizeMode.SMALL,
+                                        isBoldActive = false,
+                                        isItalicActive = false
+                                    )
+                                    bodyValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursor.coerceIn(0, newText.length))
+                                    )
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.FormatListBulleted,
+                                    contentDescription = "Bullet List",
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.CheckBox,
-                                contentDescription = "Add Checklist Item",
-                                tint = if (checklistItems.isNotEmpty()) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(16.dp)
-                            )
+                        }
+
+                        // Add Interactive Checklist Item
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (checklistItems.isNotEmpty()) AuroraRoyalViolet.copy(alpha = 0.12f) else Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                if (checklistItems.isNotEmpty()) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                            ),
+                            modifier = Modifier
+                                .height(34.dp)
+                                .width(36.dp)
+                                .clickable {
+                                    showAddChecklistDialog = true
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.CheckBox,
+                                    contentDescription = "Add Checklist Item",
+                                    tint = if (checklistItems.isNotEmpty()) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -825,160 +939,287 @@ fun NoteEditorScreen(
                     .verticalScroll(editorScrollState)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-            // Note Title Input
-            BasicTextField(
-                value = title,
-                onValueChange = { title = it },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                    imeAction = ImeAction.Next
-                ),
-                textStyle = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                ),
-                cursorBrush = SolidColor(AuroraRoyalViolet),
-                decorationBox = { innerTextField ->
-                    if (title.isEmpty()) {
-                        Text(
-                            text = "Title",
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
-                            )
-                        )
-                    }
-                    innerTextField()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), thickness = 0.8.dp)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Interactive Checklist Section (if any checklist items exist)
-            if (checklistItems.isNotEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    checklistItems.forEachIndexed { idx, item ->
+                if (isReadOnly) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = AuroraRoyalViolet.copy(alpha = 0.10f),
+                        border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.35f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp)
+                    ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Checkbox(
-                                checked = item.completed,
-                                onCheckedChange = { checked ->
-                                    checklistItems[idx] = item.copy(completed = checked)
-                                },
-                                colors = CheckboxDefaults.colors(checkedColor = AuroraRoyalViolet),
-                                modifier = Modifier.size(22.dp)
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = AuroraRoyalViolet,
+                                modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = item.text,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontSize = 14.sp,
-                                    textDecoration = if (item.completed) TextDecoration.LineThrough else TextDecoration.None,
-                                    color = if (item.completed) {
-                                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
-                                    } else {
-                                        MaterialTheme.colorScheme.onBackground
-                                    }
-                                ),
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(
-                                onClick = { checklistItems.removeAt(idx) },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Remove item",
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                                text = "This note is archived and read-only. Tap Restore above to edit it, or Delete to move it to Trash.",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                                 )
-                            }
+                            )
                         }
                     }
-                    TextButton(
-                        onClick = { showAddChecklistDialog = true },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp), tint = AuroraRoyalViolet)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add checklist item", fontSize = 12.sp, color = AuroraRoyalViolet)
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f), thickness = 0.6.dp)
                 }
-            }
 
-            // Unified Multiline Note Body Editor (Zero lag, native Enter new lines, per-character sizing)
-            BasicTextField(
-                value = bodyValue,
-                onValueChange = { newValue ->
-                    val oldText = bodyValue.text
-                    val newText = newValue.text
-                    if (oldText != newText) {
-                        charSpans = applyTextEditToSpans(
-                            oldText = oldText,
-                            newText = newText,
-                            oldSpans = charSpans,
-                            activeSizeMode = activeSizeMode,
-                            isBoldActive = isBoldActive,
-                            isItalicActive = isItalicActive
-                        )
-                    }
-                    bodyValue = newValue
-                },
-                singleLine = false,
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                    imeAction = ImeAction.Default
-                ),
-                onTextLayout = { textLayoutResult = it },
-                visualTransformation = richVisualTransformation,
-                textStyle = TextStyle(
-                    fontSize = 15.sp,
-                    lineHeight = 23.sp,
-                    color = MaterialTheme.colorScheme.onBackground
-                ),
-                cursorBrush = SolidColor(AuroraRoyalViolet),
-                decorationBox = { innerTextField ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = 360.dp)
-                    ) {
-                        if (bodyValue.text.isEmpty()) {
+                // Note Title Input
+                BasicTextField(
+                    value = title,
+                    onValueChange = { if (!isReadOnly) title = it },
+                    readOnly = isReadOnly,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Next
+                    ),
+                    textStyle = MaterialTheme.typography.headlineMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    ),
+                    cursorBrush = SolidColor(AuroraRoyalViolet),
+                    decorationBox = { innerTextField ->
+                        if (title.isEmpty()) {
                             Text(
-                                text = "Start typing your note here...",
-                                style = TextStyle(
-                                    fontSize = 15.sp,
+                                text = "Title",
+                                style = MaterialTheme.typography.headlineMedium.copy(
+                                    fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
                                 )
                             )
                         }
                         innerTextField()
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .defaultMinSize(minHeight = 360.dp)
-                    .onGloballyPositioned { coords ->
-                        bodyTopInColumnPx = coords.positionInParent().y
-                    }
-            )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                )
 
-            // Extra bottom space so the scroll container can always push the cursor and
-            // surrounding lines up well above the bottom formatting bar and keyboard
-            Spacer(modifier = Modifier.height(160.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), thickness = 0.8.dp)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Interactive Checklist Section (read-only when archived)
+                if (checklistItems.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        checklistItems.forEachIndexed { idx, item ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Checkbox(
+                                    checked = item.completed,
+                                    enabled = !isReadOnly,
+                                    onCheckedChange = { checked ->
+                                        if (!isReadOnly) {
+                                            checklistItems[idx] = item.copy(completed = checked)
+                                        }
+                                    },
+                                    colors = CheckboxDefaults.colors(checkedColor = AuroraRoyalViolet),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                val itemLinks = remember(item.text) { LinkHelper.extractLinks(item.text) }
+                                Text(
+                                    text = LinkHelper.buildLinkAnnotatedString(item.text),
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontSize = 14.sp,
+                                        textDecoration = if (item.completed) TextDecoration.LineThrough else TextDecoration.None,
+                                        color = if (item.completed) {
+                                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
+                                        } else {
+                                            MaterialTheme.colorScheme.onBackground
+                                        }
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .let { mod ->
+                                            if (itemLinks.isNotEmpty()) {
+                                                mod.clickable {
+                                                    LinkHelper.openUrlInDefaultBrowser(context, itemLinks.first().normalizedUrl)
+                                                }
+                                            } else {
+                                                mod
+                                            }
+                                        }
+                                )
+                                if (!isReadOnly) {
+                                    IconButton(
+                                        onClick = { checklistItems.removeAt(idx) },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Remove item",
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (!isReadOnly) {
+                            TextButton(
+                                onClick = { showAddChecklistDialog = true },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp), tint = AuroraRoyalViolet)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Add checklist item", fontSize = 12.sp, color = AuroraRoyalViolet)
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f), thickness = 0.6.dp)
+                    }
+                }
+
+                // Interactive Clickable Purple Link Pills when URLs are present in the note
+                if (detectedBodyLinks.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(bottom = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        detectedBodyLinks.distinctBy { it.normalizedUrl }.forEach { linkItem ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = LinkHelper.LinkPurpleColor.copy(alpha = 0.14f),
+                                border = BorderStroke(1.dp, LinkHelper.LinkPurpleColor.copy(alpha = 0.5f)),
+                                modifier = Modifier.clickable {
+                                    LinkHelper.openUrlInDefaultBrowser(context, linkItem.normalizedUrl)
+                                }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Link,
+                                        contentDescription = "Open link in browser",
+                                        tint = LinkHelper.LinkPurpleColor,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = linkItem.rawText,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        textDecoration = TextDecoration.Underline,
+                                        color = LinkHelper.LinkPurpleColor,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Unified Multiline Note Body Editor (Read-only when archived; tapping purple links opens Android default browser)
+                BasicTextField(
+                    value = bodyValue,
+                    onValueChange = { newValue ->
+                        val oldText = bodyValue.text
+                        val newText = newValue.text
+
+                        // If the text did not change and the user tapped directly inside a purple link, open Android's default browser
+                        if (oldText == newText && newValue.selection.collapsed && newValue.selection != bodyValue.selection) {
+                            val tappedOffset = newValue.selection.start
+                            val clickedLink = detectedBodyLinks.firstOrNull { link ->
+                                tappedOffset > link.start && tappedOffset < link.end
+                            }
+                            if (clickedLink != null) {
+                                LinkHelper.openUrlInDefaultBrowser(context, clickedLink.normalizedUrl)
+                            }
+                        }
+
+                        if (isReadOnly) return@BasicTextField
+
+                        if (oldText != newText) {
+                            charSpans = applyTextEditToSpans(
+                                oldText = oldText,
+                                newText = newText,
+                                oldSpans = charSpans,
+                                activeSizeMode = activeSizeMode,
+                                isBoldActive = isBoldActive,
+                                isItalicActive = isItalicActive
+                            )
+                        }
+                        bodyValue = newValue
+                    },
+                    readOnly = isReadOnly,
+                    singleLine = false,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Default
+                    ),
+                    onTextLayout = { textLayoutResult = it },
+                    visualTransformation = richVisualTransformation,
+                    textStyle = TextStyle(
+                        fontSize = 15.sp,
+                        lineHeight = 23.sp,
+                        color = MaterialTheme.colorScheme.onBackground
+                    ),
+                    cursorBrush = SolidColor(AuroraRoyalViolet),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 360.dp)
+                        ) {
+                            if (bodyValue.text.isEmpty() && !isReadOnly) {
+                                Text(
+                                    text = "Start typing your note here...",
+                                    style = TextStyle(
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
+                                    )
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 360.dp)
+                        .let { mod ->
+                            if (isReadOnly && detectedBodyLinks.isNotEmpty()) {
+                                mod.pointerInput(bodyValue.text, detectedBodyLinks) {
+                                    detectTapGestures { tapOffset ->
+                                        val layout = textLayoutResult ?: return@detectTapGestures
+                                        val charOffset = layout.getOffsetForPosition(tapOffset)
+                                        val hitLink = detectedBodyLinks.firstOrNull { link ->
+                                            charOffset in link.start..link.end
+                                        }
+                                        if (hitLink != null) {
+                                            LinkHelper.openUrlInDefaultBrowser(context, hitLink.normalizedUrl)
+                                        }
+                                    }
+                                }
+                            } else {
+                                mod
+                            }
+                        }
+                        .onGloballyPositioned { coords ->
+                            bodyTopInColumnPx = coords.positionInParent().y
+                        }
+                )
+
+                // Extra bottom space so the scroll container can always push the cursor and
+                // surrounding lines up well above the bottom formatting bar and keyboard
+                Spacer(modifier = Modifier.height(160.dp))
             }
         }
     }
