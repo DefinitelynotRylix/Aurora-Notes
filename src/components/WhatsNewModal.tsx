@@ -1,15 +1,15 @@
 import React from 'react';
 import {
   Sparkles,
-  Link2,
-  Archive,
+  Lock,
   Sliders,
   ShieldCheck,
+  Clock,
   Check,
   X
 } from 'lucide-react';
 
-export const CURRENT_WHATS_NEW_VERSION = '1.3.0';
+export const CURRENT_WHATS_NEW_VERSION = '1.3.30';
 
 interface WhatsNewModalProps {
   isOpen: boolean;
@@ -24,32 +24,32 @@ export const WhatsNewModal: React.FC<WhatsNewModalProps> = ({
 
   const highlights = [
     {
-      icon: <Link2 className="w-5 h-5 text-[#8B3DFF] dark:text-[#C296FD]" />,
-      title: 'Clickable Purple Links in Notes',
-      badge: 'NEW',
+      icon: <Lock className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
+      title: 'Mandatory AES-256-GCM Cryptography & Private Storage',
+      badge: 'CRYPTOGRAPHY',
       description:
-        'Links pasted or typed into any note automatically highlight in a vibrant purple color with underline styling. Tap any link to open it directly in your Android default browser.',
+        'Every note in the Room SQLite database and mirrored private device storage is now permanently encrypted at rest using hardware-backed AndroidKeyStore AES-256-GCM cryptography.',
     },
     {
-      icon: <Archive className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'Read-Only Archive Menu & Batch Archiving',
-      badge: 'MAJOR',
+      icon: <ShieldCheck className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
+      title: 'Automatic Orphaned & Temp File Cleanup',
+      badge: 'STORAGE',
       description:
-        'Replaced the redundant Pinned menu with a dedicated Archive tab. Hold down on one or multiple notes to archive them as read-only while keeping Restore and Delete actions ready.',
+        'Orphaned note files, incomplete .tmp writes, and stale shared or update caches are automatically swept on app launch, resume, and every note change.',
+    },
+    {
+      icon: <Clock className="w-5 h-5 text-[#8B3DFF] dark:text-[#C296FD]" />,
+      title: 'Live Word & Letter Counter + Exact Edit Timestamps',
+      badge: 'EDITOR',
+      description:
+        'Track real-time word and letter counts at the top of the note editor, and see exact hour and minute last-edited timestamps alongside the day and month on every note.',
     },
     {
       icon: <Sliders className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'Fluid Horizontal Pill & Smooth Layout Morphing',
+      title: 'Seamless Masonry ↔ Column Morphing & Folder Export',
       badge: 'REFINED',
       description:
-        'Hold and slide the purple navigation pill across tabs, enjoy horizontal overshoot motion with tactile haptics, and switch between Masonry and Column views with smooth spring animations.',
-    },
-    {
-      icon: <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
-      title: 'Streamlined Sharing & Privacy Care',
-      badge: 'PRIVACY',
-      description:
-        'Simplified one-tap sharing to apps & contacts, cleaner update settings without repository clutter, and 100% local offline note storage.',
+        'Switch between 2-column Masonry Grid and Single Column views with continuous width and coordinate interpolation, plus export notes directly via the Android File Picker.',
     },
   ];
 

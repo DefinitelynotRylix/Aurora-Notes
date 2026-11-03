@@ -528,6 +528,7 @@ fun AuroraApp(
                                     viewModel.setBiometricLockEnabled(enabled)
                                 },
                                 onOpenWelcomeTour = { viewModel.reopenWelcome() },
+                                onOpenWhatsNew = { viewModel.reopenWhatsNew() },
                                 onClearLogs = { viewModel.clearDiagnosticLogs() },
                                 onExportLogs = { viewModel.exportDiagnosticLogs() },
                                 onTriggerBiometricAuth = onTriggerBiometricAuth,
@@ -652,20 +653,20 @@ private fun WelcomeTourDialog(
 
     val titles = listOf(
         "Welcome to Aurora Notes",
-        "Local-First & Minimal Internet",
+        "AES-256 Local Storage & Auto-Cleanup",
         "Custom Tags & Fast Editor",
         "Native Biometric Lock"
     )
     val subtitles = listOf(
-        "Atmospheric Minimalism Meets Speed",
-        "Notes Stay Offline • Internet Only for Updates",
-        "Create Tags & Style Text On The Fly",
+        "Tactile Minimalism Meets AES-256 Cryptography",
+        "Encrypted Offline Vault • Internet Only for Updates",
+        "Live Word Counter, Exact Timestamps & Tags",
         "Protected by Android Device Security"
     )
     val descriptions = listOf(
-        "Aurora Notes is crafted for distraction-free writing with fluid liquid navigation, instant search, and zero cloud bloat.",
-        "All notes, checklists, and tags are stored 100% locally in your phone's SQLite database. Internet permission is kept strictly minimal and is only used when you manually scan for GitHub Release updates in Settings.",
-        "Tap '+ Create Tag' next to 'All' to organize notes your way, long-press any tag to delete it cleanly, and toggle Medium or Large text sizing as you type.",
+        "Aurora Notes is crafted for distraction-free writing protected by mandatory hardware-backed AndroidKeyStore AES-256-GCM cryptography, fluid liquid navigation, and zero cloud bloat.",
+        "All notes, checklists, and tags are permanently encrypted at rest with AES-256-GCM in your Room SQLite database and private device storage, with automatic orphaned and .tmp file cleanup.",
+        "Track live word and letter counts on top of the editor, view exact hour and minute last-edited timestamps, and organize notes with custom tags.",
         "Enable Biometric & App Lock in Settings to require your phone's native fingerprint, face unlock, or PIN whenever Aurora Notes opens."
     )
     val icons = listOf(
@@ -839,28 +840,28 @@ private fun WhatsNewDialog(
     val features = remember {
         listOf(
             WhatsNewFeatureItem(
-                title = "Clickable Purple Links in Notes",
-                badge = "NEW",
-                description = "Links pasted or typed into any note automatically highlight in a vibrant purple color. Tap any link to open it directly in your Android default browser.",
-                icon = Icons.Default.Link
+                title = "Mandatory AES-256-GCM Cryptography",
+                badge = "CRYPTOGRAPHY",
+                description = "Every note in the Room SQLite database and mirrored private device storage is now permanently encrypted at rest using hardware-backed AndroidKeyStore AES-256-GCM cryptography.",
+                icon = Icons.Default.Lock
             ),
             WhatsNewFeatureItem(
-                title = "Read-Only Archive Menu",
-                badge = "MAJOR",
-                description = "Replaced the Pinned tab with a dedicated Archive menu. Hold one or multiple notes to archive them as read-only while keeping Restore and Delete ready.",
-                icon = Icons.Default.Archive
-            ),
-            WhatsNewFeatureItem(
-                title = "Fluid Pill & Smooth Layout Morphing",
-                badge = "REFINED",
-                description = "Hold and slide the purple navigation pill across menus, feel tactile haptic pulses, and switch between Masonry and Column views with smooth spring motion.",
-                icon = Icons.Default.AutoAwesome
-            ),
-            WhatsNewFeatureItem(
-                title = "Streamlined Sharing & Privacy Care",
-                badge = "PRIVACY",
-                description = "Clean one-tap sharing to apps & contacts, streamlined self-update controls, and 100% local offline note storage.",
+                title = "Automatic Orphaned & Temp File Cleanup",
+                badge = "STORAGE",
+                description = "Orphaned note files, incomplete .tmp writes, and stale shared or update caches are automatically swept on app launch, resume, and every note change.",
                 icon = Icons.Default.CheckCircle
+            ),
+            WhatsNewFeatureItem(
+                title = "Live Word/Letter Counter & Exact Timestamps",
+                badge = "EDITOR",
+                description = "Track live word and letter counts at the top of the note editor, and see exact hour and minute last-edited timestamps alongside the day and month on every note.",
+                icon = Icons.Default.Tag
+            ),
+            WhatsNewFeatureItem(
+                title = "Smooth Masonry ↔ Column Morphing & Export",
+                badge = "REFINED",
+                description = "Switch between 2-column Masonry Grid and Single Column views with continuous width and position morphing, plus save notes directly via the Android File Picker.",
+                icon = Icons.Default.AutoAwesome
             )
         )
     }

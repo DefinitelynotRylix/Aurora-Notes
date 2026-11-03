@@ -770,7 +770,6 @@ export default function App() {
         isGridView={isGridView}
         onToggleGridView={() => setIsGridView(!isGridView)}
         noteCount={activeNotes.length}
-        onCreateNote={handleCreateNote}
       />
 
       {/* Main Workspace: Notes / Pinned / Trash / Settings with Directional Page Slide */}
@@ -813,6 +812,7 @@ export default function App() {
                 onRemoveCategory={handleRemoveCategory}
                 notes={notes}
                 onOpenWelcomeTour={() => setIsWelcomeOpen(true)}
+                onOpenWhatsNew={() => setIsWhatsNewOpen(true)}
                 onWipeData={() => {
                   localStorage.removeItem(STORAGE_NOTES_KEY);
                   localStorage.removeItem('aurora_user_tags_v2');

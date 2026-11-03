@@ -33,8 +33,8 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Unarchive
-import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -72,7 +72,7 @@ fun NotesScreen(
     onUnarchiveNote: (String) -> Unit = {},
     onUnarchiveNotesBatch: (List<String>) -> Unit = { ids -> ids.forEach(onUnarchiveNote) },
     onToggleCheckItem: (String, String) -> Unit,
-    onAddNote: () -> Unit,
+    onAddNote: () -> Unit = {},
     onCreateTag: (String) -> Unit = {},
     onDeleteTag: ((String) -> Unit)? = null,
     isArchiveTab: Boolean = false,
@@ -472,21 +472,8 @@ fun NotesScreen(
                     label = "masonry_column_icon_anim"
                 ) { gridMode ->
                     Icon(
-                        imageVector = if (gridMode) Icons.Default.ViewList else Icons.Default.GridView,
+                        imageVector = if (gridMode) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
                         contentDescription = "Toggle View Layout"
-                    )
-                }
-            }
-
-            if (!isArchiveTab) {
-                IconButton(
-                    onClick = onAddNote,
-                    modifier = Modifier.size(44.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "New Note",
-                        tint = AuroraRoyalViolet
                     )
                 }
             }

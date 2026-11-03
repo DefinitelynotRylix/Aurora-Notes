@@ -25,8 +25,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -184,7 +184,7 @@ fun TrashScreen(
                     label = "trash_masonry_column_icon_anim"
                 ) { gridMode ->
                     Icon(
-                        imageVector = if (gridMode) Icons.Default.ViewList else Icons.Default.GridView,
+                        imageVector = if (gridMode) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
                         contentDescription = "Toggle Grid Layout",
                         modifier = Modifier.size(18.dp)
                     )

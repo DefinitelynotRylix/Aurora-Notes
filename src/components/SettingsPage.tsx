@@ -19,7 +19,8 @@ import {
   ShieldAlert,
   CheckCircle2,
   Folder,
-  Lock
+  Lock,
+  Sparkles
 } from 'lucide-react';
 import {
   isNativeLockEnabled,
@@ -56,6 +57,7 @@ interface SettingsPageProps {
   notes: Note[];
   onWipeData: () => void;
   onOpenWelcomeTour?: () => void;
+  onOpenWhatsNew?: () => void;
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
@@ -79,6 +81,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   notes,
   onWipeData,
   onOpenWelcomeTour,
+  onOpenWhatsNew,
 }) => {
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
 
@@ -631,6 +634,42 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             {lastCleanupSummary}
           </div>
         )}
+      </div>
+
+      {/* 3. Welcome Guide & What's New Section */}
+      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-[#5925DC] dark:text-[#C296FD]">
+            OVERVIEW & RELEASE HIGHLIGHTS
+          </span>
+          <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] mt-0.5 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
+            <span>Welcome Guide & What&apos;s New</span>
+          </h3>
+        </div>
+        <p className="text-xs text-[#484455] dark:text-[#A39BAC] leading-relaxed">
+          Revisit the Aurora Notes feature walkthrough or inspect the latest release highlights including mandatory AES-256-GCM cryptography.
+        </p>
+        <div className="flex items-center gap-2 pt-1 flex-wrap">
+          {onOpenWelcomeTour && (
+            <button
+              type="button"
+              onClick={onOpenWelcomeTour}
+              className="px-3.5 py-2 rounded-xl bg-[#5925DC] hover:bg-[#4A1FB8] text-white text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-95"
+            >
+              Open Welcome Guide
+            </button>
+          )}
+          {onOpenWhatsNew && (
+            <button
+              type="button"
+              onClick={onOpenWhatsNew}
+              className="px-3.5 py-2 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-xs font-bold border border-[#EADBFC] dark:border-[#322742] hover:opacity-90 transition-all cursor-pointer active:scale-95"
+            >
+              What&apos;s New
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 4. Local Diagnostic Logs & Export (Errors & Warnings Only) */}

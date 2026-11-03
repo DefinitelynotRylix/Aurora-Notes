@@ -90,6 +90,7 @@ fun SettingsScreen(
     isBiometricEnabled: Boolean = false,
     onSetBiometricLock: (Boolean) -> Unit = {},
     onOpenWelcomeTour: () -> Unit = {},
+    onOpenWhatsNew: () -> Unit = {},
     onClearLogs: () -> Unit = {},
     onExportLogs: () -> String = { "" },
     onTriggerBiometricAuth: (onSuccess: () -> Unit, onError: (String) -> Unit) -> Unit = { _, _ -> },
@@ -941,47 +942,56 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 3. Welcome Tour & App Guide Card
+        // 3. Welcome Tour & What's New Guide Card
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(16.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AuroraRoyalViolet, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Welcome Screen & Guide",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AuroraRoyalViolet, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "View the Aurora Notes overview and feature walkthrough.",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                            fontSize = 12.sp
-                        )
+                        text = "Welcome Guide & What's New",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                 }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "View the Aurora Notes welcome guide or check what's new in the latest release.",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                        fontSize = 12.sp
+                    )
+                )
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                Button(
-                    onClick = onOpenWelcomeTour,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Open Guide", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Button(
+                        onClick = onOpenWelcomeTour,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
+                    ) {
+                        Text("Open Guide", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+
+                    OutlinedButton(
+                        onClick = onOpenWhatsNew,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.5f))
+                    ) {
+                        Text("What's New", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AuroraRoyalViolet)
+                    }
                 }
             }
         }

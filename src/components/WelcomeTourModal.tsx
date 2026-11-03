@@ -28,25 +28,25 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
     {
       id: 'welcome',
       title: 'Welcome to Aurora Notes',
-      subtitle: 'Tactile Minimalism Meets Modern Design',
+      subtitle: 'Tactile Minimalism Meets AES-256 Cryptography',
       icon: <Sparkles className="w-6 h-6 text-[#5925DC] dark:text-[#C296FD]" />,
-      badge: 'Design Philosophy',
+      badge: 'Design & Cryptography',
       content: (
         <div className="space-y-4">
           <p className="text-sm text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            Aurora Notes is an atmospheric, serene digital note-taking experience designed for deep, uninterrupted thought and fast organization.
+            Aurora Notes is an atmospheric, privacy-first digital note-taking experience protected by mandatory <strong>AES-256-GCM cryptography</strong> and designed for deep, uninterrupted thought.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] shadow-xs">
-              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">Atmospheric Canvas</span>
+              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">AES-256 Encrypted Storage</span>
               <p className="text-[#797487] dark:text-[#A39BAC] leading-normal">
-                Soft canvas with royal violet and radiant amethyst accents calibrated for long writing sessions.
+                Hardware-backed AndroidKeyStore AES-256-GCM encryption permanently secures your Room database and private storage files.
               </p>
             </div>
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] shadow-xs">
-              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">Liquid Navigation</span>
+              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">Liquid Navigation & Morphing</span>
               <p className="text-[#797487] dark:text-[#A39BAC] leading-normal">
-                Floating navigation with continuous active indicators and quick action buttons.
+                Floating pill navigation with tactile haptics and smooth Masonry-to-Column view morphing.
               </p>
             </div>
           </div>
@@ -55,7 +55,7 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
               ✦
             </div>
             <p className="text-xs text-[#5925DC] dark:text-[#C296FD] font-medium leading-relaxed">
-              No account creation or cloud login required. Your private notes are ready immediately on first launch.
+              No account creation or cloud login required. Your AES-256 encrypted local vault is active immediately on first launch.
             </p>
           </div>
         </div>
@@ -63,27 +63,27 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
     },
     {
       id: 'local-privacy',
-      title: 'Local-First Storage & Minimal Internet',
-      subtitle: 'Notes Stay 100% Offline • Internet Only For Updates',
+      title: 'AES-256 Local Storage & Auto-Cleanup',
+      subtitle: 'Encrypted Offline Storage • Internet Only For Updates',
       icon: <ShieldCheck className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />,
-      badge: 'Privacy & Minimal Permissions',
+      badge: 'Cryptography & Privacy',
       content: (
         <div className="space-y-4">
           <p className="text-sm text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            All of your notes, checklists, and custom tags are stored strictly on your device. Internet access is kept minimal and is used exclusively when you manually scan for app updates:
+            All of your notes, checklists, and custom tags are encrypted with AES-256-GCM on your device. Internet access is kept minimal and used exclusively when you manually scan for app updates:
           </p>
           <div className="space-y-2.5">
             <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>100% Offline Notes: Your notes and tags never leave your phone&apos;s local SQLite storage.</span>
+              <span>Mandatory AES-256-GCM Encryption: Room SQLite records and mirrored private files stay encrypted at rest.</span>
+            </div>
+            <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>Automatic Orphaned File Cleanup: Stale .tmp writes and orphaned note files are swept automatically.</span>
             </div>
             <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>Minimal Internet Permission: Only used when you tap &ldquo;Scan for Updates&rdquo; in Settings to pull GitHub Releases.</span>
-            </div>
-            <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Zero Background Traffic or Telemetry: No analytics, cloud sync, or background network calls.</span>
             </div>
           </div>
         </div>
