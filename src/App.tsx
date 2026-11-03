@@ -248,7 +248,7 @@ export default function App() {
 
 
 
-  // Sync individual note files to private external storage & clean up orphaned files
+  // Sync individual note files to private external storage & automatically clean up orphaned/temp files
   const syncNotesToPrivateExternalStorage = (currentNotes: Note[], encryptFiles: boolean) => {
     try {
       const nonDeleted = currentNotes.filter((n) => !n.isDeleted);
@@ -271,6 +271,12 @@ export default function App() {
       }
       const report = cleanupOrphanedPrivateStorageEntries(snapshot, validIds);
       report.cleanedKeys.forEach((k) => localStorage.removeItem(k));
+      const totalRemoved = report.orphanedRemoved + report.tempRemoved;
+      if (totalRemoved > 0) {
+        setLastCleanupSummary(
+          `Auto-cleaned ${report.orphanedRemoved} orphaned file(s) & ${report.tempRemoved} temp file(s) (${report.freedBytes} B freed)`
+        );
+      }
       return report;
     } catch {
       return {
@@ -283,7 +289,7 @@ export default function App() {
     }
   };
 
-  // Save notes locally (Always-Encrypted Room DB + Private External Storage mirror)
+  // Save notes locally (Always-Encrypted Room DB + Private External Storage mirror + Automatic Orphan Cleanup)
   const persistNotes = (updated: Note[]) => {
     setNotes(updated);
     try {
@@ -298,16 +304,10 @@ export default function App() {
   };
 
   const handleCleanUpOrphanedFiles = () => {
-    const report = syncNotesToPrivateExternalStorage(notes, true);
-    const totalRemoved = report.orphanedRemoved + report.tempRemoved;
-    setLastCleanupSummary(
-      totalRemoved > 0
-        ? `Cleaned ${report.orphanedRemoved} orphaned file(s) & ${report.tempRemoved} temp file(s) (${report.freedBytes} B freed)`
-        : 'Storage clean — 0 orphaned or temporary files found'
-    );
+    syncNotesToPrivateExternalStorage(notes, true);
   };
 
-  // Run initial private storage encryption sync & orphan cleanup on startup
+  // Run automatic private storage encryption sync & orphan/temp cleanup on startup, visibility resume, and periodic interval
   useEffect(() => {
     try {
       const serialized = JSON.stringify(notes);
@@ -316,7 +316,22 @@ export default function App() {
       // ignore
     }
     syncNotesToPrivateExternalStorage(notes, true);
-  }, []);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncNotesToPrivateExternalStorage(notes, true);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    const intervalId = window.setInterval(() => {
+      syncNotesToPrivateExternalStorage(notes, true);
+    }, 3 * 60 * 1000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.clearInterval(intervalId);
+    };
+  }, [notes]);
 
   const storageStats = useMemo(() => {
     const nonDeleted = notes.filter((n) => !n.isDeleted);

@@ -134,6 +134,26 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
                 _lastCleanupSummary.value =
                     "Auto-cleaned ${report.orphanedFilesRemoved} orphaned file(s) & ${report.tempFilesRemoved} temp file(s)"
             }
+            while (true) {
+                kotlinx.coroutines.delay(3 * 60 * 1000L)
+                runAutomaticStorageSweepInternal()
+            }
+        }
+    }
+
+    fun onAppResumed() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runAutomaticStorageSweepInternal()
+        }
+    }
+
+    private suspend fun runAutomaticStorageSweepInternal() {
+        val report = repository.cleanupOrphanedStorageFiles()
+        _storageStats.value = repository.getStorageStats()
+        val totalCleaned = report.orphanedFilesRemoved + report.tempFilesRemoved
+        if (totalCleaned > 0) {
+            _lastCleanupSummary.value =
+                "Auto-cleaned ${report.orphanedFilesRemoved} orphaned file(s) & ${report.tempFilesRemoved} temp file(s)"
         }
     }
 

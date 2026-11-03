@@ -631,22 +631,31 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         </div>
 
+        <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#EADBFC]/60 dark:border-[#322742]/60">
+          <div className="space-y-0.5">
+            <div className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
+              <Check className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
+              <span>Orphaned & Temp File Cleanup</span>
+            </div>
+            <p className="text-[11px] text-[#484455] dark:text-[#A39BAC] leading-relaxed">
+              Orphaned note files, incomplete .tmp writes, and stale shared/update cache files are swept automatically on launch, resume, and every note change.
+            </p>
+          </div>
+
+          <div
+            aria-label="Automatic cleanup active"
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border border-[#5925DC]/40 dark:border-[#9D5AF5]/40 flex items-center gap-1.5 shrink-0 select-none"
+          >
+            <Check className="w-3 h-3" />
+            <span>Auto-Active</span>
+          </div>
+        </div>
+
         {lastCleanupSummary && (
           <div className="p-2.5 rounded-xl bg-[#F4EBFF]/70 dark:bg-[#2B1E3E]/60 border border-[#EADBFC] dark:border-[#322742] text-[11px] font-medium text-[#5925DC] dark:text-[#C296FD]">
             {lastCleanupSummary}
           </div>
         )}
-
-        <div className="pt-1">
-          <button
-            type="button"
-            onClick={() => onCleanUpOrphanedFiles?.()}
-            className="w-full py-2 px-3.5 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-xs font-bold border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Clean Up Orphaned & Temp Files</span>
-          </button>
-        </div>
       </div>
 
       {/* 3. Custom Categories Management */}

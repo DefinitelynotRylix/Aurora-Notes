@@ -44,6 +44,7 @@ class AuroraRepository(
             note = plainUpdated,
             encryptFileContent = isDatabaseEncryptionEnabled
         )
+        cleanupOrphanedStorageFiles()
         LocalLogger.security("NOTE", "Local note saved: \"${plainUpdated.title}\" (ID: ${plainUpdated.id})")
     }
 
@@ -63,6 +64,7 @@ class AuroraRepository(
             note = plainUpdated,
             encryptFileContent = isDatabaseEncryptionEnabled
         )
+        cleanupOrphanedStorageFiles()
     }
 
     suspend fun toggleChecklistItem(noteId: String, itemId: String) {
@@ -86,44 +88,52 @@ class AuroraRepository(
             note = plainUpdated,
             encryptFileContent = isDatabaseEncryptionEnabled
         )
+        cleanupOrphanedStorageFiles()
     }
 
     suspend fun archiveNote(id: String) {
         noteDao.archiveNote(id, System.currentTimeMillis())
         syncSingleNoteFile(id)
+        cleanupOrphanedStorageFiles()
     }
 
     suspend fun archiveNotesBatch(ids: List<String>) {
         if (ids.isEmpty()) return
         noteDao.archiveNotesBatch(ids, System.currentTimeMillis())
         ids.forEach { syncSingleNoteFile(it) }
+        cleanupOrphanedStorageFiles()
     }
 
     suspend fun unarchiveNote(id: String) {
         noteDao.unarchiveNote(id, System.currentTimeMillis())
         syncSingleNoteFile(id)
+        cleanupOrphanedStorageFiles()
     }
 
     suspend fun unarchiveNotesBatch(ids: List<String>) {
         if (ids.isEmpty()) return
         noteDao.unarchiveNotesBatch(ids, System.currentTimeMillis())
         ids.forEach { syncSingleNoteFile(it) }
+        cleanupOrphanedStorageFiles()
     }
 
     suspend fun moveToTrash(id: String) {
         noteDao.moveToTrash(id, System.currentTimeMillis())
         PrivateStorageManager.deleteNoteFromPrivateStorage(context, id)
+        cleanupOrphanedStorageFiles()
     }
 
     suspend fun moveToTrashBatch(ids: List<String>) {
         if (ids.isEmpty()) return
         noteDao.moveToTrashBatch(ids, System.currentTimeMillis())
         ids.forEach { PrivateStorageManager.deleteNoteFromPrivateStorage(context, it) }
+        cleanupOrphanedStorageFiles()
     }
 
     suspend fun restoreFromTrash(id: String) {
         noteDao.restoreFromTrash(id)
         syncSingleNoteFile(id)
+        cleanupOrphanedStorageFiles()
     }
 
     suspend fun deletePermanently(id: String) {

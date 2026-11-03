@@ -952,6 +952,67 @@ fun SettingsScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Orphaned & Temp File Cleanup",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Orphaned note files, incomplete .tmp writes, and stale shared/update cache files are swept automatically on launch, resume, and every note change.",
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = AuroraRoyalViolet.copy(alpha = 0.14f),
+                        border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.4f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = AuroraRoyalViolet,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Auto-Active",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AuroraRoyalViolet
+                            )
+                        }
+                    }
+                }
+
                 if (!lastCleanupSummary.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Surface(
@@ -968,39 +1029,6 @@ fun SettingsScreen(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
                         )
                     }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedButton(
-                    onClick = {
-                        onCleanUpOrphanedFiles { report ->
-                            val total = report.orphanedFilesRemoved + report.tempFilesRemoved
-                            val toastText = if (total > 0) {
-                                "Cleaned ${report.orphanedFilesRemoved} orphaned & ${report.tempFilesRemoved} temp file(s)"
-                            } else {
-                                "Storage clean — 0 orphaned files found"
-                            }
-                            Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.5f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        tint = AuroraRoyalViolet,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Clean Up Orphaned & Temp Files",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AuroraRoyalViolet
-                    )
                 }
             }
         }

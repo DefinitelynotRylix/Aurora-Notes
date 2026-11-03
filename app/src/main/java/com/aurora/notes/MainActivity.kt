@@ -105,6 +105,11 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        viewModel.onAppResumed()
+    }
+
     private fun showBiometricPrompt(
         activity: FragmentActivity,
         onSuccess: () -> Unit,

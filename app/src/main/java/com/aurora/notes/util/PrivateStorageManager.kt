@@ -304,21 +304,23 @@ object PrivateStorageManager {
             }
         }
 
-        // Also clean up stale shared_notes cache files in externalCacheDir & cacheDir
+        // Also automatically clean up stale shared_notes & updates cache files in externalCacheDir & cacheDir
         val cacheDirs = listOfNotNull(
             context.externalCacheDir?.let { File(it, "shared_notes") },
-            File(context.cacheDir, "shared_notes")
+            File(context.cacheDir, "shared_notes"),
+            context.externalCacheDir?.let { File(it, "updates") },
+            File(context.cacheDir, "updates")
         ).distinctBy { it.absolutePath }
 
         val now = System.currentTimeMillis()
-        val staleThresholdMs = 30 * 60 * 1000L // 30 minutes
+        val staleThresholdMs = 10 * 60 * 1000L // 10 minutes automatic TTL for temp share/update artifacts
         cacheDirs.forEach { cacheDir ->
             if (cacheDir.exists()) {
                 cacheDir.listFiles()?.forEach { file ->
                     if (file.isFile) {
                         val age = now - file.lastModified()
-                        // Remove stale or 0-byte shared temp files, or all when manual cleanup runs
-                        if (file.length() == 0L || age >= staleThresholdMs || normalizedValidIds.isEmpty()) {
+                        val isTempArtifact = file.name.endsWith(".tmp") || file.name.endsWith(".bak")
+                        if (file.length() == 0L || isTempArtifact || age >= staleThresholdMs || normalizedValidIds.isEmpty()) {
                             val len = file.length()
                             if (file.delete()) {
                                 tempRemoved++
