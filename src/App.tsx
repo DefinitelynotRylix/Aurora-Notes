@@ -18,6 +18,7 @@ const STORAGE_NOTES_KEY = 'aurora_local_notes_v1';
 const STORAGE_CATEGORIES_KEY = 'aurora_custom_categories_v1';
 const STORAGE_THEME_KEY = 'aurora_theme_v1';
 const STORAGE_WELCOME_KEY = 'aurora_notes_welcome_seen_v1';
+const STORAGE_HAPTICS_KEY = 'aurora_haptics_enabled_v1';
 
 export default function App() {
   // Theme state
@@ -36,6 +37,25 @@ export default function App() {
   // Android Native Lock State
   const [isNativeLocked, setIsNativeLocked] = useState(() => isNativeLockEnabled());
   const [nativeAuthError, setNativeAuthError] = useState<string | null>(null);
+
+  // In-app Haptic Feedback State (enabled by default)
+  const [isHapticsEnabled, setIsHapticsEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_HAPTICS_KEY);
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const handleToggleHaptics = (enabled: boolean) => {
+    setIsHapticsEnabled(enabled);
+    try {
+      localStorage.setItem(STORAGE_HAPTICS_KEY, String(enabled));
+    } catch {
+      // ignore
+    }
+  };
 
   // Active navigation tab & directional slide tracking
   const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
@@ -488,6 +508,8 @@ export default function App() {
               <SettingsPage
                 currentTheme={theme}
                 onSelectTheme={handleSelectTheme}
+                isHapticsEnabled={isHapticsEnabled}
+                onToggleHaptics={handleToggleHaptics}
                 customCategories={customCategories}
                 onAddCategory={handleAddCategory}
                 onRemoveCategory={handleRemoveCategory}
@@ -621,7 +643,9 @@ export default function App() {
                     </button>
                   </div>
                 ) : (
-                  <div
+                  <motion.div
+                    layout
+                    transition={{ layout: { type: 'spring', stiffness: 280, damping: 28 } }}
                     className={`grid gap-2.5 sm:gap-4 ${
                       isGridView
                         ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
@@ -636,24 +660,29 @@ export default function App() {
                       };
 
                       return (
-                        <NoteCard
+                        <motion.div
                           key={note.id}
-                          note={note}
-                          isGridView={isGridView}
-                          animateMovement={animateMovement}
-                          isSelectionMode={selectedNoteIds.length > 0}
-                          isSelected={selectedNoteIds.includes(note.id)}
-                          onToggleSelection={handleToggleNoteSelection}
-                          onSelect={(selected) => setActiveNote(selected)}
-                          onTogglePin={handleTogglePin}
-                          onDelete={handleDeleteNote}
-                          onShare={(noteToShare) => setNotesToShare([noteToShare])}
-                          onToggleCheckItem={handleToggleCheckItem}
-                          onDeleteTag={handleDeleteTagAndDetach}
-                        />
+                          layout
+                          transition={{ layout: { type: 'spring', stiffness: 280, damping: 28 } }}
+                        >
+                          <NoteCard
+                            note={note}
+                            isGridView={isGridView}
+                            animateMovement={animateMovement}
+                            isSelectionMode={selectedNoteIds.length > 0}
+                            isSelected={selectedNoteIds.includes(note.id)}
+                            onToggleSelection={handleToggleNoteSelection}
+                            onSelect={(selected) => setActiveNote(selected)}
+                            onTogglePin={handleTogglePin}
+                            onDelete={handleDeleteNote}
+                            onShare={(noteToShare) => setNotesToShare([noteToShare])}
+                            onToggleCheckItem={handleToggleCheckItem}
+                            onDeleteTag={handleDeleteTagAndDetach}
+                          />
+                        </motion.div>
                       );
                     })}
-                  </div>
+                  </motion.div>
                 )}
               </>
             )}
@@ -726,6 +755,7 @@ export default function App() {
         onChangeTab={handleSelectNavTab}
         pinnedCount={activeNotes.filter((n) => n.isPinned).length}
         trashCount={trashedNotes.length}
+        isHapticsEnabled={isHapticsEnabled}
       />
 
       {/* Note Editor Modal with smooth glide-in */}

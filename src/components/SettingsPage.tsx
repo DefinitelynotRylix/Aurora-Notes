@@ -49,6 +49,8 @@ function compareSemver(remoteVer: string, localVer: string): number {
 interface SettingsPageProps {
   currentTheme: ThemeOption;
   onSelectTheme: (theme: ThemeOption) => void;
+  isHapticsEnabled?: boolean;
+  onToggleHaptics?: (enabled: boolean) => void;
   customCategories: string[];
   onAddCategory: (category: string) => void;
   onRemoveCategory: (category: string) => void;
@@ -60,6 +62,8 @@ interface SettingsPageProps {
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   currentTheme,
   onSelectTheme,
+  isHapticsEnabled = true,
+  onToggleHaptics,
   customCategories,
   onAddCategory,
   onRemoveCategory,
@@ -421,6 +425,58 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             );
           })}
         </div>
+      </div>
+
+      {/* 1b. In-App Haptic Feedback Section */}
+      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5925DC] dark:text-[#C296FD]">
+              TACTILE RESPONSE
+            </span>
+            <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] mt-0.5 flex items-center gap-2">
+              <Smartphone className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
+              <span>Haptic Feedback</span>
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const nextState = !isHapticsEnabled;
+              onToggleHaptics?.(nextState);
+              if (nextState && typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                navigator.vibrate(35);
+              }
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+              isHapticsEnabled
+                ? 'bg-[#5925DC] dark:bg-[#9D5AF5] text-white border-transparent shadow-xs'
+                : 'bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border-[#EADBFC] dark:border-[#322742]'
+            }`}
+          >
+            {isHapticsEnabled ? 'Haptics Enabled' : 'Haptics Disabled'}
+          </button>
+        </div>
+
+        <p className="text-xs text-[#484455] dark:text-[#A39BAC] leading-relaxed">
+          Provides tactile vibration feedback when pressing navigation bar buttons, even if system touch vibration is muted.
+        </p>
+
+        {isHapticsEnabled && (
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                  navigator.vibrate(40);
+                }
+              }}
+              className="px-3.5 py-2 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-xs font-semibold hover:opacity-90 active:scale-95 transition-all border border-[#EADBFC] dark:border-[#322742] cursor-pointer"
+            >
+              Test Haptic Pulse
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 2. Android Biometric & Native Screen Lock */}

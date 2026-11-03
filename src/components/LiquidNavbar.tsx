@@ -7,6 +7,7 @@ interface LiquidNavbarProps {
   onChangeTab: (tab: ActiveTab) => void;
   pinnedCount: number;
   trashCount?: number;
+  isHapticsEnabled?: boolean;
 }
 
 interface NavItem {
@@ -16,17 +17,98 @@ interface NavItem {
   badge?: number;
 }
 
-// Smooth fluid cubic-out easing
 const easeFluidGlide = (t: number): number => {
   const clamped = Math.min(1, Math.max(0, t));
   return 1 - Math.pow(1 - clamped, 3.2);
 };
+
+function buildMetaballDropPath(
+  dropPos: number,
+  bodyPos: number,
+  tabCount: number,
+  width: number,
+  height: number
+): string {
+  const slotWidth = width / Math.max(1, tabCount);
+  const h = height;
+  const centerY = h / 2;
+  const sep = Math.abs(dropPos - bodyPos);
+  const dropShrink = Math.min(1, Math.max(0, sep / (sep + 0.28)));
+
+  if (sep < 0.005) {
+    const left = Math.max(0, Math.min(width - slotWidth, dropPos * slotWidth));
+    const right = Math.max(left + h, Math.min(width, left + slotWidth));
+    const r = h / 2;
+    const lc = left + r;
+    const rc = Math.max(lc, right - r);
+    return `M ${lc} 0 L ${rc} 0 A ${r} ${r} 0 0 1 ${rc} ${h} L ${lc} ${h} A ${r} ${r} 0 0 1 ${lc} 0 Z`;
+  }
+
+  const isMovingRight = dropPos >= bodyPos;
+  const bodyCenterX = (bodyPos + 0.5) * slotWidth;
+  const bodyH = Math.max(h * 0.88, h * (1 - 0.03 * dropShrink));
+  const bodyW = Math.max(bodyH, slotWidth * (1 - 0.08 * dropShrink));
+
+  const dropCenterX = (dropPos + 0.5) * slotWidth;
+  const dropH = Math.max(h * 0.80, h * (1 - 0.14 * dropShrink));
+  const dropW = Math.max(dropH, slotWidth * (1 - 0.24 * dropShrink));
+
+  const leftCX = isMovingRight ? bodyCenterX : dropCenterX;
+  const leftW = isMovingRight ? bodyW : dropW;
+  const leftH = isMovingRight ? bodyH : dropH;
+  const rightCX = isMovingRight ? dropCenterX : bodyCenterX;
+  const rightW = isMovingRight ? dropW : bodyW;
+  const rightH = isMovingRight ? dropH : bodyH;
+
+  const leftOuter = Math.max(0, Math.min(width - leftH, leftCX - leftW / 2));
+  const rightOuter = Math.max(leftOuter + rightH, Math.min(width, rightCX + rightW / 2));
+
+  const leftTop = centerY - leftH / 2;
+  const leftBottom = centerY + leftH / 2;
+  const rightTop = centerY - rightH / 2;
+  const rightBottom = centerY + rightH / 2;
+
+  const leftCapCenterX = leftOuter + leftH / 2;
+  const rightCapCenterX = rightOuter - rightH / 2;
+
+  if (rightCapCenterX <= leftCapCenterX + 2) {
+    const r = h / 2;
+    const lc = leftOuter + r;
+    const rc = Math.max(lc, rightOuter - r);
+    return `M ${lc} 0 L ${rc} 0 A ${r} ${r} 0 0 1 ${rc} ${h} L ${lc} ${h} A ${r} ${r} 0 0 1 ${lc} 0 Z`;
+  }
+
+  const neckBias = isMovingRight ? 0.56 : 0.44;
+  const neckX = leftCapCenterX + (rightCapCenterX - leftCapCenterX) * neckBias;
+  const minLobeHalfH = Math.min(leftH, rightH) * 0.5;
+  const neckHalfH = Math.max(h * 0.34, Math.min(minLobeHalfH, minLobeHalfH * (1 - 0.26 * dropShrink)));
+
+  const neckTopY = centerY - neckHalfH;
+  const neckBottomY = centerY + neckHalfH;
+
+  const leftSpan = Math.max(1, neckX - leftCapCenterX);
+  const rightSpan = Math.max(1, rightCapCenterX - neckX);
+  const lr = leftH / 2;
+  const rr = rightH / 2;
+
+  return [
+    `M ${leftCapCenterX} ${leftTop}`,
+    `C ${leftCapCenterX + leftSpan * 0.54} ${leftTop}, ${neckX - leftSpan * 0.36} ${neckTopY}, ${neckX} ${neckTopY}`,
+    `C ${neckX + rightSpan * 0.36} ${neckTopY}, ${rightCapCenterX - rightSpan * 0.54} ${rightTop}, ${rightCapCenterX} ${rightTop}`,
+    `A ${rr} ${rr} 0 0 1 ${rightCapCenterX} ${rightBottom}`,
+    `C ${rightCapCenterX - rightSpan * 0.54} ${rightBottom}, ${neckX + rightSpan * 0.36} ${neckBottomY}, ${neckX} ${neckBottomY}`,
+    `C ${neckX - leftSpan * 0.36} ${neckBottomY}, ${leftCapCenterX + leftSpan * 0.54} ${leftBottom}, ${leftCapCenterX} ${leftBottom}`,
+    `A ${lr} ${lr} 0 0 1 ${leftCapCenterX} ${leftTop}`,
+    'Z',
+  ].join(' ');
+}
 
 export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   activeTab,
   onChangeTab,
   pinnedCount,
   trashCount = 0,
+  isHapticsEnabled = true,
 }) => {
   const items: NavItem[] = [
     { id: 'notes', label: 'Notes', icon: FileText },
@@ -43,15 +125,15 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   const trackRef = useRef<HTMLDivElement>(null);
   const [trackSize, setTrackSize] = useState({ width: 320, height: 44 });
   const [animState, setAnimState] = useState({
-    leadPos: targetIndex,
-    trailPos: targetIndex,
+    dropPos: targetIndex,
+    bodyPos: targetIndex,
   });
 
   const animRef = useRef({
-    startLead: targetIndex,
-    startTrail: targetIndex,
-    currentLead: targetIndex,
-    currentTrail: targetIndex,
+    startDrop: targetIndex,
+    startBody: targetIndex,
+    currentDrop: targetIndex,
+    currentBody: targetIndex,
     target: targetIndex,
     startTime: 0,
     rafId: 0,
@@ -76,40 +158,38 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     if (state.target === targetIndex) return;
 
     cancelAnimationFrame(state.rafId);
-    state.startLead = state.currentLead;
-    state.startTrail = state.currentTrail;
+    state.startDrop = state.currentDrop;
+    state.startBody = state.currentBody;
     state.target = targetIndex;
     state.startTime = performance.now();
 
-    // Fluid durations so the leading edge glides out first (stretching the pill)
-    // and the trailing edge smoothly catches up to restore the original pill size
-    const LEAD_DURATION = 420;
-    const TRAIL_DURATION = 720;
+    const DROP_DURATION = 340;
+    const BODY_DURATION = 640;
 
     const tick = (now: number) => {
       const elapsed = Math.max(0, now - state.startTime);
-      const leadProgress = easeFluidGlide(elapsed / LEAD_DURATION);
-      const trailProgress = easeFluidGlide(elapsed / TRAIL_DURATION);
+      const dropProgress = easeFluidGlide(elapsed / DROP_DURATION);
+      const bodyProgress = easeFluidGlide(elapsed / BODY_DURATION);
 
-      const nextLead = Math.min(
+      const nextDrop = Math.min(
         items.length - 1,
-        Math.max(0, state.startLead + (state.target - state.startLead) * leadProgress)
+        Math.max(0, state.startDrop + (state.target - state.startDrop) * dropProgress)
       );
-      const nextTrail = Math.min(
+      const nextBody = Math.min(
         items.length - 1,
-        Math.max(0, state.startTrail + (state.target - state.startTrail) * trailProgress)
+        Math.max(0, state.startBody + (state.target - state.startBody) * bodyProgress)
       );
 
-      state.currentLead = nextLead;
-      state.currentTrail = nextTrail;
-      setAnimState({ leadPos: nextLead, trailPos: nextTrail });
+      state.currentDrop = nextDrop;
+      state.currentBody = nextBody;
+      setAnimState({ dropPos: nextDrop, bodyPos: nextBody });
 
-      if (elapsed < TRAIL_DURATION) {
+      if (elapsed < BODY_DURATION) {
         state.rafId = requestAnimationFrame(tick);
       } else {
-        state.currentLead = state.target;
-        state.currentTrail = state.target;
-        setAnimState({ leadPos: state.target, trailPos: state.target });
+        state.currentDrop = state.target;
+        state.currentBody = state.target;
+        setAnimState({ dropPos: state.target, bodyPos: state.target });
       }
     };
 
@@ -117,33 +197,13 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     return () => cancelAnimationFrame(state.rafId);
   }, [targetIndex, items.length]);
 
-  const tabCount = items.length;
-  const slotWidth = trackSize.width / tabCount;
-  const pillHeight = trackSize.height;
-  const capRadius = pillHeight / 2;
-
-  const leftEdgeRaw = Math.min(animState.leadPos, animState.trailPos) * slotWidth;
-  const rightEdgeRaw = (Math.max(animState.leadPos, animState.trailPos) + 1) * slotWidth;
-
-  const leftX = Math.max(0, Math.min(trackSize.width - pillHeight, leftEdgeRaw));
-  const rightX = Math.max(leftX + pillHeight, Math.min(trackSize.width, rightEdgeRaw));
-
-  const stretchDelta = Math.abs(animState.leadPos - animState.trailPos);
-  const stretchFactor = stretchDelta / (stretchDelta + 0.55);
-  const waistPinch = pillHeight * 0.28 * stretchFactor;
-
-  const leftCapCenterX = leftX + capRadius;
-  const rightCapCenterX = Math.max(leftCapCenterX, rightX - capRadius);
-  const midX = (leftCapCenterX + rightCapCenterX) / 2;
-
-  const pillPath = [
-    `M ${leftCapCenterX} 0`,
-    `Q ${midX} ${waistPinch} ${rightCapCenterX} 0`,
-    `A ${capRadius} ${capRadius} 0 0 1 ${rightCapCenterX} ${pillHeight}`,
-    `Q ${midX} ${pillHeight - waistPinch} ${leftCapCenterX} ${pillHeight}`,
-    `A ${capRadius} ${capRadius} 0 0 1 ${leftCapCenterX} 0`,
-    'Z',
-  ].join(' ');
+  const pillPath = buildMetaballDropPath(
+    animState.dropPos,
+    animState.bodyPos,
+    items.length,
+    trackSize.width,
+    trackSize.height
+  );
 
   return (
     <nav
@@ -155,7 +215,6 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
           ref={trackRef}
           className="relative grid grid-cols-4 w-full rounded-full overflow-hidden"
         >
-          {/* Fluid Stretching & Thin-Waist SVG Pill Indicator */}
           <svg
             width={trackSize.width}
             height={trackSize.height}
@@ -194,8 +253,12 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
               <button
                 key={item.id}
                 onClick={() => {
-                  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-                    navigator.vibrate(12);
+                  if (
+                    isHapticsEnabled &&
+                    typeof navigator !== 'undefined' &&
+                    typeof navigator.vibrate === 'function'
+                  ) {
+                    navigator.vibrate(30);
                   }
                   onChangeTab(item.id);
                 }}

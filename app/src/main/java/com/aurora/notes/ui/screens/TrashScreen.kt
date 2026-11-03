@@ -1,6 +1,11 @@
 package com.aurora.notes.ui.screens
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -29,6 +34,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TrashScreen(
     trashedNotes: List<Note>,
@@ -193,7 +199,22 @@ fun TrashScreen(
                     TrashedNoteCard(
                         note = note,
                         onRestore = { onRestoreNote(note.id) },
-                        onDeletePermanent = { onDeletePermanently(note.id) }
+                        onDeletePermanent = { onDeletePermanently(note.id) },
+                        modifier = Modifier
+                            .animateItem(
+                                fadeInSpec = tween(durationMillis = 220),
+                                placementSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                ),
+                                fadeOutSpec = tween(durationMillis = 180)
+                            )
+                            .animateContentSize(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            )
                     )
                 }
             }
@@ -205,7 +226,8 @@ fun TrashScreen(
 private fun TrashedNoteCard(
     note: Note,
     onRestore: () -> Unit,
-    onDeletePermanent: () -> Unit
+    onDeletePermanent: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val dateFormat = SimpleDateFormat("MMM d, HH:mm", Locale.US)
     val formattedDate = dateFormat.format(Date(note.deletedAt ?: note.updatedAt))
@@ -216,7 +238,7 @@ private fun TrashedNoteCard(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(

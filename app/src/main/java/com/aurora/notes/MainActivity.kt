@@ -147,6 +147,7 @@ fun AuroraApp(
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
     val isAppLocked by viewModel.isAppLocked.collectAsState()
     val isWelcomeOpen by viewModel.isWelcomeOpen.collectAsState()
+    val isHapticsEnabled by viewModel.isHapticsEnabled.collectAsState()
 
     // Synchronously compute All Notes (Tab 0) and Pinned Notes (Tab 1) so there is zero
     // coroutine delay or 1ms flash of the main notes menu when switching between navbar tabs
@@ -284,7 +285,8 @@ fun AuroraApp(
                     selectedTab = selectedTab,
                     onTabSelected = { viewModel.setSelectedTab(it) },
                     pinnedCount = pinnedCount,
-                    trashCount = trashCount
+                    trashCount = trashCount,
+                    isHapticsEnabled = isHapticsEnabled
                 )
             }
         ) { paddingValues ->
@@ -374,6 +376,8 @@ fun AuroraApp(
                         SettingsScreen(
                             themeMode = themeMode,
                             onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
+                            isHapticsEnabled = isHapticsEnabled,
+                            onSetHapticsEnabled = { enabled -> viewModel.setHapticsEnabled(enabled) },
                             userTags = userTags,
                             onAddTag = { newTag -> viewModel.addUserTag(newTag) },
                             onRemoveTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },

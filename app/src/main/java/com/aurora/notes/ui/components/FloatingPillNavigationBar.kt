@@ -31,11 +31,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import android.content.Context
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
-import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -45,9 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aurora.notes.ui.theme.AuroraAmethyst
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
+import com.aurora.notes.util.HapticHelper
 
 data class NavTabItem(
     val index: Int,
@@ -56,52 +49,8 @@ data class NavTabItem(
     val badge: Int = 0
 )
 
-fun triggerNavbarHaptic(view: View, context: Context) {
-    try {
-        view.isHapticFeedbackEnabled = true
-        view.performHapticFeedback(
-            HapticFeedbackConstants.KEYBOARD_TAP,
-            HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
-        )
-    } catch (_: Exception) {
-    }
-
-    try {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-            manager?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        }
-
-        if (vibrator?.hasVibrator() == true) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val attrs = android.os.VibrationAttributes.Builder()
-                    .setUsage(android.os.VibrationAttributes.USAGE_TOUCH)
-                    .build()
-                vibrator.vibrate(
-                    VibrationEffect.createOneShot(24L, 210),
-                    attrs
-                )
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                @Suppress("DEPRECATION")
-                val audioAttrs = android.media.AudioAttributes.Builder()
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                    .build()
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(
-                    VibrationEffect.createOneShot(24L, 210),
-                    audioAttrs
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(24L)
-            }
-        }
-    } catch (_: Exception) {
-    }
+fun triggerNavbarHaptic(view: View, context: Context, enabled: Boolean = true) {
+    HapticHelper.triggerHaptic(view = view, context = context, enabled = enabled, durationMs = 30L)
 }
 
 @Composable
@@ -110,6 +59,7 @@ fun FloatingPillNavigationBar(
     onTabSelected: (Int) -> Unit,
     pinnedCount: Int = 0,
     trashCount: Int = 0,
+    isHapticsEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val view = LocalView.current
@@ -122,25 +72,27 @@ fun FloatingPillNavigationBar(
         NavTabItem(3, "Settings", Icons.Default.Settings)
     )
 
-    // Critically damped (non-bouncy) dual springs:
-    // The leading edge glides out smoothly while the trailing edge follows more gently,
-    // causing the pill to fluidly stretch out across menus before contracting back to its original size.
-    val leadTabPos by animateFloatAsState(
+    // Dual fluid-drop springs:
+    // 1. dropTabPos: A nimble, critically-damped spring that sends a purple fluid drop
+    //    ahead to the newly selected menu immediately upon tap.
+    // 2. bodyTabPos: A cohesive trailing spring for the main pill body, which stays connected
+    //    via a fuller liquid waist and attaches itself into the droplet upon arrival.
+    val dropTabPos by animateFloatAsState(
         targetValue = selectedTab.toFloat(),
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = 210f
+            stiffness = 290f
         ),
-        label = "pill_lead_pos"
+        label = "fluid_drop_lead_pos"
     )
 
-    val trailTabPos by animateFloatAsState(
+    val bodyTabPos by animateFloatAsState(
         targetValue = selectedTab.toFloat(),
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = 85f
+            stiffness = 96f
         ),
-        label = "pill_trail_pos"
+        label = "fluid_pill_body_pos"
     )
 
     Box(
@@ -185,82 +137,40 @@ fun FloatingPillNavigationBar(
                 val density = LocalDensity.current
                 val containerWidthPx = with(density) { maxWidth.toPx() }
                 val containerHeightPx = with(density) { maxHeight.toPx() }
-                val tabWidthPx = containerWidthPx / items.size.toFloat()
-
-                // Strictly clamp left and right edges inside [0, containerWidthPx]
-                val minTabPos = min(leadTabPos, trailTabPos).coerceIn(0f, (items.size - 1).toFloat())
-                val maxTabPos = max(leadTabPos, trailTabPos).coerceIn(0f, (items.size - 1).toFloat())
-
-                val pillLeftPx = (minTabPos * tabWidthPx).coerceIn(0f, containerWidthPx - tabWidthPx)
-                val pillRightPx = ((maxTabPos * tabWidthPx) + tabWidthPx).coerceIn(pillLeftPx + tabWidthPx, containerWidthPx)
-
-                // Continuous, smooth stretch-based waist pinch (0 when at rest, peaks smoothly while stretched)
-                val stretchDelta = abs(leadTabPos - trailTabPos)
-                val pinchFactor = (stretchDelta / (stretchDelta + 0.55f)).coerceIn(0f, 1f)
 
                 Spacer(
                     modifier = Modifier
                         .fillMaxSize()
                         .drawBehind {
-                            val w = (pillRightPx - pillLeftPx).coerceAtLeast(containerHeightPx)
-                            val h = containerHeightPx
-                            val r = h / 2f
-                            val left = pillLeftPx.coerceIn(0f, size.width - w)
-                            val right = (left + w).coerceAtMost(size.width)
+                            val fluidPaths = FluidDropPathBuilder.buildFluidDropPaths(
+                                dropPos = dropTabPos,
+                                bodyPos = bodyTabPos,
+                                tabCount = items.size,
+                                containerWidthPx = size.width.coerceAtLeast(containerWidthPx),
+                                containerHeightPx = size.height.coerceAtLeast(containerHeightPx)
+                            )
 
-                            // Middle waist pinches inward while stretched, then relaxes to 0 at rest
-                            val maxPinchPx = h * 0.28f * pinchFactor
-                            val midX = (left + right) / 2f
+                            val left = fluidPaths.boundingLeftPx
+                            val right = (fluidPaths.boundingRightPx).coerceAtLeast(left + 1f)
+                            val h = size.height
 
-                            val pillPath = Path().apply {
-                                // Left semicircular end cap
-                                arcTo(
-                                    rect = Rect(left, 0f, left + h, h),
-                                    startAngleDegrees = 90f,
-                                    sweepAngleDegrees = 180f,
-                                    forceMoveTo = false
-                                )
-                                // Top edge: smoothly pinches inward at the middle waist while stretching
-                                quadraticBezierTo(
-                                    x1 = midX,
-                                    y1 = maxPinchPx,
-                                    x2 = right - r,
-                                    y2 = 0f
-                                )
-                                // Right semicircular end cap
-                                arcTo(
-                                    rect = Rect(right - h, 0f, right, h),
-                                    startAngleDegrees = 270f,
-                                    sweepAngleDegrees = 180f,
-                                    forceMoveTo = false
-                                )
-                                // Bottom edge: smoothly pinches inward at the middle waist while stretching
-                                quadraticBezierTo(
-                                    x1 = midX,
-                                    y1 = h - maxPinchPx,
-                                    x2 = left + r,
-                                    y2 = h
-                                )
-                                close()
-                            }
-
-                            // Outer soft neon purple glow inside navbar
+                            // Outer soft neon purple glow around the main pill and connected droplet
                             drawPath(
-                                path = pillPath,
+                                path = fluidPaths.mainMetaballPath,
                                 brush = Brush.horizontalGradient(
                                     colors = listOf(
-                                        AuroraRoyalViolet.copy(alpha = 0.35f),
-                                        AuroraAmethyst.copy(alpha = 0.45f),
-                                        AuroraRoyalViolet.copy(alpha = 0.35f)
+                                        AuroraRoyalViolet.copy(alpha = 0.36f),
+                                        AuroraAmethyst.copy(alpha = 0.48f),
+                                        AuroraRoyalViolet.copy(alpha = 0.36f)
                                     ),
                                     startX = left,
                                     endX = right
                                 )
                             )
 
-                            // Main Neon Purple Pill Fill
+                            // Main Neon Purple Fluid Drop + Connected Pill Fill
                             drawPath(
-                                path = pillPath,
+                                path = fluidPaths.mainMetaballPath,
                                 brush = Brush.horizontalGradient(
                                     colors = listOf(
                                         AuroraRoyalViolet,
@@ -272,9 +182,15 @@ fun FloatingPillNavigationBar(
                                 )
                             )
 
+                            // Specular liquid droplet sheen
+                            drawPath(
+                                path = fluidPaths.specularDropHighlightPath,
+                                color = Color.White.copy(alpha = 0.22f)
+                            )
+
                             // Subtle luminous inner rim highlight
                             drawPath(
-                                path = pillPath,
+                                path = fluidPaths.mainMetaballPath,
                                 brush = Brush.verticalGradient(
                                     colors = listOf(
                                         Color.White.copy(alpha = 0.42f),
@@ -320,7 +236,7 @@ fun FloatingPillNavigationBar(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null
                                 ) {
-                                    triggerNavbarHaptic(view, context)
+                                    triggerNavbarHaptic(view, context, isHapticsEnabled)
                                     onTabSelected(item.index)
                                 },
                             contentAlignment = Alignment.Center

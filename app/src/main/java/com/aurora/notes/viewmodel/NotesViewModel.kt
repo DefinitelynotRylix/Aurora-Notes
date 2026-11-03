@@ -26,6 +26,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_WELCOME_SEEN = "key_welcome_tour_seen_v1"
         private const val KEY_USER_TAGS = "key_user_created_tags_v1"
         private const val KEY_THEME_MODE = "key_theme_mode_v1"
+        private const val KEY_HAPTICS_ENABLED = "key_haptics_enabled_v1"
     }
 
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -65,6 +66,9 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _themeMode = MutableStateFlow<String>(prefs.getString(KEY_THEME_MODE, "system") ?: "system")
     val themeMode: StateFlow<String> = _themeMode.asStateFlow()
+
+    private val _isHapticsEnabled = MutableStateFlow(prefs.getBoolean(KEY_HAPTICS_ENABLED, true))
+    val isHapticsEnabled: StateFlow<Boolean> = _isHapticsEnabled.asStateFlow()
 
     init {
         val noteDao = AuroraDatabase.getDatabase(application).noteDao()
@@ -292,6 +296,12 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putString(KEY_THEME_MODE, normalized).apply()
         _themeMode.value = normalized
         LocalLogger.security("THEME", "Updated app theme mode to '$normalized'")
+    }
+
+    fun setHapticsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_HAPTICS_ENABLED, enabled).apply()
+        _isHapticsEnabled.value = enabled
+        LocalLogger.security("HAPTICS", "Updated in-app haptic feedback to $enabled")
     }
 
     fun wipeAllData() {

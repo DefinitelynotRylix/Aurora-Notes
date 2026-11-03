@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.util.AppUpdateManager
+import com.aurora.notes.util.HapticHelper
 import com.aurora.notes.util.LocalLogger
 import com.aurora.notes.util.LogLevel
 import com.aurora.notes.util.UpdateScanResult
@@ -70,6 +72,8 @@ private data class ThemeOptionItem(
 fun SettingsScreen(
     themeMode: String = "system",
     onSelectThemeMode: (String) -> Unit = {},
+    isHapticsEnabled: Boolean = true,
+    onSetHapticsEnabled: (Boolean) -> Unit = {},
     userTags: List<String> = emptyList(),
     onAddTag: (String) -> Unit = {},
     onRemoveTag: (String) -> Unit = {},
@@ -83,6 +87,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     val coroutineScope = rememberCoroutineScope()
     val logs by LocalLogger.logs.collectAsState()
     var selectedLevelFilter by remember { mutableStateOf<LogLevel?>(null) }
@@ -697,6 +702,87 @@ fun SettingsScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 1b. In-App Haptic Feedback Card
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Haptic Feedback",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = if (isHapticsEnabled) "Active on navbar & controls" else "Disabled",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isHapticsEnabled) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = isHapticsEnabled,
+                        onCheckedChange = { enabled ->
+                            onSetHapticsEnabled(enabled)
+                            if (enabled) {
+                                HapticHelper.triggerHaptic(view = view, context = context, enabled = true, durationMs = 35L)
+                                Toast.makeText(context, "In-app haptic feedback enabled", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "In-app haptic feedback disabled", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "Provides tactile vibration feedback when pressing navigation bar buttons, even if system touch vibration is muted.",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                        fontSize = 12.sp
+                    )
+                )
+
+                if (isHapticsEnabled) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = {
+                            HapticHelper.triggerHaptic(view = view, context = context, enabled = true, durationMs = 40L)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.45f))
+                    ) {
+                        Text(
+                            text = "Test Haptic Pulse",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AuroraRoyalViolet
+                        )
                     }
                 }
             }

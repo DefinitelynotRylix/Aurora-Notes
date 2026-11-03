@@ -1,0 +1,12 @@
+# Mark Android Kotlin & Gradle KTS as the primary project language for GitHub Linguist
+*.kt linguist-detectable=true
+*.kts linguist-detectable=true
+
+# Exclude browser preview scaffolding from GitHub repository language statistics
+src/** linguist-vendored
+*.ts linguist-vendored
+*.tsx linguist-vendored
+*.html linguist-vendored
+*.css linguist-vendored
+*.json linguist-vendored
+bun.lock linguist-generated

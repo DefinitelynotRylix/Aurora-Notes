@@ -294,7 +294,9 @@ export const TrashView: React.FC<TrashViewProps> = ({
           </p>
         </div>
       ) : (
-        <div
+        <motion.div
+          layout
+          transition={{ layout: { type: 'spring', stiffness: 280, damping: 28 } }}
           className={`grid gap-2.5 sm:gap-4 ${
             isGridView
               ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
@@ -310,8 +312,10 @@ export const TrashView: React.FC<TrashViewProps> = ({
             }).format(note.deletedAt || note.updatedAt);
 
             return (
-              <div
+              <motion.div
                 key={note.id}
+                layout
+                transition={{ layout: { type: 'spring', stiffness: 280, damping: 28 } }}
                 className="glass-card rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex flex-col justify-between border border-[#EADBFC]/80 dark:border-[#322742]/80 bg-white/70 dark:bg-[#1A1423]/70 hover:shadow-md transition-shadow relative group"
               >
                 <div>
@@ -400,10 +404,10 @@ export const TrashView: React.FC<TrashViewProps> = ({
                     </button>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
-        </div>
+        </motion.div>
       )}
     </div>
   );

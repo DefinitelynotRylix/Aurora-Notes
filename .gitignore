@@ -1,9 +1,27 @@
-node_modules/
+# Android & Gradle build outputs
+.gradle/
 build/
-dist/
-coverage/
+app/build/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# OS & temporary files
 .DS_Store
+Thumbs.db
 *.log
-.env*
-!.env.example
-.playwright-cli/
+
+# Web preview build cache
+node_modules/
+dist/
+.env
+.env.local

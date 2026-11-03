@@ -1,6 +1,10 @@
 package com.aurora.notes.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -566,7 +570,22 @@ fun NotesScreen(
                         onDelete = { onDeleteNote(note.id) },
                         onShare = { notesToShare = listOf(note) },
                         onToggleCheckItem = { itemId -> onToggleCheckItem(note.id, itemId) },
-                        onDeleteTag = onDeleteTag
+                        onDeleteTag = onDeleteTag,
+                        modifier = Modifier
+                            .animateItem(
+                                fadeInSpec = tween(durationMillis = 220),
+                                placementSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                ),
+                                fadeOutSpec = tween(durationMillis = 180)
+                            )
+                            .animateContentSize(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            )
                     )
                 }
             }
