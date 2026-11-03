@@ -53,7 +53,7 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
   const isAllActive = currentCategory === 'All';
 
   return (
-    <div className="w-full overflow-x-auto no-scrollbar py-2 px-1">
+    <div className="w-full overflow-x-auto no-scrollbar pt-1 pb-1 px-1">
       {pendingDeleteTag && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"

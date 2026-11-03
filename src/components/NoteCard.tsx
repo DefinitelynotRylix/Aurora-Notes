@@ -10,7 +10,8 @@ import {
   Circle,
   Archive,
   ArchiveRestore,
-  Lock
+  Lock,
+  Clock
 } from 'lucide-react';
 import { parseTextWithLinks, openUrlInDefaultBrowser } from '../utils/linkUtils';
 
@@ -137,6 +138,8 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   const formattedDate = new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
   }).format(note.updatedAt);
 
   const plainTextPreview = React.useMemo(() => {
@@ -513,7 +516,11 @@ export const NoteCard: React.FC<NoteCardProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-1 text-[#797487] dark:text-[#A39BAC] text-[10px] font-medium shrink-0">
+          <div
+            className="flex items-center gap-1 text-[#797487] dark:text-[#A39BAC] text-[10px] font-medium shrink-0"
+            title={`Last edited: ${new Date(note.updatedAt).toLocaleString()}`}
+          >
+            <Clock className="w-2.5 h-2.5 opacity-60 shrink-0" />
             <span>{formattedDate}</span>
           </div>
         </div>

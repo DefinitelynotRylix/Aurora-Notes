@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
@@ -53,7 +54,7 @@ fun NoteCard(
     onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val dateFormat = SimpleDateFormat("MMM d", Locale.US)
+    val dateFormat = SimpleDateFormat("MMM d, h:mm a", Locale.US)
     val formattedDate = dateFormat.format(Date(note.updatedAt))
 
     val plainTextPreview = note.content
@@ -397,13 +398,24 @@ fun NoteCard(
                 } else {
                     Spacer(modifier = Modifier.width(1.dp))
                 }
-                Text(
-                    text = formattedDate,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                        modifier = Modifier.size(10.dp)
                     )
-                )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = formattedDate,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    )
+                }
             }
         }
     }

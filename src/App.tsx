@@ -838,7 +838,7 @@ export default function App() {
             ) : (
               <>
                 {/* Category Filter Bar */}
-                <div className="mb-4">
+                <div className="mb-2">
                   <CategoryFilterBar
                     currentCategory={selectedCategory}
                     onSelectCategory={setSelectedCategory}

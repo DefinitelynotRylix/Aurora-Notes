@@ -18,7 +18,8 @@ import {
   Share2,
   ArchiveRestore,
   Trash2,
-  Lock
+  Lock,
+  Clock
 } from 'lucide-react';
 import { logger } from '../utils/logger';
 import {
@@ -69,6 +70,15 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     () => computeWordAndLetterCounts(title, bodyContentSnapshot),
     [title, bodyContentSnapshot]
   );
+
+  const formattedLastEdited = React.useMemo(() => {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(note.updatedAt || Date.now());
+  }, [note.updatedAt]);
 
   // Predictive Back Gesture State (0..1 progress & swipe edge)
   const [predictiveBackProgress, setPredictiveBackProgress] = useState(0);
@@ -1010,6 +1020,12 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           onChange={(e) => !isReadOnly && setTitle(e.target.value)}
           className="w-full text-2xl sm:text-3xl font-bold text-[#1E1A24] dark:text-[#F7EEFC] placeholder-[#797487]/50 dark:placeholder-[#A39BAC]/50 border-none focus:outline-none focus:ring-0 bg-transparent tracking-tight py-1"
         />
+
+        {/* Last Edited Timestamp with Day, Month, Hour, and Minute */}
+        <div className="flex items-center gap-1.5 text-[11px] text-[#797487] dark:text-[#A39BAC] font-medium -mt-1 select-none">
+          <Clock className="w-3.5 h-3.5 opacity-60 shrink-0" />
+          <span>Edited {formattedLastEdited}</span>
+        </div>
 
         {/* 
           WYSIWYG RICH CONTENT-EDITABLE CANVAS

@@ -591,7 +591,7 @@ fun NotesScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         // Notes Masonry / Column View with continuous smooth width & position morphing
         if (notes.isEmpty()) {
