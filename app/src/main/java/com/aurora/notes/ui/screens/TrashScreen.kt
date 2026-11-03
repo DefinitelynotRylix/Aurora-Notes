@@ -16,7 +16,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
+import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -30,6 +31,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -190,17 +192,30 @@ fun TrashScreen(
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        val layoutMorphScale = remember { Animatable(1f) }
+        val firstNoteHorizontalScale = remember { Animatable(1f) }
+        val otherNotesAlignProgress = remember { Animatable(1f) }
         var previousGridView by remember { mutableStateOf(isGridView) }
         LaunchedEffect(isGridView) {
             if (previousGridView != isGridView) {
                 previousGridView = isGridView
-                layoutMorphScale.snapTo(0.94f)
-                layoutMorphScale.animateTo(
+                firstNoteHorizontalScale.snapTo(0.84f)
+                otherNotesAlignProgress.snapTo(0.90f)
+                firstNoteHorizontalScale.animateTo(
                     targetValue = 1f,
                     animationSpec = spring(
                         dampingRatio = 0.76f,
-                        stiffness = 210f
+                        stiffness = 185f
+                    )
+                )
+            }
+        }
+        LaunchedEffect(isGridView) {
+            if (otherNotesAlignProgress.value < 1f) {
+                otherNotesAlignProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = 0.78f,
+                        stiffness = 195f
                     )
                 )
             }
@@ -222,18 +237,30 @@ fun TrashScreen(
             }
         } else {
             LazyVerticalStaggeredGrid(
-                columns = StaggeredGridCells.Fixed(if (isGridView) 2 else 1),
+                columns = StaggeredGridCells.Fixed(2),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalItemSpacing = 10.dp,
                 contentPadding = PaddingValues(bottom = 80.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(trashedNotes, key = { it.id }) { note ->
+                itemsIndexed(
+                    items = trashedNotes,
+                    key = { _, note -> note.id },
+                    span = { index, _ ->
+                        if (index == 0 || !isGridView) {
+                            StaggeredGridItemSpan.FullLine
+                        } else {
+                            StaggeredGridItemSpan.SingleLane
+                        }
+                    }
+                ) { index, note ->
+                    val isFirstNote = index == 0
                     TrashedNoteCard(
                         note = note,
                         onRestore = { onRestoreNote(note.id) },
                         onDeletePermanent = { onDeletePermanently(note.id) },
                         modifier = Modifier
+                            .fillMaxWidth()
                             .animateItem(
                                 fadeInSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
                                 placementSpec = spring(
@@ -243,10 +270,19 @@ fun TrashScreen(
                                 fadeOutSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
                             )
                             .graphicsLayer {
-                                val s = layoutMorphScale.value
-                                scaleX = s
-                                scaleY = s
-                                alpha = (0.35f + 0.65f * s).coerceIn(0f, 1f)
+                                if (isFirstNote) {
+                                    val sx = firstNoteHorizontalScale.value
+                                    transformOrigin = TransformOrigin(0f, 0.5f)
+                                    scaleX = sx
+                                    scaleY = 0.96f + 0.04f * sx
+                                    alpha = (0.45f + 0.55f * sx).coerceIn(0f, 1f)
+                                } else {
+                                    val s = otherNotesAlignProgress.value
+                                    transformOrigin = TransformOrigin(0f, 0f)
+                                    scaleX = s
+                                    scaleY = s
+                                    alpha = (0.4f + 0.6f * s).coerceIn(0f, 1f)
+                                }
                             }
                             .animateContentSize(
                                 animationSpec = spring(

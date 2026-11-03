@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { motion } from 'motion/react';
 import { Note, ChecklistItem } from '../types';
 import {
   Pin,
@@ -30,6 +31,7 @@ import { ShareNoteModal } from './ShareNoteModal';
 interface NoteEditorModalProps {
   note: Note;
   customCategories: string[];
+  revealOrigin?: { x: number; y: number; radius: number } | null;
   onSave: (updatedNote: Note) => void;
   onUnarchive?: (id: string) => void;
   onDelete?: (id: string) => void;
@@ -39,6 +41,7 @@ interface NoteEditorModalProps {
 export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   note,
   customCategories,
+  revealOrigin,
   onSave,
   onUnarchive,
   onDelete,
@@ -55,6 +58,14 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
   // Active Size Mode ('small' | 'medium' | 'large')
   const [textSizeMode, setTextSizeMode] = useState<'small' | 'medium' | 'large'>('small');
+
+  // Tracks whether the current cursor line has an active checkbox in its -1 slot
+  const [isCurrentLineChecklist, setIsCurrentLineChecklist] = useState(false);
+
+  // Predictive Back Gesture State (0..1 progress & swipe edge)
+  const [predictiveBackProgress, setPredictiveBackProgress] = useState(0);
+  const [predictiveSwipeEdge, setPredictiveSwipeEdge] = useState<'left' | 'right'>('left');
+  const edgeSwipeStartRef = useRef<{ x: number; y: number; edge: 'left' | 'right' } | null>(null);
 
   // Ref for Rich ContentEditable Editor & Scroll Container
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -101,32 +112,51 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
   const allCategoryOptions = Array.from(new Set(['General', ...customCategories, note.category].filter(Boolean)));
 
+  const bindCheckboxBehavior = useCallback(
+    (checkbox: HTMLInputElement, textDiv?: HTMLElement | null) => {
+      checkbox.setAttribute('contenteditable', 'false');
+      checkbox.disabled = isReadOnly;
+      const targetTextDiv =
+        textDiv || (checkbox.nextElementSibling as HTMLElement | null);
+      if (targetTextDiv && isReadOnly) {
+        targetTextDiv.setAttribute('contenteditable', 'false');
+      }
+      const applyVisualState = (checked: boolean) => {
+        if (checked) {
+          checkbox.setAttribute('checked', 'checked');
+        } else {
+          checkbox.removeAttribute('checked');
+        }
+        if (targetTextDiv) {
+          targetTextDiv.style.textDecoration = checked ? 'line-through' : 'none';
+          targetTextDiv.style.opacity = checked ? '0.6' : '1';
+        }
+      };
+
+      const initialChecked = checkbox.hasAttribute('checked') || checkbox.checked;
+      checkbox.checked = initialChecked;
+      applyVisualState(initialChecked);
+
+      checkbox.onchange = () => {
+        if (isReadOnly) return;
+        applyVisualState(checkbox.checked);
+      };
+    },
+    [isReadOnly]
+  );
+
   // Populate editor initial content on mount & sync checkboxes and clickable purple links
   useEffect(() => {
     if (editorRef.current) {
       editorRef.current.innerHTML = note.content || '';
       linkifyDomContainer(editorRef.current);
 
-      // Sync checkbox checked states and strikethrough styling
       const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
       checkboxes.forEach((cb) => {
-        const checkbox = cb as HTMLInputElement;
-        checkbox.setAttribute('contenteditable', 'false');
-        checkbox.disabled = isReadOnly;
-        const textDiv = checkbox.nextElementSibling as HTMLElement;
-        if (textDiv && isReadOnly) {
-          textDiv.setAttribute('contenteditable', 'false');
-        }
-        if (checkbox.hasAttribute('checked') || checkbox.checked) {
-          checkbox.checked = true;
-          if (textDiv) {
-            textDiv.style.textDecoration = 'line-through';
-            textDiv.style.opacity = '0.6';
-          }
-        }
+        bindCheckboxBehavior(cb as HTMLInputElement);
       });
     }
-  }, [note.id, isReadOnly]);
+  }, [note.id, isReadOnly, bindCheckboxBehavior]);
 
   /**
    * Constructs latest note object from state & editor
@@ -278,26 +308,39 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     selection.addRange(newRange);
   };
 
-  const createChecklistLine = (initialContent?: Node | string): HTMLDivElement => {
+  const createChecklistLine = (
+    initialContent?: Node | string,
+    checked: boolean = false
+  ): HTMLDivElement => {
     const line = document.createElement('div');
-    line.className = 'aurora-checklist-line flex items-start gap-2.5 my-1.5 group select-none';
+    line.className =
+      'aurora-checklist-line flex items-start gap-2.5 my-1.5 group select-none';
     line.setAttribute('contenteditable', 'false');
     line.setAttribute('data-checklist', 'true');
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
-    checkbox.className = 'w-4 h-4 rounded accent-[#5925DC] dark:accent-[#9D5AF5] cursor-pointer mt-1 shrink-0 border-[#EADBFC] dark:border-[#322742]';
+    checkbox.checked = checked;
+    if (checked) {
+      checkbox.setAttribute('checked', 'checked');
+    }
+    checkbox.className =
+      'w-4 h-4 rounded accent-[#5925DC] dark:accent-[#9D5AF5] cursor-pointer mt-1 shrink-0 border-[#EADBFC] dark:border-[#322742]';
     checkbox.setAttribute('contenteditable', 'false');
 
     const textDiv = document.createElement('div');
-    textDiv.className = 'aurora-checklist-text flex-1 focus:outline-none min-w-[20px] text-sm sm:text-base leading-relaxed text-[#1E1A24] dark:text-[#F7EEFC] select-text';
+    textDiv.className =
+      'aurora-checklist-text flex-1 focus:outline-none min-w-[20px] text-sm sm:text-base leading-relaxed text-[#1E1A24] dark:text-[#F7EEFC] select-text';
     textDiv.setAttribute('contenteditable', 'true');
 
     if (initialContent) {
       if (typeof initialContent === 'string') {
-        textDiv.innerHTML = initialContent;
+        textDiv.innerHTML = initialContent || '<br>';
       } else {
         textDiv.appendChild(initialContent);
+        if (!textDiv.innerHTML.trim()) {
+          textDiv.innerHTML = '<br>';
+        }
       }
     } else {
       textDiv.innerHTML = '<br>';
@@ -305,35 +348,209 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
     line.appendChild(checkbox);
     line.appendChild(textDiv);
+    bindCheckboxBehavior(checkbox, textDiv);
 
     return line;
   };
 
-  const handleChecklistClick = () => {
-    if (!editorRef.current) return;
-    editorRef.current.focus();
+  /**
+   * Normalizes top-level bare text nodes or <br>-separated lines inside editorRef
+   * into block-level <div> elements so every line can independently have a checkbox
+   * enabled or disabled in its -1 prefix slot.
+   */
+  const normalizeEditorLines = () => {
+    const root = editorRef.current;
+    if (!root) return;
 
+    const children = Array.from(root.childNodes);
+    const hasBareInlineNodes = children.some(
+      (node) =>
+        node.nodeType === Node.TEXT_NODE ||
+        (node.nodeType === Node.ELEMENT_NODE &&
+          !['DIV', 'P', 'UL', 'OL', 'H1', 'H2', 'H3'].includes(
+            (node as HTMLElement).tagName
+          ))
+    );
+
+    if (!hasBareInlineNodes) return;
+
+    let currentBlock: HTMLDivElement | null = null;
+    children.forEach((node) => {
+      if (
+        node.nodeType === Node.ELEMENT_NODE &&
+        ['DIV', 'P', 'UL', 'OL', 'H1', 'H2', 'H3'].includes(
+          (node as HTMLElement).tagName
+        )
+      ) {
+        currentBlock = null;
+        return;
+      }
+
+      if (
+        node.nodeType === Node.ELEMENT_NODE &&
+        (node as HTMLElement).tagName === 'BR'
+      ) {
+        if (!currentBlock) {
+          const emptyLine = document.createElement('div');
+          emptyLine.className = 'my-1 focus:outline-none min-h-[1.5em]';
+          emptyLine.setAttribute('contenteditable', 'true');
+          emptyLine.innerHTML = '<br>';
+          root.replaceChild(emptyLine, node);
+        } else {
+          if (!currentBlock.innerHTML.trim()) {
+            currentBlock.innerHTML = '<br>';
+          }
+          root.removeChild(node);
+          currentBlock = null;
+        }
+        return;
+      }
+
+      if (
+        node.nodeType === Node.TEXT_NODE &&
+        !(node.textContent || '').trim() &&
+        children.length > 1 &&
+        !currentBlock
+      ) {
+        return;
+      }
+
+      if (!currentBlock) {
+        currentBlock = document.createElement('div');
+        currentBlock.className = 'my-1 focus:outline-none min-h-[1.5em]';
+        currentBlock.setAttribute('contenteditable', 'true');
+        root.insertBefore(currentBlock, node);
+      }
+      currentBlock.appendChild(node);
+    });
+  };
+
+  /**
+   * Resolves the top-level line element inside editorRef containing `node`,
+   * and enforces the -1 prefix slot rule so the caret never lands before the checkbox.
+   */
+  const resolveTopLevelLine = useCallback(
+    (node: Node | null): HTMLElement | null => {
+      const root = editorRef.current;
+      if (!root || !node) return null;
+      if (node === root) {
+        return (root.lastElementChild as HTMLElement) || null;
+      }
+      let curr: Node | null = node;
+      while (curr && curr.parentNode && curr.parentNode !== root) {
+        if (
+          curr.parentNode instanceof HTMLElement &&
+          curr.parentNode.classList.contains('aurora-checklist-line')
+        ) {
+          return curr.parentNode;
+        }
+        curr = curr.parentNode;
+      }
+      if (curr && curr.parentNode === root && curr instanceof HTMLElement) {
+        return curr;
+      }
+      return null;
+    },
+    []
+  );
+
+  /**
+   * Updates `isCurrentLineChecklist` state and clamps the caret out of the -1 checkbox slot.
+   */
+  const syncCursorLineStateAndEnforceMinusOneRule = useCallback(() => {
+    const root = editorRef.current;
+    if (!root) return;
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
 
     const range = selection.getRangeAt(0);
+    if (!root.contains(range.startContainer)) return;
 
-    const getTopLevelLine = (node: Node | null): HTMLElement | null => {
-      let current = node as HTMLElement | null;
-      while (current && current.parentElement && current.parentElement !== editorRef.current) {
-        if (current.parentElement.classList?.contains('aurora-checklist-line')) {
-          return current.parentElement;
-        }
-        current = current.parentElement;
-      }
-      if (current && current.parentElement === editorRef.current) {
-        return current;
-      }
-      return null;
-    };
+    const line = resolveTopLevelLine(range.startContainer);
+    const hasCheckbox = Boolean(
+      line &&
+        (line.classList.contains('aurora-checklist-line') ||
+          line.querySelector('input[type="checkbox"]'))
+    );
+    setIsCurrentLineChecklist(hasCheckbox);
 
-    let startLine = getTopLevelLine(range.startContainer);
-    let endLine = getTopLevelLine(range.endContainer);
+    // Enforce the -1 rule: if the caret landed directly on the checklist container or checkbox
+    // (before .aurora-checklist-text), move it to position 0 inside .aurora-checklist-text.
+    if (line && hasCheckbox && range.collapsed) {
+      const textDiv = line.querySelector('.aurora-checklist-text') as HTMLElement | null;
+      if (textDiv && !textDiv.contains(range.startContainer)) {
+        const clampedRange = document.createRange();
+        clampedRange.setStart(textDiv, 0);
+        clampedRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(clampedRange);
+      }
+    }
+  }, [resolveTopLevelLine]);
+
+  /**
+   * Converts a checklist line back into a normal editable line (disabling its checkbox).
+   */
+  const disableCheckboxOnLine = (
+    line: HTMLElement,
+    placeCaretAtStart: boolean = false
+  ): HTMLDivElement => {
+    const textDiv = (line.querySelector('.aurora-checklist-text') || line) as HTMLElement;
+    const plainLine = document.createElement('div');
+    plainLine.className = 'my-1 focus:outline-none min-h-[1.5em]';
+    plainLine.setAttribute('contenteditable', 'true');
+
+    const clone = textDiv.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('input[type="checkbox"]').forEach((cb) => cb.remove());
+    if (clone.childNodes.length > 0) {
+      while (clone.firstChild) {
+        plainLine.appendChild(clone.firstChild);
+      }
+    } else {
+      plainLine.innerHTML = '<br>';
+    }
+
+    line.parentNode?.replaceChild(plainLine, line);
+
+    const selection = window.getSelection();
+    if (selection) {
+      const newRange = document.createRange();
+      newRange.selectNodeContents(plainLine);
+      newRange.collapse(placeCaretAtStart);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+    }
+    setIsCurrentLineChecklist(false);
+    return plainLine;
+  };
+
+  /**
+   * Toggles the checkbox on the specific line(s) where the cursor is located,
+   * following the -1 prefix slot rule (at most one checkbox per line; pressing again disables it).
+   */
+  const handleChecklistClick = () => {
+    const root = editorRef.current;
+    if (!root || isReadOnly) return;
+    root.focus();
+
+    normalizeEditorLines();
+
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    let range: Range;
+    if (selection.rangeCount === 0 || !root.contains(selection.getRangeAt(0).startContainer)) {
+      range = document.createRange();
+      range.selectNodeContents(root);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } else {
+      range = selection.getRangeAt(0);
+    }
+
+    let startLine = resolveTopLevelLine(range.startContainer);
+    let endLine = resolveTopLevelLine(range.endContainer);
 
     if (!startLine) {
       const plainDiv = document.createElement('div');
@@ -341,10 +558,14 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       plainDiv.setAttribute('contenteditable', 'true');
       if (!range.collapsed) {
         plainDiv.appendChild(range.extractContents());
+      } else if (root.textContent && root.childNodes.length > 0) {
+        while (root.firstChild) {
+          plainDiv.appendChild(root.firstChild);
+        }
       } else {
         plainDiv.innerHTML = '<br>';
       }
-      range.insertNode(plainDiv);
+      root.appendChild(plainDiv);
       startLine = plainDiv;
       endLine = plainDiv;
     }
@@ -363,46 +584,42 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
     if (targetLines.length === 0) return;
 
-    const isCurrentlyChecklist = targetLines[0].classList?.contains('aurora-checklist-line') || !!targetLines[0].querySelector('input[type="checkbox"]');
+    const isCurrentlyChecklist =
+      targetLines[0].classList?.contains('aurora-checklist-line') ||
+      Boolean(targetLines[0].querySelector('input[type="checkbox"]'));
 
     targetLines.forEach((line) => {
       if (isCurrentlyChecklist) {
-        const textDiv = line.querySelector('.aurora-checklist-text') || line;
-        const plainLine = document.createElement('div');
-        plainLine.className = 'my-1 focus:outline-none min-h-[1.5em]';
-        plainLine.setAttribute('contenteditable', 'true');
-
-        const clone = textDiv.cloneNode(true) as HTMLElement;
-        clone.querySelectorAll('input[type="checkbox"]').forEach((cb) => cb.remove());
-        if (clone.childNodes.length > 0) {
-          while (clone.firstChild) {
-            plainLine.appendChild(clone.firstChild);
-          }
-        } else {
-          plainLine.innerHTML = '<br>';
-        }
-
-        line.parentNode?.replaceChild(plainLine, line);
-
-        const newRange = document.createRange();
-        newRange.selectNodeContents(plainLine);
-        newRange.collapse(false);
-        selection.removeAllRanges();
-        selection.addRange(newRange);
+        // Pressing the checkbox button again on this specific line disables the checkbox
+        disableCheckboxOnLine(line, false);
       } else {
+        // Enable checkbox in the -1 prefix slot of this specific line
         if (!line.classList?.contains('aurora-checklist-line')) {
           const contentFragment = document.createDocumentFragment();
-          while (line.firstChild) {
-            contentFragment.appendChild(line.firstChild);
+          if (line.nodeType === Node.TEXT_NODE) {
+            contentFragment.appendChild(line.cloneNode(true));
+          } else {
+            while (line.firstChild) {
+              if (
+                line.firstChild instanceof HTMLElement &&
+                line.firstChild.getAttribute('type') === 'checkbox'
+              ) {
+                line.removeChild(line.firstChild);
+              } else {
+                contentFragment.appendChild(line.firstChild);
+              }
+            }
           }
           if (contentFragment.childNodes.length === 0) {
             contentFragment.appendChild(document.createElement('br'));
           }
 
-          const checkLine = createChecklistLine(contentFragment);
+          const checkLine = createChecklistLine(contentFragment, false);
           line.parentNode?.replaceChild(checkLine, line);
 
-          const textDiv = checkLine.querySelector('.aurora-checklist-text') as HTMLElement;
+          const textDiv = checkLine.querySelector(
+            '.aurora-checklist-text'
+          ) as HTMLElement | null;
           if (textDiv) {
             const newRange = document.createRange();
             newRange.selectNodeContents(textDiv);
@@ -410,19 +627,43 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
             selection.removeAllRanges();
             selection.addRange(newRange);
           }
+          setIsCurrentLineChecklist(true);
         }
       }
     });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    let current = range.startContainer as HTMLElement | null;
+
+    if (e.key === 'Backspace' && range.collapsed) {
+      while (current && current !== editorRef.current) {
+        if (current.classList?.contains('aurora-checklist-text')) {
+          // Check if cursor is at position 0 (right after the -1 checkbox slot)
+          const preRange = range.cloneRange();
+          preRange.selectNodeContents(current);
+          preRange.setEnd(range.startContainer, range.startOffset);
+          const textBeforeCursor = (preRange.toString() || '').replace(/\u200B/g, '');
+          if (textBeforeCursor.length === 0) {
+            e.preventDefault();
+            const parentLine = current.parentElement as HTMLElement | null;
+            if (parentLine && parentLine.classList.contains('aurora-checklist-line')) {
+              disableCheckboxOnLine(parentLine, true);
+            }
+            return;
+          }
+          break;
+        }
+        current = current.parentElement;
+      }
+    }
+
+    current = range.startContainer as HTMLElement | null;
     if (e.key === 'Enter') {
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return;
-
-      const range = selection.getRangeAt(0);
-      let current = range.startContainer as HTMLElement | null;
-
       while (current && current !== editorRef.current) {
         if (current.classList?.contains('aurora-checklist-text')) {
           e.preventDefault();
@@ -445,13 +686,17 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           newRange.collapse(true);
           selection.removeAllRanges();
           selection.addRange(newRange);
+          setIsCurrentLineChecklist(false);
           requestAnimationFrame(ensureCaretVisible);
           return;
         }
         current = current.parentElement;
       }
     }
-    requestAnimationFrame(ensureCaretVisible);
+    requestAnimationFrame(() => {
+      syncCursorLineStateAndEnforceMinusOneRule();
+      ensureCaretVisible();
+    });
   };
 
   const handleEditorPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
@@ -477,6 +722,10 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement | null;
     if (target) {
+      if (target instanceof HTMLInputElement && target.type === 'checkbox') {
+        bindCheckboxBehavior(target);
+        return;
+      }
       const anchor = target.closest('a') as HTMLAnchorElement | null;
       if (anchor) {
         const href = anchor.getAttribute('href') || anchor.textContent || '';
@@ -489,7 +738,53 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       }
     }
     if (!isReadOnly) {
-      requestAnimationFrame(ensureCaretVisible);
+      requestAnimationFrame(() => {
+        syncCursorLineStateAndEnforceMinusOneRule();
+        ensureCaretVisible();
+      });
+    }
+  };
+
+  // Interactive Predictive Back Edge-Swipe Handlers
+  const handleEdgePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (showDoneModal || showShareModal) return;
+    const edgeThreshold = 28;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 400;
+    if (e.clientX <= edgeThreshold) {
+      edgeSwipeStartRef.current = { x: e.clientX, y: e.clientY, edge: 'left' };
+      setPredictiveSwipeEdge('left');
+    } else if (e.clientX >= vw - edgeThreshold) {
+      edgeSwipeStartRef.current = { x: e.clientX, y: e.clientY, edge: 'right' };
+      setPredictiveSwipeEdge('right');
+    } else {
+      edgeSwipeStartRef.current = null;
+    }
+  };
+
+  const handleEdgePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const start = edgeSwipeStartRef.current;
+    if (!start) return;
+    const dx =
+      start.edge === 'left' ? e.clientX - start.x : start.x - e.clientX;
+    const dy = Math.abs(e.clientY - start.y);
+    if (dx < 0 || (dy > dx * 1.4 && predictiveBackProgress === 0)) {
+      edgeSwipeStartRef.current = null;
+      setPredictiveBackProgress(0);
+      return;
+    }
+    const maxSwipe = 220;
+    const progress = Math.max(0, Math.min(1, dx / maxSwipe));
+    setPredictiveBackProgress(progress);
+  };
+
+  const handleEdgePointerUp = () => {
+    if (!edgeSwipeStartRef.current) return;
+    edgeSwipeStartRef.current = null;
+    if (predictiveBackProgress >= 0.35) {
+      setPredictiveBackProgress(0);
+      handleAutoSaveAndClose();
+    } else {
+      setPredictiveBackProgress(0);
     }
   };
 
@@ -505,8 +800,68 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     setTags(tags.filter((t) => t !== tagToRemove));
   };
 
+  const originX =
+    revealOrigin?.x ??
+    (typeof window !== 'undefined' ? window.innerWidth - 44 : 320);
+  const originY =
+    revealOrigin?.y ??
+    (typeof window !== 'undefined' ? window.innerHeight - 120 : 640);
+  const originRadius = revealOrigin?.radius ?? 28;
+  const maxRevealRadius =
+    typeof window !== 'undefined'
+      ? Math.ceil(
+          Math.hypot(
+            Math.max(originX, window.innerWidth - originX),
+            Math.max(originY, window.innerHeight - originY)
+          ) + 48
+        )
+      : 1600;
+
+  const backScale = 1 - predictiveBackProgress * 0.12;
+  const backTranslateX =
+    predictiveBackProgress > 0
+      ? (predictiveSwipeEdge === 'left' ? 1 : -1) * predictiveBackProgress * 36
+      : 0;
+  const backBorderRadius = predictiveBackProgress > 0 ? predictiveBackProgress * 28 : 0;
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col w-full h-full bg-white dark:bg-[#1B1524] overflow-hidden animate-fadeIn">
+    <motion.div
+      initial={{
+        clipPath: `circle(${originRadius}px at ${originX}px ${originY}px)`,
+      }}
+      animate={{
+        clipPath: `circle(${maxRevealRadius}px at ${originX}px ${originY}px)`,
+      }}
+      exit={{
+        clipPath: `circle(${originRadius}px at ${originX}px ${originY}px)`,
+        opacity: 0,
+      }}
+      transition={{
+        duration: 0.42,
+        ease: [0.22, 1, 0.36, 1],
+      }}
+      onPointerDown={handleEdgePointerDown}
+      onPointerMove={handleEdgePointerMove}
+      onPointerUp={handleEdgePointerUp}
+      onPointerCancel={handleEdgePointerUp}
+      style={
+        predictiveBackProgress > 0
+          ? {
+              transform: `translateX(${backTranslateX}px) scale(${backScale})`,
+              borderRadius: `${backBorderRadius}px`,
+            }
+          : undefined
+      }
+      className="fixed inset-0 z-50 flex flex-col w-full h-full bg-white dark:bg-[#1B1524] overflow-hidden shadow-2xl"
+    >
+      {/* Smooth Purple Circle Morph Overlay from the Create Note Circle Button */}
+      <motion.div
+        initial={{ opacity: 0.88 }}
+        animate={{ opacity: 0 }}
+        exit={{ opacity: 0.85 }}
+        transition={{ duration: 0.24, ease: 'easeOut' }}
+        className="pointer-events-none absolute inset-0 z-50 bg-gradient-to-tr from-[#5925DC] via-[#7B35E8] to-[#9B51E0]"
+      />
       {/* 
         CLEAN FULL-SCREEN HEADER (PERFECT ALIGNMENT WITH SAFE AREA)
       */}
@@ -742,14 +1097,23 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
             <List className="w-4 h-4" />
           </button>
 
-          {/* Checklist */}
+          {/* Checklist (Per-line -1 rule toggle: press to enable on current line, press again on that line to disable) */}
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={handleChecklistClick}
-            aria-label="Insert inline checklist item"
-            className="w-10 h-10 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center transition-all cursor-pointer active:scale-95"
-            title="Insert Checklist Item"
+            aria-label="Toggle inline checklist on current line"
+            aria-pressed={isCurrentLineChecklist}
+            className={`w-10 h-10 rounded-xl border flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+              isCurrentLineChecklist
+                ? 'bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border-[#5925DC] dark:border-[#9D5AF5] shadow-xs'
+                : 'bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] border-[#EADBFC] dark:border-[#322742]'
+            }`}
+            title={
+              isCurrentLineChecklist
+                ? 'Disable Checkbox on Current Line'
+                : 'Enable Checkbox on Current Line'
+            }
           >
             <CheckSquare className="w-4 h-4" />
           </button>
@@ -905,6 +1269,6 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };

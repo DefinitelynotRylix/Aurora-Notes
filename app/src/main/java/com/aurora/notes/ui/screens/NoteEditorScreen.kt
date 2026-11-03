@@ -1,6 +1,7 @@
 package com.aurora.notes.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -66,7 +67,94 @@ import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.util.LinkHelper
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CancellationException
 import kotlin.math.min
+
+private const val UNCHECKED_BOX_PREFIX = "☐ "
+private const val CHECKED_BOX_PREFIX = "☑ "
+private const val BULLET_LINE_PREFIX = "• "
+
+private fun findLineStart(text: String, offset: Int): Int {
+    val safe = offset.coerceIn(0, text.length)
+    if (safe == 0) return 0
+    val prevNewline = text.lastIndexOf('\n', safe - 1)
+    return if (prevNewline == -1) 0 else prevNewline + 1
+}
+
+private fun findLineEnd(text: String, lineStart: Int): Int {
+    val nextNewline = text.indexOf('\n', lineStart.coerceIn(0, text.length))
+    return if (nextNewline == -1) text.length else nextNewline
+}
+
+private fun hasCheckboxAtLineStart(text: String, lineStart: Int): Boolean {
+    return text.startsWith(UNCHECKED_BOX_PREFIX, lineStart) ||
+        text.startsWith(CHECKED_BOX_PREFIX, lineStart)
+}
+
+/**
+ * Enforces the -1 rule: on any line that has a checkbox in its -1 prefix slot (`lineStart..lineStart+1`),
+ * the cursor/selection cannot enter before `lineStart + 2` (position 0 of the line's user text).
+ */
+private fun clampSelectionToMinusOneRule(text: String, selection: TextRange): TextRange {
+    fun clampOffset(offset: Int): Int {
+        val safe = offset.coerceIn(0, text.length)
+        val lineStart = findLineStart(text, safe)
+        return if (hasCheckboxAtLineStart(text, lineStart) && safe < lineStart + 2) {
+            (lineStart + 2).coerceAtMost(text.length)
+        } else {
+            safe
+        }
+    }
+    return TextRange(clampOffset(selection.start), clampOffset(selection.end))
+}
+
+/**
+ * Cleans up broken prefix states when the user presses Backspace at position 0 (right after `☐ ` or `☑ `)
+ * and prevents duplicate checkboxes on a single line.
+ */
+private fun normalizeCheckboxLinesAfterEdit(
+    oldText: String,
+    newText: String,
+    newSelection: TextRange
+): Pair<String, TextRange> {
+    if (newText.isEmpty()) return newText to TextRange(0)
+    val lines = newText.split('\n')
+    var modified = false
+    var cursor = newSelection.start.coerceIn(0, newText.length)
+    var charOffset = 0
+
+    val normalizedLines = lines.map { line ->
+        val lStart = charOffset
+        charOffset += line.length + 1
+
+        // If user pressed Backspace right after `☐ ` or `☑ `, the space was deleted leaving `☐` or `☑`
+        if ((line.startsWith("☐") && !line.startsWith(UNCHECKED_BOX_PREFIX)) ||
+            (line.startsWith("☑") && !line.startsWith(CHECKED_BOX_PREFIX))
+        ) {
+            modified = true
+            if (cursor > lStart) {
+                cursor = (cursor - 1).coerceAtLeast(lStart)
+            }
+            line.substring(1)
+        } else if (line.startsWith("☐ ☐ ") || line.startsWith("☑ ☐ ") || line.startsWith("☐ ☑ ") || line.startsWith("☑ ☑ ")) {
+            modified = true
+            if (cursor > lStart + 2) {
+                cursor = (cursor - 2).coerceAtLeast(lStart + 2)
+            }
+            line.substring(0, 2) + line.substring(4)
+        } else {
+            line
+        }
+    }
+
+    val finalString = if (modified) normalizedLines.joinToString("\n") else newText
+    val finalRange = if (modified) {
+        clampSelectionToMinusOneRule(finalString, TextRange(cursor.coerceIn(0, finalString.length)))
+    } else {
+        clampSelectionToMinusOneRule(finalString, newSelection)
+    }
+    return finalString to finalRange
+}
 
 enum class TextSizeMode {
     SMALL,
@@ -198,6 +286,7 @@ fun NoteEditorScreen(
     onUnarchiveNote: ((String) -> Unit)? = null,
     onDeleteNote: ((String) -> Unit)? = null,
     onDeleteTagGlobal: ((String) -> Unit)? = null,
+    onPredictiveBackProgress: (progress: Float, swipeEdge: Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val isReadOnly = note.isArchived
@@ -289,12 +378,13 @@ fun NoteEditorScreen(
         LinkHelper.extractLinks(bodyValue.text)
     }
 
-    // VisualTransformation keeps IME typing 100% lag-free, styles user spans, and highlights links in purple
+    // VisualTransformation keeps IME typing 100% lag-free, styles user spans, inline checkboxes, and highlights links in purple
     val richVisualTransformation = remember(charSpans) {
         VisualTransformation { text ->
+            val raw = text.text
             val annotated = buildAnnotatedString {
-                append(text.text)
-                val len = text.text.length
+                append(raw)
+                val len = raw.length
                 for (span in charSpans) {
                     val s = span.start.coerceIn(0, len)
                     val e = span.end.coerceIn(0, len)
@@ -315,7 +405,46 @@ fun NoteEditorScreen(
                         )
                     }
                 }
-                val links = LinkHelper.extractLinks(text.text)
+
+                // Style inline per-line checkboxes (`☐ ` and `☑ `) in the -1 prefix slot
+                var lineStart = 0
+                while (lineStart <= len) {
+                    val lineEnd = findLineEnd(raw, lineStart)
+                    if (raw.startsWith(UNCHECKED_BOX_PREFIX, lineStart)) {
+                        addStyle(
+                            style = SpanStyle(
+                                color = AuroraRoyalViolet,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp
+                            ),
+                            start = lineStart,
+                            end = (lineStart + 1).coerceAtMost(len)
+                        )
+                    } else if (raw.startsWith(CHECKED_BOX_PREFIX, lineStart)) {
+                        addStyle(
+                            style = SpanStyle(
+                                color = AuroraRoyalViolet,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp
+                            ),
+                            start = lineStart,
+                            end = (lineStart + 1).coerceAtMost(len)
+                        )
+                        if (lineStart + 2 < lineEnd) {
+                            addStyle(
+                                style = SpanStyle(
+                                    color = AuroraRoyalViolet.copy(alpha = 0.58f),
+                                    textDecoration = TextDecoration.LineThrough
+                                ),
+                                start = lineStart + 2,
+                                end = lineEnd
+                            )
+                        }
+                    }
+                    lineStart = lineEnd + 1
+                }
+
+                val links = LinkHelper.extractLinks(raw)
                 for (link in links) {
                     val ls = link.start.coerceIn(0, len)
                     val le = link.end.coerceIn(0, len)
@@ -337,6 +466,7 @@ fun NoteEditorScreen(
     }
 
     fun handleExitEditor() {
+        onPredictiveBackProgress(0f, 0)
         if (isReadOnly) {
             onDiscardAndClose()
             return
@@ -364,8 +494,25 @@ fun NoteEditorScreen(
         onSaveAndClose(updatedNote)
     }
 
-    BackHandler {
-        handleExitEditor()
+    val isSubDialogOpen = showDoneDetailsDialog || showAddChecklistDialog || pendingDeleteTag != null
+
+    PredictiveBackHandler(enabled = !isSubDialogOpen) { progress ->
+        try {
+            progress.collect { backEvent ->
+                onPredictiveBackProgress(backEvent.progress, backEvent.swipeEdge)
+            }
+            handleExitEditor()
+        } catch (_: CancellationException) {
+            onPredictiveBackProgress(0f, 0)
+        }
+    }
+
+    BackHandler(enabled = isSubDialogOpen) {
+        when {
+            showDoneDetailsDialog -> showDoneDetailsDialog = false
+            showAddChecklistDialog -> showAddChecklistDialog = false
+            pendingDeleteTag != null -> pendingDeleteTag = null
+        }
     }
 
     if (pendingDeleteTag != null && !isReadOnly) {
@@ -850,30 +997,38 @@ fun NoteEditorScreen(
                             )
                         }
 
-                        // Insert Bullet on Current Line
+                        // Current cursor line metadata for Bullet & Checkbox (-1 rule)
+                        val activeCursor = bodyValue.selection.start.coerceIn(0, bodyValue.text.length)
+                        val activeLineStart = findLineStart(bodyValue.text, activeCursor)
+                        val isCurrentLineBullet = bodyValue.text.startsWith(BULLET_LINE_PREFIX, activeLineStart)
+                        val isCurrentLineCheckbox = hasCheckboxAtLineStart(bodyValue.text, activeLineStart)
+
+                        // Insert / Toggle Bullet on Current Line
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
+                            color = if (isCurrentLineBullet) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                if (isCurrentLineBullet) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                            ),
                             modifier = Modifier
                                 .height(34.dp)
                                 .width(36.dp)
                                 .clickable {
                                     val text = bodyValue.text
                                     val cursor = bodyValue.selection.start.coerceIn(0, text.length)
-                                    val lineStart = text.lastIndexOf('\n', (cursor - 1).coerceAtLeast(0)).let {
-                                        if (it == -1) 0 else it + 1
+                                    val lineStart = findLineStart(text, cursor)
+                                    val hasBullet = text.startsWith(BULLET_LINE_PREFIX, lineStart)
+                                    val hasCheckbox = hasCheckboxAtLineStart(text, lineStart)
+                                    val newText = when {
+                                        hasBullet -> text.removeRange(lineStart, lineStart + 2)
+                                        hasCheckbox -> text.substring(0, lineStart) + BULLET_LINE_PREFIX + text.substring(lineStart + 2)
+                                        else -> text.substring(0, lineStart) + BULLET_LINE_PREFIX + text.substring(lineStart)
                                     }
-                                    val hasBullet = text.startsWith("• ", lineStart)
-                                    val newText = if (hasBullet) {
-                                        text.removeRange(lineStart, lineStart + 2)
-                                    } else {
-                                        text.substring(0, lineStart) + "• " + text.substring(lineStart)
-                                    }
-                                    val newCursor = if (hasBullet) {
-                                        (cursor - 2).coerceAtLeast(lineStart)
-                                    } else {
-                                        cursor + 2
+                                    val newCursor = when {
+                                        hasBullet -> (cursor - 2).coerceAtLeast(lineStart)
+                                        hasCheckbox -> cursor.coerceAtLeast(lineStart + 2)
+                                        else -> cursor + 2
                                     }
                                     charSpans = applyTextEditToSpans(
                                         oldText = text,
@@ -893,31 +1048,61 @@ fun NoteEditorScreen(
                                 Icon(
                                     Icons.Default.FormatListBulleted,
                                     contentDescription = "Bullet List",
+                                    tint = if (isCurrentLineBullet) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
 
-                        // Add Interactive Checklist Item
+                        // Per-Line Checkbox Toggle (-1 Rule: enables/disables checkbox in the -1 slot of the current line)
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = if (checklistItems.isNotEmpty()) AuroraRoyalViolet.copy(alpha = 0.12f) else Color.Transparent,
+                            color = if (isCurrentLineCheckbox) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
                             border = BorderStroke(
                                 1.dp,
-                                if (checklistItems.isNotEmpty()) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                if (isCurrentLineCheckbox) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
                             ),
                             modifier = Modifier
                                 .height(34.dp)
                                 .width(36.dp)
                                 .clickable {
-                                    showAddChecklistDialog = true
+                                    val text = bodyValue.text
+                                    val cursor = bodyValue.selection.start.coerceIn(0, text.length)
+                                    val lineStart = findLineStart(text, cursor)
+                                    val hasCheckbox = hasCheckboxAtLineStart(text, lineStart)
+                                    val hasBullet = text.startsWith(BULLET_LINE_PREFIX, lineStart)
+                                    val newText = when {
+                                        hasCheckbox -> text.removeRange(lineStart, lineStart + 2)
+                                        hasBullet -> text.substring(0, lineStart) + UNCHECKED_BOX_PREFIX + text.substring(lineStart + 2)
+                                        else -> text.substring(0, lineStart) + UNCHECKED_BOX_PREFIX + text.substring(lineStart)
+                                    }
+                                    val newCursor = when {
+                                        hasCheckbox -> (cursor - 2).coerceAtLeast(lineStart)
+                                        hasBullet -> cursor.coerceAtLeast(lineStart + 2)
+                                        else -> (cursor + 2).coerceAtLeast(lineStart + 2)
+                                    }
+                                    charSpans = applyTextEditToSpans(
+                                        oldText = text,
+                                        newText = newText,
+                                        oldSpans = charSpans,
+                                        activeSizeMode = TextSizeMode.SMALL,
+                                        isBoldActive = false,
+                                        isItalicActive = false
+                                    )
+                                    bodyValue = TextFieldValue(
+                                        text = newText,
+                                        selection = clampSelectionToMinusOneRule(
+                                            newText,
+                                            TextRange(newCursor.coerceIn(0, newText.length))
+                                        )
+                                    )
                                 }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     Icons.Default.CheckBox,
-                                    contentDescription = "Add Checklist Item",
-                                    tint = if (checklistItems.isNotEmpty()) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
+                                    contentDescription = "Toggle Line Checkbox",
+                                    tint = if (isCurrentLineCheckbox) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -1127,16 +1312,32 @@ fun NoteEditorScreen(
                     }
                 }
 
-                // Unified Multiline Note Body Editor (Read-only when archived; tapping purple links opens Android default browser)
+                // Unified Multiline Note Body Editor (Read-only when archived; tapping purple links opens Android default browser; tapping inline checkbox toggles it)
                 BasicTextField(
                     value = bodyValue,
                     onValueChange = { newValue ->
                         val oldText = bodyValue.text
                         val newText = newValue.text
 
-                        // If the text did not change and the user tapped directly inside a purple link, open Android's default browser
+                        // Handle tap inside text when characters did not change
                         if (oldText == newText && newValue.selection.collapsed && newValue.selection != bodyValue.selection) {
-                            val tappedOffset = newValue.selection.start
+                            val tappedOffset = newValue.selection.start.coerceIn(0, newText.length)
+                            val tappedLineStart = findLineStart(newText, tappedOffset)
+
+                            // If the user tapped on the -1 checkbox slot (`☐ ` or `☑ `) on this line, toggle checked/unchecked!
+                            if (!isReadOnly && hasCheckboxAtLineStart(newText, tappedLineStart) && tappedOffset in tappedLineStart..(tappedLineStart + 1)) {
+                                val isCurrentlyChecked = newText.startsWith(CHECKED_BOX_PREFIX, tappedLineStart)
+                                val replacementPrefix = if (isCurrentlyChecked) UNCHECKED_BOX_PREFIX else CHECKED_BOX_PREFIX
+                                val toggledText = newText.substring(0, tappedLineStart) +
+                                    replacementPrefix +
+                                    newText.substring(tappedLineStart + 2)
+                                bodyValue = TextFieldValue(
+                                    text = toggledText,
+                                    selection = TextRange((tappedLineStart + 2).coerceAtMost(toggledText.length))
+                                )
+                                return@BasicTextField
+                            }
+
                             val clickedLink = detectedBodyLinks.firstOrNull { link ->
                                 tappedOffset > link.start && tappedOffset < link.end
                             }
@@ -1147,17 +1348,26 @@ fun NoteEditorScreen(
 
                         if (isReadOnly) return@BasicTextField
 
-                        if (oldText != newText) {
+                        val (normalizedText, clampedSelection) = normalizeCheckboxLinesAfterEdit(
+                            oldText = oldText,
+                            newText = newText,
+                            newSelection = newValue.selection
+                        )
+
+                        if (oldText != normalizedText) {
                             charSpans = applyTextEditToSpans(
                                 oldText = oldText,
-                                newText = newText,
+                                newText = normalizedText,
                                 oldSpans = charSpans,
                                 activeSizeMode = activeSizeMode,
                                 isBoldActive = isBoldActive,
                                 isItalicActive = isItalicActive
                             )
                         }
-                        bodyValue = newValue
+                        bodyValue = newValue.copy(
+                            text = normalizedText,
+                            selection = clampedSelection
+                        )
                     },
                     readOnly = isReadOnly,
                     singleLine = false,

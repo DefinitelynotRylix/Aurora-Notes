@@ -2,12 +2,14 @@ package com.aurora.notes
 
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -34,16 +36,32 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.aurora.notes.model.Note
 import com.aurora.notes.ui.components.FloatingPillNavigationBar
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import kotlin.math.hypot
+import kotlin.math.max
 import com.aurora.notes.ui.screens.NoteEditorScreen
 import com.aurora.notes.ui.screens.NotesScreen
 import com.aurora.notes.ui.screens.SettingsScreen
@@ -265,170 +283,336 @@ fun AuroraApp(
                 }
             }
         }
-    } else if (activeEditingNote != null) {
-        NoteEditorScreen(
-            note = activeEditingNote!!,
-            userTags = userTags,
-            onSaveAndClose = { updatedNote ->
-                viewModel.saveNote(updatedNote)
-                viewModel.closeEditor()
-            },
-            onDiscardAndClose = {
-                viewModel.closeEditor()
-            },
-            onUnarchiveNote = { noteId ->
-                viewModel.unarchiveNote(noteId)
-            },
-            onDeleteNote = { noteId ->
-                viewModel.moveToTrash(noteId)
-            },
-            onDeleteTagGlobal = { tag ->
-                viewModel.deleteTagAndDetachFromNotes(tag)
-            }
-        )
     } else {
-        if (isWelcomeOpen) {
-            WelcomeTourDialog(
-                onDismiss = { viewModel.dismissWelcome() }
-            )
-        } else if (isWhatsNewOpen) {
-            WhatsNewDialog(
-                onDismiss = { viewModel.dismissWhatsNew() }
-            )
+        val coroutineScope = rememberCoroutineScope()
+        var displayedEditorNote by remember { mutableStateOf<Note?>(activeEditingNote) }
+        val editorRevealProgress = remember { Animatable(if (activeEditingNote != null) 1f else 0f) }
+        var isClosingEditor by remember { mutableStateOf(false) }
+
+        // Coordinates of the circular + FloatingActionButton in root space
+        var fabCenterX by remember { mutableFloatStateOf(0f) }
+        var fabCenterY by remember { mutableFloatStateOf(0f) }
+        var fabRadiusPx by remember { mutableFloatStateOf(0f) }
+
+        // Predictive back state for NoteEditorScreen and non-home tabs
+        var editorBackProgress by remember { mutableFloatStateOf(0f) }
+        var editorBackSwipeEdge by remember { mutableIntStateOf(0) }
+        var tabBackProgress by remember { mutableFloatStateOf(0f) }
+
+        LaunchedEffect(activeEditingNote) {
+            if (activeEditingNote != null) {
+                isClosingEditor = false
+                displayedEditorNote = activeEditingNote
+                editorBackProgress = 0f
+                editorRevealProgress.snapTo(0f)
+                editorRevealProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
+                )
+            } else if (displayedEditorNote != null && !isClosingEditor) {
+                isClosingEditor = true
+                editorRevealProgress.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
+                )
+                displayedEditorNote = null
+                editorBackProgress = 0f
+                isClosingEditor = false
+            }
         }
 
-        Scaffold(
-            floatingActionButton = {
-                if (selectedTab == 0) {
-                    FloatingActionButton(
-                        onClick = { viewModel.openNewNote() },
-                        containerColor = AuroraRoyalViolet,
-                        contentColor = Color.White,
-                        shape = CircleShape
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "New Note")
-                    }
+        fun animateCloseEditor(onBeforeClose: () -> Unit = {}) {
+            if (isClosingEditor) return
+            isClosingEditor = true
+            onBeforeClose()
+            coroutineScope.launch {
+                editorRevealProgress.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
+                )
+                displayedEditorNote = null
+                editorBackProgress = 0f
+                isClosingEditor = false
+                viewModel.closeEditor()
+            }
+        }
+
+        // Predictive Back for non-Notes tabs (Archive, Trash, Settings -> smoothly returns to Notes tab)
+        PredictiveBackHandler(enabled = displayedEditorNote == null && selectedTab != 0) { progress ->
+            try {
+                progress.collect { backEvent ->
+                    tabBackProgress = backEvent.progress
                 }
-            },
-            bottomBar = {
-                FloatingPillNavigationBar(
-                    selectedTab = selectedTab,
-                    onTabSelected = { viewModel.setSelectedTab(it) },
-                    archivedCount = archivedCount,
-                    trashCount = trashCount,
-                    isHapticsEnabled = isHapticsEnabled
+                tabBackProgress = 0f
+                viewModel.setSelectedTab(0)
+            } catch (_: CancellationException) {
+                tabBackProgress = 0f
+            }
+        }
+
+        if (displayedEditorNote == null) {
+            if (isWelcomeOpen) {
+                WelcomeTourDialog(
+                    onDismiss = { viewModel.dismissWelcome() }
+                )
+            } else if (isWhatsNewOpen) {
+                WhatsNewDialog(
+                    onDismiss = { viewModel.dismissWhatsNew() }
                 )
             }
-        ) { paddingValues ->
-            AnimatedContent(
-                targetState = selectedTab,
-                transitionSpec = {
-                    val direction = if (targetState >= initialState) 1 else -1
-                    (slideInHorizontally(
-                        animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
-                        initialOffsetX = { fullWidth -> direction * fullWidth }
-                    ) + fadeIn(
-                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
-                    )).togetherWith(
-                        slideOutHorizontally(
-                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                            targetOffsetX = { fullWidth -> -direction * fullWidth }
-                        ) + fadeOut(
-                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
-                        )
-                    ).using(SizeTransform(clip = false))
+        }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                floatingActionButton = {
+                    if (selectedTab == 0) {
+                        FloatingActionButton(
+                            onClick = { viewModel.openNewNote() },
+                            containerColor = AuroraRoyalViolet,
+                            contentColor = Color.White,
+                            shape = CircleShape,
+                            modifier = Modifier.onGloballyPositioned { coords ->
+                                val pos = coords.positionInRoot()
+                                fabCenterX = pos.x + coords.size.width / 2f
+                                fabCenterY = pos.y + coords.size.height / 2f
+                                fabRadiusPx = coords.size.width / 2f
+                            }
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "New Note")
+                        }
+                    }
                 },
-                label = "tab_content_transition"
-            ) { targetTab ->
-                when (targetTab) {
-                    0 -> {
-                        NotesScreen(
-                            notes = allFilteredNotes,
-                            userTags = userTags,
-                            searchQuery = searchQuery,
-                            onSearchChange = { viewModel.setSearchQuery(it) },
-                            selectedCategory = selectedCategory,
-                            onSelectCategory = { viewModel.setSelectedCategory(it) },
-                            isGridView = isGridView,
-                            onToggleGridView = { viewModel.toggleGridView() },
-                            onSelectNote = { viewModel.openEditNote(it) },
-                            onTogglePin = { viewModel.togglePin(it) },
-                            onDeleteNote = { viewModel.moveToTrash(it) },
-                            onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
-                            onArchiveNotesBatch = { ids -> viewModel.archiveNotesBatch(ids) },
-                            onToggleCheckItem = { noteId, itemId ->
-                                viewModel.toggleChecklistItem(noteId, itemId)
-                            },
-                            onAddNote = { viewModel.openNewNote() },
-                            onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
-                            onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
-                            isArchiveTab = false,
-                            modifier = Modifier.padding(paddingValues)
-                        )
+                bottomBar = {
+                    FloatingPillNavigationBar(
+                        selectedTab = selectedTab,
+                        onTabSelected = { viewModel.setSelectedTab(it) },
+                        archivedCount = archivedCount,
+                        trashCount = trashCount,
+                        isHapticsEnabled = isHapticsEnabled
+                    )
+                }
+            ) { paddingValues ->
+                AnimatedContent(
+                    targetState = selectedTab,
+                    transitionSpec = {
+                        val direction = if (targetState >= initialState) 1 else -1
+                        (slideInHorizontally(
+                            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> direction * fullWidth }
+                        ) + fadeIn(
+                            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                        )).togetherWith(
+                            slideOutHorizontally(
+                                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                                targetOffsetX = { fullWidth -> -direction * fullWidth }
+                            ) + fadeOut(
+                                animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
+                            )
+                        ).using(SizeTransform(clip = false))
+                    },
+                    modifier = Modifier.graphicsLayer {
+                        if (tabBackProgress > 0f) {
+                            val s = 1f - (tabBackProgress * 0.08f)
+                            scaleX = s
+                            scaleY = s
+                            alpha = (1f - tabBackProgress * 0.25f).coerceIn(0.6f, 1f)
+                        }
+                    },
+                    label = "tab_content_transition"
+                ) { targetTab ->
+                    when (targetTab) {
+                        0 -> {
+                            NotesScreen(
+                                notes = allFilteredNotes,
+                                userTags = userTags,
+                                searchQuery = searchQuery,
+                                onSearchChange = { viewModel.setSearchQuery(it) },
+                                selectedCategory = selectedCategory,
+                                onSelectCategory = { viewModel.setSelectedCategory(it) },
+                                isGridView = isGridView,
+                                onToggleGridView = { viewModel.toggleGridView() },
+                                onSelectNote = { viewModel.openEditNote(it) },
+                                onTogglePin = { viewModel.togglePin(it) },
+                                onDeleteNote = { viewModel.moveToTrash(it) },
+                                onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
+                                onArchiveNotesBatch = { ids -> viewModel.archiveNotesBatch(ids) },
+                                onToggleCheckItem = { noteId, itemId ->
+                                    viewModel.toggleChecklistItem(noteId, itemId)
+                                },
+                                onAddNote = { viewModel.openNewNote() },
+                                onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
+                                onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
+                                isArchiveTab = false,
+                                modifier = Modifier.padding(paddingValues)
+                            )
+                        }
+                        1 -> {
+                            NotesScreen(
+                                notes = archivedFilteredNotes,
+                                userTags = userTags,
+                                searchQuery = searchQuery,
+                                onSearchChange = { viewModel.setSearchQuery(it) },
+                                selectedCategory = selectedCategory,
+                                onSelectCategory = { viewModel.setSelectedCategory(it) },
+                                isGridView = isGridView,
+                                onToggleGridView = { viewModel.toggleGridView() },
+                                onSelectNote = { viewModel.openEditNote(it) },
+                                onTogglePin = { viewModel.togglePin(it) },
+                                onDeleteNote = { viewModel.moveToTrash(it) },
+                                onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
+                                onUnarchiveNote = { id -> viewModel.unarchiveNote(id) },
+                                onUnarchiveNotesBatch = { ids -> viewModel.unarchiveNotesBatch(ids) },
+                                onToggleCheckItem = { noteId, itemId ->
+                                    viewModel.toggleChecklistItem(noteId, itemId)
+                                },
+                                onAddNote = { viewModel.openNewNote() },
+                                onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
+                                onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
+                                isArchiveTab = true,
+                                modifier = Modifier.padding(paddingValues)
+                            )
+                        }
+                        2 -> {
+                            TrashScreen(
+                                trashedNotes = filteredTrashedNotes,
+                                searchQuery = searchQuery,
+                                onSearchChange = { viewModel.setSearchQuery(it) },
+                                isGridView = isGridView,
+                                onToggleGridView = { viewModel.toggleGridView() },
+                                onRestoreNote = { viewModel.restoreFromTrash(it) },
+                                onDeletePermanently = { viewModel.deletePermanently(it) },
+                                onEmptyTrash = { viewModel.emptyTrash() },
+                                modifier = Modifier.padding(paddingValues)
+                            )
+                        }
+                        3 -> {
+                            SettingsScreen(
+                                themeMode = themeMode,
+                                onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
+                                isHapticsEnabled = isHapticsEnabled,
+                                onSetHapticsEnabled = { enabled -> viewModel.setHapticsEnabled(enabled) },
+                                userTags = userTags,
+                                onAddTag = { newTag -> viewModel.addUserTag(newTag) },
+                                onRemoveTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
+                                onWipeAllData = { viewModel.wipeAllData() },
+                                isBiometricEnabled = isBiometricEnabled,
+                                onSetBiometricLock = { enabled ->
+                                    viewModel.setBiometricLockEnabled(enabled)
+                                },
+                                onOpenWelcomeTour = { viewModel.reopenWelcome() },
+                                onClearLogs = { viewModel.clearDiagnosticLogs() },
+                                onExportLogs = { viewModel.exportDiagnosticLogs() },
+                                onTriggerBiometricAuth = onTriggerBiometricAuth,
+                                modifier = Modifier.padding(paddingValues)
+                            )
+                        }
                     }
-                    1 -> {
-                        NotesScreen(
-                            notes = archivedFilteredNotes,
-                            userTags = userTags,
-                            searchQuery = searchQuery,
-                            onSearchChange = { viewModel.setSearchQuery(it) },
-                            selectedCategory = selectedCategory,
-                            onSelectCategory = { viewModel.setSelectedCategory(it) },
-                            isGridView = isGridView,
-                            onToggleGridView = { viewModel.toggleGridView() },
-                            onSelectNote = { viewModel.openEditNote(it) },
-                            onTogglePin = { viewModel.togglePin(it) },
-                            onDeleteNote = { viewModel.moveToTrash(it) },
-                            onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
-                            onUnarchiveNote = { id -> viewModel.unarchiveNote(id) },
-                            onUnarchiveNotesBatch = { ids -> viewModel.unarchiveNotesBatch(ids) },
-                            onToggleCheckItem = { noteId, itemId ->
-                                viewModel.toggleChecklistItem(noteId, itemId)
-                            },
-                            onAddNote = { viewModel.openNewNote() },
-                            onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
-                            onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
-                            isArchiveTab = true,
-                            modifier = Modifier.padding(paddingValues)
+                }
+            }
+
+            // Full-Screen Circular Reveal Note Editor Overlay with Predictive Back Gesture Support
+            val currentEditorNote = displayedEditorNote
+            if (currentEditorNote != null) {
+                val effectiveReveal = (editorRevealProgress.value * (1f - editorBackProgress * 0.22f)).coerceIn(0f, 1f)
+                val purpleCircleTintAlpha = ((1f - (effectiveReveal / 0.28f)).coerceIn(0f, 1f)) * 0.85f
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            if (editorBackProgress > 0f) {
+                                val backScale = 1f - (editorBackProgress * 0.12f)
+                                scaleX = backScale
+                                scaleY = backScale
+                                val edgeDir = if (editorBackSwipeEdge == 0) 1f else -1f
+                                translationX = edgeDir * editorBackProgress * 36f
+                            }
+                        }
+                        .clip(
+                            if (effectiveReveal < 0.999f) {
+                                CircularRevealShape(
+                                    progress = effectiveReveal,
+                                    originX = fabCenterX,
+                                    originY = fabCenterY,
+                                    minRadiusPx = fabRadiusPx
+                                )
+                            } else if (editorBackProgress > 0f) {
+                                RoundedCornerShape((editorBackProgress * 28f).dp)
+                            } else {
+                                RoundedCornerShape(0.dp)
+                            }
                         )
-                    }
-                    2 -> {
-                        TrashScreen(
-                            trashedNotes = filteredTrashedNotes,
-                            searchQuery = searchQuery,
-                            onSearchChange = { viewModel.setSearchQuery(it) },
-                            isGridView = isGridView,
-                            onToggleGridView = { viewModel.toggleGridView() },
-                            onRestoreNote = { viewModel.restoreFromTrash(it) },
-                            onDeletePermanently = { viewModel.deletePermanently(it) },
-                            onEmptyTrash = { viewModel.emptyTrash() },
-                            modifier = Modifier.padding(paddingValues)
-                        )
-                    }
-                    3 -> {
-                        SettingsScreen(
-                            themeMode = themeMode,
-                            onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
-                            isHapticsEnabled = isHapticsEnabled,
-                            onSetHapticsEnabled = { enabled -> viewModel.setHapticsEnabled(enabled) },
-                            userTags = userTags,
-                            onAddTag = { newTag -> viewModel.addUserTag(newTag) },
-                            onRemoveTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
-                            onWipeAllData = { viewModel.wipeAllData() },
-                            isBiometricEnabled = isBiometricEnabled,
-                            onSetBiometricLock = { enabled ->
-                                viewModel.setBiometricLockEnabled(enabled)
-                            },
-                            onOpenWelcomeTour = { viewModel.reopenWelcome() },
-                            onClearLogs = { viewModel.clearDiagnosticLogs() },
-                            onExportLogs = { viewModel.exportDiagnosticLogs() },
-                            onTriggerBiometricAuth = onTriggerBiometricAuth,
-                            modifier = Modifier.padding(paddingValues)
+                ) {
+                    NoteEditorScreen(
+                        note = currentEditorNote,
+                        userTags = userTags,
+                        onSaveAndClose = { updatedNote ->
+                            animateCloseEditor {
+                                viewModel.saveNote(updatedNote)
+                            }
+                        },
+                        onDiscardAndClose = {
+                            animateCloseEditor()
+                        },
+                        onUnarchiveNote = { noteId ->
+                            viewModel.unarchiveNote(noteId)
+                        },
+                        onDeleteNote = { noteId ->
+                            viewModel.moveToTrash(noteId)
+                        },
+                        onDeleteTagGlobal = { tag ->
+                            viewModel.deleteTagAndDetachFromNotes(tag)
+                        },
+                        onPredictiveBackProgress = { progress, swipeEdge ->
+                            editorBackProgress = progress
+                            editorBackSwipeEdge = swipeEdge
+                        }
+                    )
+
+                    if (purpleCircleTintAlpha > 0.01f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(AuroraRoyalViolet.copy(alpha = purpleCircleTintAlpha))
                         )
                     }
                 }
             }
         }
+    }
+}
+
+private class CircularRevealShape(
+    private val progress: Float,
+    private val originX: Float,
+    private val originY: Float,
+    private val minRadiusPx: Float
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val p = progress.coerceIn(0f, 1f)
+        val cx = if (originX > 0f) originX else size.width - with(density) { 44.dp.toPx() }
+        val cy = if (originY > 0f) originY else size.height - with(density) { 116.dp.toPx() }
+        val maxDx = max(cx, size.width - cx)
+        val maxDy = max(cy, size.height - cy)
+        val maxRadius = hypot(maxDx, maxDy) * 1.04f
+        val startRadius = minRadiusPx.coerceAtLeast(with(density) { 28.dp.toPx() })
+        val currentRadius = startRadius + (maxRadius - startRadius) * p
+
+        val path = Path().apply {
+            addOval(
+                Rect(
+                    left = cx - currentRadius,
+                    top = cy - currentRadius,
+                    right = cx + currentRadius,
+                    bottom = cy + currentRadius
+                )
+            )
+        }
+        return Outline.Generic(path)
     }
 }
 

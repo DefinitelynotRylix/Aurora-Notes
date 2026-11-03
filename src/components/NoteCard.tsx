@@ -143,7 +143,15 @@ export const NoteCard: React.FC<NoteCardProps> = ({
     if (!note.content) return '';
     try {
       const doc = new DOMParser().parseFromString(note.content, 'text/html');
-      return doc.body.textContent || '';
+      doc.body.querySelectorAll('.aurora-checklist-line').forEach((el) => el.remove());
+      doc.body.querySelectorAll('br').forEach((br) => br.replaceWith('\n'));
+      doc.body.querySelectorAll('div, p, li, h1, h2, h3').forEach((block) => {
+        block.append('\n');
+      });
+      return (doc.body.textContent || '')
+        .replace(/\u200B/g, '')
+        .replace(/\n{2,}/g, '\n')
+        .trim();
     } catch {
       return note.content.replace(/<[^>]*>/g, '');
     }
@@ -173,7 +181,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({
             setShowDeleteConfirm(true);
           }
         }}
-        className={`glass-card rounded-xl sm:rounded-2xl p-3 sm:p-3.5 cursor-pointer relative group flex flex-col justify-between select-none focus:outline-none focus:ring-2 focus:ring-[#5925DC]/30 active:scale-[0.98] ${
+        className={`w-full glass-card rounded-xl sm:rounded-2xl p-3 sm:p-3.5 cursor-pointer relative group flex flex-col justify-between select-none focus:outline-none focus:ring-2 focus:ring-[#5925DC]/30 active:scale-[0.98] ${
           isSelected
             ? 'ring-2 ring-[#5925DC] dark:ring-[#9D5AF5] bg-[#F4EBFF]/60 dark:bg-[#2B1E3E]/60 shadow-md'
             : ''

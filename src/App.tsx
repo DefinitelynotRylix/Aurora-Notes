@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Note, ThemeOption, ActiveTab } from './types';
 import { LiquidHeader } from './components/LiquidHeader';
@@ -114,6 +114,14 @@ export default function App() {
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
   const [notesToShare, setNotesToShare] = useState<Note[]>([]);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+
+  // Ref & origin coordinates for the circular + Create Note button reveal animation
+  const fabButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [editorRevealOrigin, setEditorRevealOrigin] = useState<{
+    x: number;
+    y: number;
+    radius: number;
+  } | null>(null);
 
   // Track the most recently pinned note id to animate only its move to top
   const [lastPinnedId, setLastPinnedId] = useState<string | null>(null);
@@ -277,8 +285,39 @@ export default function App() {
     persistNotes(updatedNotes);
   };
 
+  const captureFabOrigin = (e?: React.MouseEvent) => {
+    if (fabButtonRef.current) {
+      const rect = fabButtonRef.current.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setEditorRevealOrigin({
+          x: Math.round(rect.left + rect.width / 2),
+          y: Math.round(rect.top + rect.height / 2),
+          radius: Math.round(rect.width / 2),
+        });
+        return;
+      }
+    }
+    if (e && e.currentTarget) {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setEditorRevealOrigin({
+          x: Math.round(rect.left + rect.width / 2),
+          y: Math.round(rect.top + rect.height / 2),
+          radius: Math.round(Math.min(rect.width, rect.height) / 2),
+        });
+        return;
+      }
+    }
+    setEditorRevealOrigin({
+      x: typeof window !== 'undefined' ? window.innerWidth - 44 : 320,
+      y: typeof window !== 'undefined' ? window.innerHeight - 120 : 640,
+      radius: 28,
+    });
+  };
+
   // Note CRUD operations
-  const handleCreateNote = () => {
+  const handleCreateNote = (e?: React.MouseEvent) => {
+    captureFabOrigin(e);
     const initialTag = selectedCategory !== 'All' ? selectedCategory : '';
     const newNote: Note = {
       id: 'note-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
@@ -443,10 +482,53 @@ export default function App() {
     e.stopPropagation();
     const updated = notes.map((n) => {
       if (n.id === noteId && n.checklist) {
-        const updatedChecklist = n.checklist.map((item) =>
-          item.id === itemId ? { ...item, completed: !item.completed } : item
-        );
-        return { ...n, checklist: updatedChecklist, updatedAt: Date.now() };
+        let toggledIndex = -1;
+        let nextCompleted = false;
+        const updatedChecklist = n.checklist.map((item, idx) => {
+          if (item.id === itemId) {
+            toggledIndex = idx;
+            nextCompleted = !item.completed;
+            return { ...item, completed: nextCompleted };
+          }
+          return item;
+        });
+
+        let updatedContent = n.content;
+        if (toggledIndex >= 0 && n.content) {
+          try {
+            const doc = new DOMParser().parseFromString(n.content, 'text/html');
+            const lines = doc.body.querySelectorAll('.aurora-checklist-line');
+            const targetLine = lines[toggledIndex];
+            if (targetLine) {
+              const cb = targetLine.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+              const txt = targetLine.querySelector('.aurora-checklist-text') as HTMLElement | null;
+              if (cb) {
+                if (nextCompleted) {
+                  cb.setAttribute('checked', 'true');
+                } else {
+                  cb.removeAttribute('checked');
+                }
+              }
+              if (txt) {
+                if (nextCompleted) {
+                  txt.classList.add('line-through', 'opacity-60', 'text-[#797487]', 'dark:text-[#7A7185]');
+                } else {
+                  txt.classList.remove('line-through', 'opacity-60', 'text-[#797487]', 'dark:text-[#7A7185]');
+                }
+              }
+              updatedContent = doc.body.innerHTML;
+            }
+          } catch {
+            // ignore DOMParser errors
+          }
+        }
+
+        return {
+          ...n,
+          content: updatedContent,
+          checklist: updatedChecklist,
+          updatedAt: Date.now(),
+        };
       }
       return n;
     });
@@ -767,15 +849,16 @@ export default function App() {
                 ) : (
                   <motion.div
                     layout
-                    transition={{ layout: { type: 'spring', stiffness: 190, damping: 24 } }}
-                    className={`grid gap-2.5 sm:gap-4 items-start ${
+                    transition={{ layout: { type: 'spring', stiffness: 185, damping: 24 } }}
+                    className={`w-full grid gap-2.5 sm:gap-4 items-start ${
                       isGridView
                         ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
-                        : 'grid-cols-1 max-w-2xl mx-auto'
+                        : 'grid-cols-1'
                     }`}
                   >
-                    {currentTabNotes.map((note) => {
+                    {currentTabNotes.map((note, index) => {
                       const animateMovement = note.id === lastPinnedId;
+                      const isFirstNote = index === 0;
 
                       const handleDeleteTagAndDetach = (tagToDelete: string) => {
                         handleRemoveCategory(tagToDelete);
@@ -783,24 +866,32 @@ export default function App() {
 
                       return (
                         <motion.div
-                          key={note.id}
+                          key={`${note.id}-${isFirstNote ? 'first' : 'aligned'}`}
                           layout
-                          initial={{ opacity: 0.85, scale: 0.96 }}
-                          animate={{ opacity: 1, scale: 1 }}
+                          initial={{ opacity: 0.88, scaleX: isFirstNote ? 0.86 : 0.94, scaleY: 0.96 }}
+                          animate={{ opacity: 1, scaleX: 1, scaleY: 1 }}
+                          style={{ originX: 0, originY: 0.5 }}
                           transition={{
-                            layout: { type: 'spring', stiffness: 190, damping: 24 },
-                            opacity: { duration: 0.24 },
-                            scale: { duration: 0.26 },
+                            layout: { type: 'spring', stiffness: 185, damping: 24 },
+                            scaleX: { type: 'spring', stiffness: 185, damping: 23 },
+                            scaleY: { duration: 0.24 },
+                            opacity: { duration: 0.22 },
                           }}
+                          className={`w-full ${
+                            isFirstNote || !isGridView ? 'col-span-full' : ''
+                          }`}
                         >
                           <NoteCard
                             note={note}
-                            isGridView={isGridView}
+                            isGridView={isGridView && !isFirstNote}
                             animateMovement={animateMovement}
                             isSelectionMode={selectedNoteIds.length > 0}
                             isSelected={selectedNoteIds.includes(note.id)}
                             onToggleSelection={handleToggleNoteSelection}
-                            onSelect={(selected) => setActiveNote(selected)}
+                            onSelect={(selected) => {
+                              captureFabOrigin();
+                              setActiveNote(selected);
+                            }}
                             onTogglePin={handleTogglePin}
                             onArchive={handleArchiveNote}
                             onUnarchive={handleUnarchiveNote}
@@ -870,8 +961,9 @@ export default function App() {
       {/* Floating Circular UI Element in the Down Right Corner (only on active Notes tab) */}
       {activeTab === 'notes' && (
         <motion.button
+          ref={fabButtonRef}
           type="button"
-          onClick={handleCreateNote}
+          onClick={(e) => handleCreateNote(e)}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.92 }}
           aria-label="Create note"
@@ -890,12 +982,14 @@ export default function App() {
         isHapticsEnabled={isHapticsEnabled}
       />
 
-      {/* Note Editor Modal with smooth glide-in */}
+      {/* Note Editor Modal with Circular Reveal & Predictive Back */}
       <AnimatePresence>
         {activeNote && (
           <NoteEditorModal
+            key={activeNote.id}
             note={activeNote}
             customCategories={customCategories}
+            revealOrigin={editorRevealOrigin}
             onSave={handleSaveActiveNote}
             onUnarchive={handleUnarchiveNote}
             onDelete={(id) => handleDeleteNote(id, null)}
