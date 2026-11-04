@@ -18,7 +18,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -44,9 +47,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -171,13 +177,62 @@ private fun clampSelectionToMinusOneRule(text: String, selection: TextRange): Te
         val lineStart = findLineStart(text, safe)
         val parsed = getParsedLineAt(text, lineStart)
         val minAllowed = lineStart + parsed.totalPrefixLength
-        return if (parsed.hasCheckbox && safe < minAllowed) {
+        return if ((parsed.hasCheckbox || parsed.hasBullet) && safe < minAllowed) {
             minAllowed.coerceAtMost(text.length)
         } else {
             safe
         }
     }
     return TextRange(clampOffset(selection.start), clampOffset(selection.end))
+}
+
+/**
+ * Intercepts taps directly on the `☐ ` / `☑ ` checkbox prefix in `PointerEventPass.Initial`
+ * before `BasicTextField` consumes the pointer event or clamps the cursor, so tapping any
+ * checkbox inside the note editor always checks/unchecks it on the first tap.
+ */
+private fun Modifier.checkboxPrefixTapDetector(
+    enabled: Boolean,
+    hitWidthPx: Float,
+    getText: () -> String,
+    getLayout: () -> TextLayoutResult?,
+    onToggleLineCheckbox: (lineStart: Int, parsed: ParsedLinePrefix) -> Unit
+): Modifier = if (!enabled) {
+    this
+} else {
+    this.pointerInput(Unit) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            val layout = getLayout() ?: return@awaitEachGesture
+            val text = getText()
+            if (text.isEmpty() || layout.lineCount == 0) return@awaitEachGesture
+
+            val tapY = down.position.y
+            val lineIdx = layout.getLineForVerticalPosition(tapY).coerceIn(0, layout.lineCount - 1)
+            val lineTop = layout.getLineTop(lineIdx) - 8f
+            val lineBottom = layout.getLineBottom(lineIdx) + 8f
+            if (tapY !in lineTop..lineBottom) return@awaitEachGesture
+
+            val lineStart = layout.getLineStart(lineIdx).coerceIn(0, text.length)
+            val parsed = getParsedLineAt(text, lineStart)
+            if (!parsed.hasCheckbox) return@awaitEachGesture
+
+            val prefixRightX = try {
+                layout.getHorizontalPosition((lineStart + 2).coerceAtMost(text.length), usePrimaryDirection = true)
+            } catch (_: Exception) {
+                0f
+            }
+            val maxCheckboxX = maxOf(prefixRightX + 20f, hitWidthPx)
+            if (down.position.x !in 0f..maxCheckboxX) return@awaitEachGesture
+
+            down.consume()
+            val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
+            if (up != null) {
+                up.consume()
+                onToggleLineCheckbox(lineStart, parsed)
+            }
+        }
+    }
 }
 
 /**
@@ -587,23 +642,23 @@ fun NoteEditorScreen(
         mutableStateOf(parseSpansJson(note.styleSpansJson, note.content.length))
     }
 
-    // Sync active/inactive button states when cursor moves to a different line
+    // Sync active/inactive button states whenever the cursor line or its prefix changes
     LaunchedEffect(bodyValue.selection.start, bodyValue.text) {
         val safeCursor = bodyValue.selection.start.coerceIn(0, bodyValue.text.length)
         val lineStart = findLineStart(bodyValue.text, safeCursor)
-        if (lineStart != lastSyncedLineStart) {
-            lastSyncedLineStart = lineStart
-            val parsed = getParsedLineAt(bodyValue.text, lineStart)
-            isCheckboxModeActive = parsed.hasCheckbox
-            isBulletModeActive = parsed.hasBullet
-        }
+        lastSyncedLineStart = lineStart
+        val parsed = getParsedLineAt(bodyValue.text, lineStart)
+        isCheckboxModeActive = parsed.hasCheckbox
+        isBulletModeActive = parsed.hasBullet
     }
 
     val editorScrollState = rememberScrollState()
+    val bodyFocusRequester = remember { FocusRequester() }
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
     var viewportHeightPx by remember { mutableIntStateOf(0) }
     var bodyTopInColumnPx by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
+    val checkboxHitWidthPx = with(density) { 34.dp.toPx() }
     val imeBottomPx = WindowInsets.ime.getBottom(density)
 
     // Automatically scroll the editor container down with the cursor BEFORE it reaches
@@ -1352,6 +1407,7 @@ fun NoteEditorScreen(
                                         text = newText,
                                         selection = clampSelectionToMinusOneRule(newText, TextRange(newCursor))
                                     )
+                                    runCatching { bodyFocusRequester.requestFocus() }
                                     markNoteDirty()
                                 }
                         ) {
@@ -1410,6 +1466,7 @@ fun NoteEditorScreen(
                                             TextRange(newCursor)
                                         )
                                     )
+                                    runCatching { bodyFocusRequester.requestFocus() }
                                     markNoteDirty()
                                 }
                         ) {
@@ -1785,6 +1842,28 @@ fun NoteEditorScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .defaultMinSize(minHeight = 360.dp)
+                            .focusRequester(bodyFocusRequester)
+                            .checkboxPrefixTapDetector(
+                                enabled = !isReadOnly,
+                                hitWidthPx = checkboxHitWidthPx,
+                                getText = { bodyValue.text },
+                                getLayout = { textLayoutResult },
+                                onToggleLineCheckbox = { tappedLineStart, parsed ->
+                                    val curText = bodyValue.text
+                                    if (tappedLineStart + 2 <= curText.length) {
+                                        val isCurrentlyChecked = curText.startsWith(CHECKED_BOX_PREFIX, tappedLineStart)
+                                        val replacementPrefix = if (isCurrentlyChecked) UNCHECKED_BOX_PREFIX else CHECKED_BOX_PREFIX
+                                        val toggledText = curText.substring(0, tappedLineStart) +
+                                            replacementPrefix +
+                                            curText.substring(tappedLineStart + 2)
+                                        bodyValue = TextFieldValue(
+                                            text = toggledText,
+                                            selection = TextRange((tappedLineStart + parsed.totalPrefixLength).coerceAtMost(toggledText.length))
+                                        )
+                                        markNoteDirty()
+                                    }
+                                }
+                            )
                             .let { mod ->
                                 if (isReadOnly && detectedBodyLinks.isNotEmpty()) {
                                     mod.pointerInput(bodyValue.text, detectedBodyLinks) {
@@ -1884,13 +1963,19 @@ fun NoteEditorScreen(
                             val segVisualTransformation = remember(charSpans, segStartOffset) {
                                 RichNoteVisualTransformation(spans = charSpans.toList(), baseOffset = segStartOffset)
                             }
+                            var segLayoutResult by remember(note.id, segIdx, noteImages.size) {
+                                mutableStateOf<TextLayoutResult?>(null)
+                            }
                             var segFieldValue by remember(note.id, segIdx, noteImages.size) {
                                 mutableStateOf(TextFieldValue(text = segText, selection = TextRange(segText.length)))
                             }
                             if (segFieldValue.text != segText) {
                                 segFieldValue = segFieldValue.copy(
                                     text = segText,
-                                    selection = TextRange(segFieldValue.selection.start.coerceIn(0, segText.length))
+                                    selection = clampSelectionToMinusOneRule(
+                                        segText,
+                                        TextRange(segFieldValue.selection.start.coerceIn(0, segText.length))
+                                    )
                                 )
                             }
 
@@ -1916,6 +2001,7 @@ fun NoteEditorScreen(
                                 },
                                 readOnly = isReadOnly,
                                 singleLine = false,
+                                onTextLayout = { segLayoutResult = it },
                                 visualTransformation = segVisualTransformation,
                                 keyboardOptions = KeyboardOptions(
                                     capitalization = KeyboardCapitalization.Sentences,
@@ -1945,7 +2031,38 @@ fun NoteEditorScreen(
                                         innerTextField()
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .let { mod ->
+                                        if (segIdx == noteImages.size) mod.focusRequester(bodyFocusRequester) else mod
+                                    }
+                                    .checkboxPrefixTapDetector(
+                                        enabled = !isReadOnly,
+                                        hitWidthPx = checkboxHitWidthPx,
+                                        getText = { segFieldValue.text },
+                                        getLayout = { segLayoutResult },
+                                        onToggleLineCheckbox = { tappedLineStart, parsed ->
+                                            val curSegText = segFieldValue.text
+                                            if (tappedLineStart + 2 <= curSegText.length) {
+                                                val isCurrentlyChecked = curSegText.startsWith(CHECKED_BOX_PREFIX, tappedLineStart)
+                                                val replacementPrefix = if (isCurrentlyChecked) UNCHECKED_BOX_PREFIX else CHECKED_BOX_PREFIX
+                                                val toggledSeg = curSegText.substring(0, tappedLineStart) +
+                                                    replacementPrefix +
+                                                    curSegText.substring(tappedLineStart + 2)
+                                                val nextCursor = (tappedLineStart + parsed.totalPrefixLength).coerceAtMost(toggledSeg.length)
+                                                segFieldValue = TextFieldValue(
+                                                    text = toggledSeg,
+                                                    selection = TextRange(nextCursor)
+                                                )
+                                                val updatedList = textSegments.toMutableList()
+                                                if (segIdx < updatedList.size) {
+                                                    updatedList[segIdx] = toggledSeg
+                                                }
+                                                markNoteDirty()
+                                                rebuildBodyWithSegments(updatedList, segIdx, nextCursor)
+                                            }
+                                        }
+                                    )
                             )
 
                             // Dedicated Image Block (Cannot write behind or next to the image; only above and under it)

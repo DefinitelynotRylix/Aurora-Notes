@@ -154,6 +154,28 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
   const allCategoryOptions = Array.from(new Set(['General', ...customCategories, note.category].filter(Boolean)));
 
+  const setCheckboxVisualAndDomState = useCallback(
+    (checkbox: HTMLInputElement, checked: boolean, textDiv?: HTMLElement | null) => {
+      checkbox.checked = checked;
+      checkbox.setAttribute('data-checked', checked ? 'true' : 'false');
+      if (checked) {
+        checkbox.setAttribute('checked', 'checked');
+      } else {
+        checkbox.removeAttribute('checked');
+      }
+      const parentLine = checkbox.closest('.aurora-checklist-line');
+      const targetTextDiv =
+        textDiv ||
+        (parentLine?.querySelector('.aurora-checklist-text') as HTMLElement | null) ||
+        (checkbox.nextElementSibling as HTMLElement | null);
+      if (targetTextDiv) {
+        targetTextDiv.style.textDecoration = checked ? 'line-through' : 'none';
+        targetTextDiv.style.opacity = checked ? '0.6' : '1';
+      }
+    },
+    []
+  );
+
   const bindCheckboxBehavior = useCallback(
     (checkbox: HTMLInputElement, textDiv?: HTMLElement | null) => {
       checkbox.setAttribute('contenteditable', 'false');
@@ -166,29 +188,19 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       if (targetTextDiv && isReadOnly) {
         targetTextDiv.setAttribute('contenteditable', 'false');
       }
-      const applyVisualState = (checked: boolean) => {
-        if (checked) {
-          checkbox.setAttribute('checked', 'checked');
-        } else {
-          checkbox.removeAttribute('checked');
-        }
-        if (targetTextDiv) {
-          targetTextDiv.style.textDecoration = checked ? 'line-through' : 'none';
-          targetTextDiv.style.opacity = checked ? '0.6' : '1';
-        }
-      };
 
-      const initialChecked = checkbox.hasAttribute('checked') || checkbox.checked;
-      checkbox.checked = initialChecked;
-      applyVisualState(initialChecked);
+      const dataAttr = checkbox.getAttribute('data-checked');
+      const initialChecked =
+        dataAttr !== null
+          ? dataAttr === 'true'
+          : checkbox.hasAttribute('checked') || checkbox.checked;
+      setCheckboxVisualAndDomState(checkbox, initialChecked, targetTextDiv);
 
-      checkbox.onchange = () => {
-        if (isReadOnly) return;
-        applyVisualState(checkbox.checked);
-        markNoteDirty();
+      checkbox.onmousedown = (ev) => {
+        ev.stopPropagation();
       };
     },
-    [isReadOnly, markNoteDirty]
+    [isReadOnly, setCheckboxVisualAndDomState]
   );
 
   // Populate editor initial content on mount & sync checkboxes and clickable purple links
@@ -232,7 +244,8 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
             extractedChecklist.push({
               id: `chk-${index}-${Date.now()}`,
               text,
-              completed: checkbox.checked,
+              completed:
+                checkbox.getAttribute('data-checked') === 'true' || checkbox.checked,
             });
           }
         }
@@ -641,10 +654,20 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
    * Resolves the top-level line element inside editorRef containing `node`.
    */
   const resolveTopLevelLine = useCallback(
-    (node: Node | null): HTMLElement | null => {
+    (node: Node | null, offset?: number): HTMLElement | null => {
       const root = editorRef.current;
       if (!root || !node) return null;
       if (node === root) {
+        if (typeof offset === 'number' && root.childNodes.length > 0) {
+          const clampedIdx = Math.max(0, Math.min(offset, root.childNodes.length - 1));
+          const candidate = root.childNodes[clampedIdx];
+          if (candidate instanceof HTMLElement) {
+            return candidate;
+          }
+          if (offset > 0 && root.childNodes[offset - 1] instanceof HTMLElement) {
+            return root.childNodes[offset - 1] as HTMLElement;
+          }
+        }
         return (root.lastElementChild as HTMLElement) || null;
       }
       let curr: Node | null = node;
@@ -674,7 +697,12 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     const cb = line.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
     const hasCheckbox =
       line.getAttribute('data-checklist') === 'true' || Boolean(cb);
-    const checked = Boolean(cb?.checked);
+    const checked = Boolean(
+      cb &&
+        (cb.getAttribute('data-checked') === 'true' ||
+          cb.checked ||
+          cb.hasAttribute('checked'))
+    );
     const hasBullet =
       line.getAttribute('data-bullet') === 'true' ||
       Boolean(line.querySelector('.aurora-line-bullet')) ||
@@ -932,24 +960,47 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     const root = editorRef.current;
     if (!root) return [];
     root.focus();
-    normalizeEditorLines();
 
     const selection = window.getSelection();
+    const preRange =
+      selection &&
+      selection.rangeCount > 0 &&
+      root.contains(selection.getRangeAt(0).startContainer)
+        ? selection.getRangeAt(0)
+        : null;
+    const savedStartNode = preRange ? preRange.startContainer : null;
+    const savedStartOffset = preRange ? preRange.startOffset : undefined;
+    const savedEndNode = preRange ? preRange.endContainer : null;
+    const savedEndOffset = preRange ? preRange.endOffset : undefined;
+
+    normalizeEditorLines();
+
     if (!selection) return [];
 
-    let range: Range;
-    if (selection.rangeCount === 0 || !root.contains(selection.getRangeAt(0).startContainer)) {
-      range = document.createRange();
-      range.selectNodeContents(root);
-      range.collapse(false);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    } else {
-      range = selection.getRangeAt(0);
+    let startLine: HTMLElement | null = null;
+    let endLine: HTMLElement | null = null;
+
+    if (savedStartNode && root.contains(savedStartNode)) {
+      startLine = resolveTopLevelLine(savedStartNode, savedStartOffset);
+    }
+    if (savedEndNode && root.contains(savedEndNode)) {
+      endLine = resolveTopLevelLine(savedEndNode, savedEndOffset);
     }
 
-    let startLine = resolveTopLevelLine(range.startContainer);
-    let endLine = resolveTopLevelLine(range.endContainer);
+    if (!startLine) {
+      let range: Range;
+      if (selection.rangeCount === 0 || !root.contains(selection.getRangeAt(0).startContainer)) {
+        range = document.createRange();
+        range.selectNodeContents(root);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } else {
+        range = selection.getRangeAt(0);
+      }
+      startLine = resolveTopLevelLine(range.startContainer, range.startOffset);
+      endLine = resolveTopLevelLine(range.endContainer, range.endOffset);
+    }
 
     if (!startLine || startLine.classList.contains('aurora-image-block')) {
       const plainDiv = createFormattedLine({
@@ -1377,8 +1428,20 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
       setActiveImagePopover(null);
 
-      if (target instanceof HTMLInputElement && target.type === 'checkbox') {
-        bindCheckboxBehavior(target);
+      const checkboxEl =
+        target instanceof HTMLInputElement && target.type === 'checkbox'
+          ? target
+          : (target.closest('input[type="checkbox"]') as HTMLInputElement | null);
+      if (checkboxEl) {
+        if (!isReadOnly) {
+          const wasChecked = checkboxEl.getAttribute('data-checked') === 'true';
+          const nextChecked = !wasChecked;
+          setCheckboxVisualAndDomState(checkboxEl, nextChecked);
+          markNoteDirty();
+          if (editorRef.current) {
+            setBodyContentSnapshot(editorRef.current.innerHTML || '');
+          }
+        }
         return;
       }
       const anchor = target.closest('a') as HTMLAnchorElement | null;
