@@ -397,20 +397,31 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     return span;
   };
 
+  const lastActiveLineRef = useRef<HTMLElement | null>(null);
+
   const placeCaretInEditableTarget = (targetEditable: HTMLElement, atStart: boolean = false) => {
     const selection = window.getSelection();
     if (!selection) return;
 
-    const styledSpans = targetEditable.querySelectorAll('span[data-aurora-style="true"]');
-    const lastStyledSpan =
-      styledSpans.length > 0 ? (styledSpans[styledSpans.length - 1] as HTMLElement) : null;
+    const walker = document.createTreeWalker(targetEditable, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    let currentNode = walker.nextNode();
+    while (currentNode) {
+      textNodes.push(currentNode as Text);
+      currentNode = walker.nextNode();
+    }
 
-    if (lastStyledSpan && lastStyledSpan.firstChild && lastStyledSpan.firstChild.nodeType === Node.TEXT_NODE) {
-      const textNode = lastStyledSpan.firstChild as Text;
+    if (textNodes.length > 0) {
+      const targetTextNode = atStart ? textNodes[0] : textNodes[textNodes.length - 1];
+      const rawVal = targetTextNode.nodeValue || '';
+      const offset = atStart
+        ? rawVal.startsWith('\u200B')
+          ? Math.min(1, targetTextNode.length)
+          : 0
+        : targetTextNode.length;
       const newRange = document.createRange();
-      const offset = atStart ? Math.min(1, textNode.length) : textNode.length;
-      newRange.setStart(textNode, offset);
-      newRange.setEnd(textNode, offset);
+      newRange.setStart(targetTextNode, offset);
+      newRange.setEnd(targetTextNode, offset);
       selection.removeAllRanges();
       selection.addRange(newRange);
       return;
@@ -662,6 +673,14 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           const clampedIdx = Math.max(0, Math.min(offset, root.childNodes.length - 1));
           const candidate = root.childNodes[clampedIdx];
           if (candidate instanceof HTMLElement) {
+            if (
+              candidate.classList.contains('aurora-image-block') &&
+              offset > 0 &&
+              root.childNodes[offset - 1] instanceof HTMLElement &&
+              !(root.childNodes[offset - 1] as HTMLElement).classList.contains('aurora-image-block')
+            ) {
+              return root.childNodes[offset - 1] as HTMLElement;
+            }
             return candidate;
           }
           if (offset > 0 && root.childNodes[offset - 1] instanceof HTMLElement) {
@@ -900,8 +919,9 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     const range = selection.getRangeAt(0);
     if (!root.contains(range.startContainer)) return;
 
-    const line = resolveTopLevelLine(range.startContainer);
+    const line = resolveTopLevelLine(range.startContainer, range.startOffset);
     if (!line || line.classList.contains('aurora-image-block')) return;
+    lastActiveLineRef.current = line;
 
     const { hasCheckbox, hasBullet } = getLineFormattingFlags(line);
     setIsCurrentLineChecklist(hasCheckbox);
@@ -937,6 +957,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     });
 
     line.parentNode?.replaceChild(replacement, line);
+    lastActiveLineRef.current = replacement;
 
     const targetEditable =
       (replacement.querySelector('.aurora-checklist-text') as HTMLElement | null) ||
@@ -968,6 +989,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       root.contains(selection.getRangeAt(0).startContainer)
         ? selection.getRangeAt(0)
         : null;
+    const wasCollapsed = preRange ? preRange.collapsed : true;
     const savedStartNode = preRange ? preRange.startContainer : null;
     const savedStartOffset = preRange ? preRange.startOffset : undefined;
     const savedEndNode = preRange ? preRange.endContainer : null;
@@ -983,8 +1005,20 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     if (savedStartNode && root.contains(savedStartNode)) {
       startLine = resolveTopLevelLine(savedStartNode, savedStartOffset);
     }
-    if (savedEndNode && root.contains(savedEndNode)) {
+    if (!wasCollapsed && savedEndNode && root.contains(savedEndNode)) {
       endLine = resolveTopLevelLine(savedEndNode, savedEndOffset);
+    }
+
+    if (
+      (!startLine || startLine.classList.contains('aurora-image-block')) &&
+      lastActiveLineRef.current &&
+      root.contains(lastActiveLineRef.current) &&
+      !lastActiveLineRef.current.classList.contains('aurora-image-block')
+    ) {
+      startLine = lastActiveLineRef.current;
+      if (wasCollapsed) {
+        endLine = startLine;
+      }
     }
 
     if (!startLine) {
@@ -999,21 +1033,35 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         range = selection.getRangeAt(0);
       }
       startLine = resolveTopLevelLine(range.startContainer, range.startOffset);
-      endLine = resolveTopLevelLine(range.endContainer, range.endOffset);
+      endLine = wasCollapsed ? startLine : resolveTopLevelLine(range.endContainer, range.endOffset);
     }
 
-    if (!startLine || startLine.classList.contains('aurora-image-block')) {
+    if (startLine && startLine.classList.contains('aurora-image-block')) {
+      const prev = startLine.previousElementSibling as HTMLElement | null;
+      if (prev && !prev.classList.contains('aurora-image-block')) {
+        startLine = prev;
+        endLine = prev;
+      } else {
+        const lineAbove = createFormattedLine({
+          hasCheckbox: false,
+          hasBullet: false,
+        });
+        startLine.parentNode?.insertBefore(lineAbove, startLine);
+        startLine = lineAbove;
+        endLine = lineAbove;
+      }
+    } else if (!startLine) {
       const plainDiv = createFormattedLine({
         hasCheckbox: false,
         hasBullet: false,
       });
-      if (startLine && startLine.classList.contains('aurora-image-block')) {
-        startLine.parentNode?.insertBefore(plainDiv, startLine.nextSibling);
-      } else {
-        root.appendChild(plainDiv);
-      }
+      root.appendChild(plainDiv);
       startLine = plainDiv;
       endLine = plainDiv;
+    }
+
+    if (wasCollapsed || !endLine) {
+      endLine = startLine;
     }
 
     const targetLines: HTMLElement[] = [];

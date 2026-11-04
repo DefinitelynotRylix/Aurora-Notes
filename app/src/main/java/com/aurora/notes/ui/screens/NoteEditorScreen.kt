@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -628,18 +629,25 @@ fun NoteEditorScreen(
     var isBulletModeActive by remember(note.id) { mutableStateOf(false) }
     var isCheckboxModeActive by remember(note.id) { mutableStateOf(false) }
     var lastSyncedLineStart by remember(note.id) { mutableIntStateOf(-1) }
+    var activeSegIndex by remember(note.id) { mutableIntStateOf(0) }
+    var pendingToolbarCursorOverride by remember(note.id) { mutableIntStateOf(-1) }
+    var pendingToolbarTimestamp by remember(note.id) { mutableLongStateOf(0L) }
 
     var bodyValue by remember(note.id) {
+        val canonicalInitialContent = note.content.replace(
+            Regex("(?<!\\n)(\\[\\[AURORA_IMG:[^\\]]+\\]\\])"),
+            "\n$1"
+        )
         mutableStateOf(
             TextFieldValue(
-                text = note.content,
-                selection = TextRange(note.content.length)
+                text = canonicalInitialContent,
+                selection = TextRange(canonicalInitialContent.length)
             )
         )
     }
 
     var charSpans by remember(note.id) {
-        mutableStateOf(parseSpansJson(note.styleSpansJson, note.content.length))
+        mutableStateOf(parseSpansJson(note.styleSpansJson, bodyValue.text.length))
     }
 
     // Sync active/inactive button states whenever the cursor line or its prefix changes
@@ -654,6 +662,18 @@ fun NoteEditorScreen(
 
     val editorScrollState = rememberScrollState()
     val bodyFocusRequester = remember { FocusRequester() }
+    val segFocusRequesters = remember(note.id, noteImages.size) {
+        List(noteImages.size + 1) { FocusRequester() }
+    }
+
+    fun requestActiveEditorFocus() {
+        if (noteImages.isEmpty()) {
+            runCatching { bodyFocusRequester.requestFocus() }
+        } else {
+            val targetIdx = activeSegIndex.coerceIn(0, segFocusRequesters.lastIndex)
+            runCatching { segFocusRequesters[targetIdx].requestFocus() }
+        }
+    }
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
     var viewportHeightPx by remember { mutableIntStateOf(0) }
     var bodyTopInColumnPx by remember { mutableFloatStateOf(0f) }
@@ -727,7 +747,7 @@ fun NoteEditorScreen(
                 val curText = bodyValue.text
                 val curCursor = bodyValue.selection.end.coerceIn(0, curText.length)
                 val lineEnd = findLineEnd(curText, findLineStart(curText, curCursor))
-                val prefixBefore = if (lineEnd > 0 && curText[lineEnd - 1] != '\n') "\n" else ""
+                val prefixBefore = if (lineEnd == 0 || curText[lineEnd - 1] != '\n') "\n" else ""
                 val suffixAfter = "\n"
                 val inserted = "$prefixBefore$marker$suffixAfter"
                 val updatedText = curText.substring(0, lineEnd) + inserted + curText.substring(lineEnd)
@@ -744,6 +764,7 @@ fun NoteEditorScreen(
                     text = updatedText,
                     selection = TextRange(newCursorPos)
                 )
+                activeSegIndex = noteImages.size
                 markNoteDirty()
             }
         }
@@ -1365,6 +1386,125 @@ fun NoteEditorScreen(
                         val isBulletHighlighted = isBulletModeActive || activeLineParsed.hasBullet
                         val isCheckboxHighlighted = isCheckboxModeActive || activeLineParsed.hasCheckbox
 
+                        fun applyLineFormatToggle(toggleBullet: Boolean, toggleCheckbox: Boolean) {
+                            if (noteImages.isNotEmpty()) {
+                                val markerRegex = Regex("\\n?\\[\\[AURORA_IMG:([^\\]]+)\\]\\]\\n?")
+                                val matches = markerRegex.findAll(bodyValue.text).toList()
+                                val segList = ArrayList<String>()
+                                var lastIdx = 0
+                                for (m in matches) {
+                                    segList.add(bodyValue.text.substring(lastIdx, m.range.first))
+                                    lastIdx = m.range.last + 1
+                                }
+                                segList.add(bodyValue.text.substring(lastIdx))
+                                while (segList.size <= noteImages.size) {
+                                    segList.add("")
+                                }
+
+                                val targetSegIdx = activeSegIndex.coerceIn(0, segList.lastIndex)
+                                var segOffsetStart = 0
+                                for (i in 0 until targetSegIdx) {
+                                    segOffsetStart += segList[i].length + "\n[[AURORA_IMG:${noteImages[i].id}]]\n".length
+                                }
+                                val segText = segList[targetSegIdx]
+                                val localCursor = (bodyValue.selection.start - segOffsetStart).coerceIn(0, segText.length)
+                                val lineStart = findLineStart(segText, localCursor)
+                                val lineEnd = findLineEnd(segText, lineStart)
+                                val parsed = getParsedLineAt(segText, lineStart)
+
+                                val nextBulletState = if (toggleBullet) !parsed.hasBullet else parsed.hasBullet
+                                val nextCheckboxState = if (toggleCheckbox) !parsed.hasCheckbox else parsed.hasCheckbox
+                                isBulletModeActive = nextBulletState
+                                isCheckboxModeActive = nextCheckboxState
+
+                                val newPrefix = (if (nextCheckboxState) {
+                                    if (parsed.hasCheckbox) parsed.checkboxPrefix else UNCHECKED_BOX_PREFIX
+                                } else "") + (if (nextBulletState) BULLET_LINE_PREFIX else "")
+
+                                val rebuiltLine = newPrefix + parsed.cleanBody
+                                val newSegText = segText.substring(0, lineStart) + rebuiltLine + segText.substring(lineEnd)
+                                val offsetInBody = (localCursor - (lineStart + parsed.totalPrefixLength)).coerceIn(0, parsed.cleanBody.length)
+                                val targetInBody = if (localCursor >= lineEnd - 1) parsed.cleanBody.length else offsetInBody
+                                val newLocalCursor = (lineStart + newPrefix.length + targetInBody).coerceIn(0, newSegText.length)
+
+                                segList[targetSegIdx] = newSegText
+                                val sb = StringBuilder()
+                                var newGlobalCursor = 0
+                                for (i in segList.indices) {
+                                    if (i == targetSegIdx) {
+                                        newGlobalCursor = sb.length + newLocalCursor
+                                    }
+                                    sb.append(segList[i])
+                                    if (i < noteImages.size) {
+                                        sb.append("\n[[AURORA_IMG:${noteImages[i].id}]]\n")
+                                    }
+                                }
+                                val fullNewText = sb.toString()
+                                val clampedGlobal = clampSelectionToMinusOneRule(
+                                    fullNewText,
+                                    TextRange(newGlobalCursor.coerceIn(0, fullNewText.length))
+                                )
+                                pendingToolbarCursorOverride = clampedGlobal.start
+                                pendingToolbarTimestamp = System.currentTimeMillis()
+                                charSpans = applyTextEditToSpans(
+                                    oldText = bodyValue.text,
+                                    newText = fullNewText,
+                                    oldSpans = charSpans,
+                                    activeSizeMode = TextSizeMode.SMALL,
+                                    isBoldActive = false,
+                                    isItalicActive = false
+                                )
+                                bodyValue = TextFieldValue(
+                                    text = fullNewText,
+                                    selection = clampedGlobal,
+                                    composition = null
+                                )
+                                requestActiveEditorFocus()
+                                markNoteDirty()
+                            } else {
+                                val text = bodyValue.text
+                                val cursor = bodyValue.selection.start.coerceIn(0, text.length)
+                                val lineStart = findLineStart(text, cursor)
+                                val lineEnd = findLineEnd(text, lineStart)
+                                val parsed = getParsedLineAt(text, lineStart)
+
+                                val nextBulletState = if (toggleBullet) !parsed.hasBullet else parsed.hasBullet
+                                val nextCheckboxState = if (toggleCheckbox) !parsed.hasCheckbox else parsed.hasCheckbox
+                                isBulletModeActive = nextBulletState
+                                isCheckboxModeActive = nextCheckboxState
+
+                                val newPrefix = (if (nextCheckboxState) {
+                                    if (parsed.hasCheckbox) parsed.checkboxPrefix else UNCHECKED_BOX_PREFIX
+                                } else "") + (if (nextBulletState) BULLET_LINE_PREFIX else "")
+
+                                val rebuiltLine = newPrefix + parsed.cleanBody
+                                val newText = text.substring(0, lineStart) + rebuiltLine + text.substring(lineEnd)
+                                val offsetInBody = (cursor - (lineStart + parsed.totalPrefixLength)).coerceIn(0, parsed.cleanBody.length)
+                                val targetInBody = if (cursor >= lineEnd - 1) parsed.cleanBody.length else offsetInBody
+                                val newCursor = (lineStart + newPrefix.length + targetInBody).coerceIn(0, newText.length)
+                                val clampedSel = clampSelectionToMinusOneRule(newText, TextRange(newCursor))
+
+                                pendingToolbarCursorOverride = clampedSel.start
+                                pendingToolbarTimestamp = System.currentTimeMillis()
+
+                                charSpans = applyTextEditToSpans(
+                                    oldText = text,
+                                    newText = newText,
+                                    oldSpans = charSpans,
+                                    activeSizeMode = TextSizeMode.SMALL,
+                                    isBoldActive = false,
+                                    isItalicActive = false
+                                )
+                                bodyValue = TextFieldValue(
+                                    text = newText,
+                                    selection = clampedSel,
+                                    composition = null
+                                )
+                                requestActiveEditorFocus()
+                                markNoteDirty()
+                            }
+                        }
+
                         // Toggle Bullet List (Active / Inactive state; continues on Enter until disabled)
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -1377,38 +1517,7 @@ fun NoteEditorScreen(
                                 .height(34.dp)
                                 .width(36.dp)
                                 .clickable {
-                                    val text = bodyValue.text
-                                    val cursor = bodyValue.selection.start.coerceIn(0, text.length)
-                                    val lineStart = findLineStart(text, cursor)
-                                    val lineEnd = findLineEnd(text, lineStart)
-                                    val parsed = getParsedLineAt(text, lineStart)
-                                    val nextBulletState = !parsed.hasBullet
-                                    isBulletModeActive = nextBulletState
-                                    isCheckboxModeActive = parsed.hasCheckbox
-
-                                    val rebuiltLine =
-                                        (if (parsed.hasCheckbox) parsed.checkboxPrefix else "") +
-                                            (if (nextBulletState) BULLET_LINE_PREFIX else "") +
-                                            parsed.cleanBody
-                                    val newText = text.substring(0, lineStart) + rebuiltLine + text.substring(lineEnd)
-                                    val minCursor = lineStart + (if (parsed.hasCheckbox) 2 else 0) + (if (nextBulletState) 2 else 0)
-                                    val delta = rebuiltLine.length - (lineEnd - lineStart)
-                                    val newCursor = (cursor + delta).coerceAtLeast(minCursor).coerceIn(0, newText.length)
-
-                                    charSpans = applyTextEditToSpans(
-                                        oldText = text,
-                                        newText = newText,
-                                        oldSpans = charSpans,
-                                        activeSizeMode = TextSizeMode.SMALL,
-                                        isBoldActive = false,
-                                        isItalicActive = false
-                                    )
-                                    bodyValue = TextFieldValue(
-                                        text = newText,
-                                        selection = clampSelectionToMinusOneRule(newText, TextRange(newCursor))
-                                    )
-                                    runCatching { bodyFocusRequester.requestFocus() }
-                                    markNoteDirty()
+                                    applyLineFormatToggle(toggleBullet = true, toggleCheckbox = false)
                                 }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -1433,41 +1542,7 @@ fun NoteEditorScreen(
                                 .height(34.dp)
                                 .width(36.dp)
                                 .clickable {
-                                    val text = bodyValue.text
-                                    val cursor = bodyValue.selection.start.coerceIn(0, text.length)
-                                    val lineStart = findLineStart(text, cursor)
-                                    val lineEnd = findLineEnd(text, lineStart)
-                                    val parsed = getParsedLineAt(text, lineStart)
-                                    val nextCheckboxState = !parsed.hasCheckbox
-                                    isCheckboxModeActive = nextCheckboxState
-                                    isBulletModeActive = parsed.hasBullet
-
-                                    val rebuiltLine =
-                                        (if (nextCheckboxState) UNCHECKED_BOX_PREFIX else "") +
-                                            (if (parsed.hasBullet) BULLET_LINE_PREFIX else "") +
-                                            parsed.cleanBody
-                                    val newText = text.substring(0, lineStart) + rebuiltLine + text.substring(lineEnd)
-                                    val minCursor = lineStart + (if (nextCheckboxState) 2 else 0) + (if (parsed.hasBullet) 2 else 0)
-                                    val delta = rebuiltLine.length - (lineEnd - lineStart)
-                                    val newCursor = (cursor + delta).coerceAtLeast(minCursor).coerceIn(0, newText.length)
-
-                                    charSpans = applyTextEditToSpans(
-                                        oldText = text,
-                                        newText = newText,
-                                        oldSpans = charSpans,
-                                        activeSizeMode = TextSizeMode.SMALL,
-                                        isBoldActive = false,
-                                        isItalicActive = false
-                                    )
-                                    bodyValue = TextFieldValue(
-                                        text = newText,
-                                        selection = clampSelectionToMinusOneRule(
-                                            newText,
-                                            TextRange(newCursor)
-                                        )
-                                    )
-                                    runCatching { bodyFocusRequester.requestFocus() }
-                                    markNoteDirty()
+                                    applyLineFormatToggle(toggleBullet = false, toggleCheckbox = true)
                                 }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -1783,10 +1858,20 @@ fun NoteEditorScreen(
 
                             if (isReadOnly) return@BasicTextField
 
+                            val effectiveSelection = if (
+                                oldText == newText &&
+                                pendingToolbarCursorOverride >= 0 &&
+                                (System.currentTimeMillis() - pendingToolbarTimestamp) < 350L
+                            ) {
+                                TextRange(pendingToolbarCursorOverride.coerceIn(0, newText.length))
+                            } else {
+                                newValue.selection
+                            }
+
                             val (normalizedText, clampedSelection) = normalizeCheckboxLinesAfterEdit(
                                 oldText = oldText,
                                 newText = newText,
-                                newSelection = newValue.selection,
+                                newSelection = effectiveSelection,
                                 isCheckboxModeActive = isCheckboxModeActive,
                                 isBulletModeActive = isBulletModeActive
                             )
@@ -1970,12 +2055,18 @@ fun NoteEditorScreen(
                                 mutableStateOf(TextFieldValue(text = segText, selection = TextRange(segText.length)))
                             }
                             if (segFieldValue.text != segText) {
-                                segFieldValue = segFieldValue.copy(
+                                val desiredLocalCursor = if (segIdx == activeSegIndex) {
+                                    (bodyValue.selection.start - segStartOffset).coerceIn(0, segText.length)
+                                } else {
+                                    segFieldValue.selection.start.coerceIn(0, segText.length)
+                                }
+                                segFieldValue = TextFieldValue(
                                     text = segText,
                                     selection = clampSelectionToMinusOneRule(
                                         segText,
-                                        TextRange(segFieldValue.selection.start.coerceIn(0, segText.length))
-                                    )
+                                        TextRange(desiredLocalCursor)
+                                    ),
+                                    composition = null
                                 )
                             }
 
@@ -1985,10 +2076,21 @@ fun NoteEditorScreen(
                                 onValueChange = { newSegVal ->
                                     activeImageMenuId = null
                                     if (isReadOnly) return@BasicTextField
+                                    activeSegIndex = segIdx
+                                    val oldSegText = segFieldValue.text
+                                    val effectiveSegSelection = if (
+                                        oldSegText == newSegVal.text &&
+                                        pendingToolbarCursorOverride >= 0 &&
+                                        (System.currentTimeMillis() - pendingToolbarTimestamp) < 350L
+                                    ) {
+                                        TextRange((pendingToolbarCursorOverride - segStartOffset).coerceIn(0, newSegVal.text.length))
+                                    } else {
+                                        newSegVal.selection
+                                    }
                                     val (normSeg, clampedSegSel) = normalizeCheckboxLinesAfterEdit(
-                                        oldText = segFieldValue.text,
+                                        oldText = oldSegText,
                                         newText = newSegVal.text,
-                                        newSelection = newSegVal.selection,
+                                        newSelection = effectiveSegSelection,
                                         isCheckboxModeActive = isCheckboxModeActive,
                                         isBulletModeActive = isBulletModeActive
                                     )
@@ -2034,7 +2136,21 @@ fun NoteEditorScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .let { mod ->
-                                        if (segIdx == noteImages.size) mod.focusRequester(bodyFocusRequester) else mod
+                                        if (segIdx in segFocusRequesters.indices) {
+                                            mod.focusRequester(segFocusRequesters[segIdx])
+                                        } else {
+                                            mod
+                                        }
+                                    }
+                                    .onFocusChanged { focusState ->
+                                        if (focusState.isFocused) {
+                                            activeSegIndex = segIdx
+                                            val globalPos = (segStartOffset + segFieldValue.selection.start.coerceIn(0, segFieldValue.text.length))
+                                                .coerceIn(0, bodyValue.text.length)
+                                            if (bodyValue.selection.start != globalPos) {
+                                                bodyValue = bodyValue.copy(selection = TextRange(globalPos))
+                                            }
+                                        }
                                     }
                                     .checkboxPrefixTapDetector(
                                         enabled = !isReadOnly,
@@ -2044,6 +2160,7 @@ fun NoteEditorScreen(
                                         onToggleLineCheckbox = { tappedLineStart, parsed ->
                                             val curSegText = segFieldValue.text
                                             if (tappedLineStart + 2 <= curSegText.length) {
+                                                activeSegIndex = segIdx
                                                 val isCurrentlyChecked = curSegText.startsWith(CHECKED_BOX_PREFIX, tappedLineStart)
                                                 val replacementPrefix = if (isCurrentlyChecked) UNCHECKED_BOX_PREFIX else CHECKED_BOX_PREFIX
                                                 val toggledSeg = curSegText.substring(0, tappedLineStart) +
@@ -2070,17 +2187,7 @@ fun NoteEditorScreen(
                                 val imgItem = noteImages[segIdx]
                                 val isMenuOpen = activeImageMenuId == imgItem.id
                                 val bitmap = remember(imgItem.uri) {
-                                    try {
-                                        val file = File(imgItem.uri)
-                                        if (file.exists()) {
-                                            val opts = BitmapFactory.Options().apply {
-                                                inScaled = false
-                                            }
-                                            BitmapFactory.decodeFile(file.absolutePath, opts)?.asImageBitmap()
-                                        } else null
-                                    } catch (_: Exception) {
-                                        null
-                                    }
+                                    PrivateStorageManager.loadDecryptedNoteImageBitmap(imgItem.uri)?.asImageBitmap()
                                 }
 
                                 Row(

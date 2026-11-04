@@ -41,7 +41,7 @@ import com.aurora.notes.model.Note
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.util.LinkHelper
-import java.io.File
+import com.aurora.notes.util.PrivateStorageManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -258,14 +258,7 @@ fun NoteCard(
             if (note.images.isNotEmpty()) {
                 val firstImg = note.images.first()
                 val previewBitmap = remember(firstImg.uri) {
-                    try {
-                        val file = File(firstImg.uri)
-                        if (file.exists()) {
-                            BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
-                        } else null
-                    } catch (_: Exception) {
-                        null
-                    }
+                    PrivateStorageManager.loadDecryptedNoteImageBitmap(firstImg.uri)?.asImageBitmap()
                 }
                 Box(
                     modifier = Modifier

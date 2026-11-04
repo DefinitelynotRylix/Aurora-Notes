@@ -1,6 +1,8 @@
 package com.aurora.notes.util
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -44,6 +46,7 @@ object PrivateStorageManager {
     private const val GCM_TAG_BITS = 128
     private const val GCM_IV_BYTES = 12
     private const val ENC_PREFIX = "ENCv1:"
+    private val ENC_BINARY_HEADER = "AURORA_IMG_ENC_V1:".toByteArray(StandardCharsets.UTF_8)
     private const val PRIVATE_NOTES_DIR_NAME = "aurora_private_notes"
     private const val PRIVATE_IMAGES_DIR_NAME = "aurora_private_images"
 
@@ -78,6 +81,52 @@ object PrivateStorageManager {
 
     fun isEncryptedValue(value: String): Boolean {
         return value.startsWith(ENC_PREFIX)
+    }
+
+    fun isEncryptedBinary(bytes: ByteArray): Boolean {
+        if (bytes.size <= ENC_BINARY_HEADER.size + GCM_IV_BYTES) return false
+        for (i in ENC_BINARY_HEADER.indices) {
+            if (bytes[i] != ENC_BINARY_HEADER[i]) return false
+        }
+        return true
+    }
+
+    fun encryptBytes(plainBytes: ByteArray): ByteArray {
+        if (plainBytes.isEmpty() || isEncryptedBinary(plainBytes)) return plainBytes
+        return try {
+            val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateSecretKey())
+            val iv = cipher.iv
+            val cipherBytes = cipher.doFinal(plainBytes)
+            val combined = ByteArray(ENC_BINARY_HEADER.size + iv.size + cipherBytes.size)
+            System.arraycopy(ENC_BINARY_HEADER, 0, combined, 0, ENC_BINARY_HEADER.size)
+            System.arraycopy(iv, 0, combined, ENC_BINARY_HEADER.size, iv.size)
+            System.arraycopy(cipherBytes, 0, combined, ENC_BINARY_HEADER.size + iv.size, cipherBytes.size)
+            combined
+        } catch (e: Exception) {
+            LocalLogger.warn("CRYPTO", "Binary AES-GCM encryption fallback: ${e.localizedMessage ?: "error"}")
+            plainBytes
+        }
+    }
+
+    fun decryptBytes(rawBytes: ByteArray): ByteArray {
+        if (rawBytes.isEmpty() || !isEncryptedBinary(rawBytes)) return rawBytes
+        return try {
+            val ivStart = ENC_BINARY_HEADER.size
+            val cipherStart = ivStart + GCM_IV_BYTES
+            val iv = rawBytes.copyOfRange(ivStart, cipherStart)
+            val cipherBytes = rawBytes.copyOfRange(cipherStart, rawBytes.size)
+            val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                getOrCreateSecretKey(),
+                GCMParameterSpec(GCM_TAG_BITS, iv)
+            )
+            cipher.doFinal(cipherBytes)
+        } catch (e: Exception) {
+            LocalLogger.warn("CRYPTO", "Binary AES-GCM decryption warning: ${e.localizedMessage ?: "error"}")
+            rawBytes
+        }
     }
 
     fun encryptText(plainText: String): String {
@@ -170,40 +219,85 @@ object PrivateStorageManager {
         )
     }
 
+    fun getPrivateImagesDir(context: Context): File {
+        val externalImagesDir = try {
+            context.getExternalFilesDir(PRIVATE_IMAGES_DIR_NAME)
+        } catch (_: Exception) {
+            null
+        }
+        val targetDir = externalImagesDir ?: File(context.filesDir, PRIVATE_IMAGES_DIR_NAME)
+        if (!targetDir.exists()) {
+            targetDir.mkdirs()
+        }
+        return targetDir
+    }
+
     /**
-     * Copies a user-selected image from the Android File Picker (`content://`) byte-for-byte
-     * (100% lossless quality, zero recompression) into the app's private storage directory.
+     * Reads a user-selected image from the Android File Picker (`content://`) byte-for-byte
+     * (100% lossless quality, zero recompression), encrypts the raw bytes with AndroidKeyStore
+     * AES-256-GCM (`AURORA_IMG_ENC_V1:` + IV + ciphertext), and stores the encrypted `.enc` file
+     * inside the app's private storage directory so it cannot be viewed outside the app.
      */
     fun saveLosslessNoteImage(context: Context, sourceUri: Uri): String? {
         return try {
-            val externalImagesDir = try {
-                context.getExternalFilesDir(PRIVATE_IMAGES_DIR_NAME)
-            } catch (_: Exception) {
-                null
-            }
-            val targetDir = externalImagesDir ?: File(context.filesDir, PRIVATE_IMAGES_DIR_NAME)
-            if (!targetDir.exists()) {
-                targetDir.mkdirs()
-            }
-            val mimeType = context.contentResolver.getType(sourceUri) ?: "image/png"
-            val ext = when {
-                mimeType.contains("png", ignoreCase = true) -> "png"
-                mimeType.contains("webp", ignoreCase = true) -> "webp"
-                mimeType.contains("gif", ignoreCase = true) -> "gif"
-                else -> "jpg"
-            }
-            val destFile = File(targetDir, "img_${UUID.randomUUID()}.$ext")
-            context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                destFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
+            val targetDir = getPrivateImagesDir(context)
+            val rawBytes = context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                input.readBytes()
             } ?: return null
+            if (rawBytes.isEmpty()) return null
+
+            val encryptedBytes = encryptBytes(rawBytes)
+            val destFile = File(targetDir, "img_${UUID.randomUUID()}.enc")
+            destFile.writeBytes(encryptedBytes)
             destFile.absolutePath
         } catch (e: Exception) {
             LocalLogger.error(
                 "IMAGE",
-                "Failed saving lossless image to private storage: ${e.localizedMessage ?: "I/O error"}"
+                "Failed saving encrypted lossless image to private storage: ${e.localizedMessage ?: "I/O error"}"
             )
+            null
+        }
+    }
+
+    /**
+     * Loads and decrypts the raw lossless image bytes from an encrypted `.enc` (or legacy image) file.
+     * Automatically encrypts legacy unencrypted image files on disk in-place on first read.
+     */
+    fun loadDecryptedNoteImageBytes(rawPath: String): ByteArray? {
+        if (rawPath.isBlank()) return null
+        return try {
+            val cleanPath = decryptText(rawPath)
+            val file = File(cleanPath)
+            if (!file.exists() || !file.isFile) return null
+            val diskBytes = file.readBytes()
+            if (diskBytes.isEmpty()) return null
+            if (isEncryptedBinary(diskBytes)) {
+                decryptBytes(diskBytes)
+            } else {
+                // Upgrade legacy unencrypted image file on disk to AES-256-GCM encrypted bytes in-place
+                val encrypted = encryptBytes(diskBytes)
+                if (isEncryptedBinary(encrypted)) {
+                    runCatching { file.writeBytes(encrypted) }
+                }
+                diskBytes
+            }
+        } catch (e: Exception) {
+            LocalLogger.warn("IMAGE", "Failed reading encrypted note image: ${e.localizedMessage ?: "error"}")
+            null
+        }
+    }
+
+    /**
+     * Decodes a lossless `Bitmap` in memory from an AES-256-GCM encrypted note image file.
+     */
+    fun loadDecryptedNoteImageBitmap(rawPath: String): Bitmap? {
+        val plainBytes = loadDecryptedNoteImageBytes(rawPath) ?: return null
+        return try {
+            val opts = BitmapFactory.Options().apply {
+                inScaled = false
+            }
+            BitmapFactory.decodeByteArray(plainBytes, 0, plainBytes.size, opts)
+        } catch (_: Exception) {
             null
         }
     }
@@ -309,22 +403,32 @@ object PrivateStorageManager {
         encryptFileContent: Boolean
     ): StorageCleanupReport {
         val activeNonDeleted = allNotes.filter { !it.isDeleted }
-        activeNonDeleted.forEach { note ->
-            writeNoteToPrivateStorage(context, note, encryptFileContent)
+        val referencedImagePaths = mutableSetOf<String>()
+        activeNonDeleted.forEach { rawNote ->
+            val plainNote = decryptNoteFromRoom(rawNote)
+            plainNote.images.forEach { img ->
+                if (img.uri.isNotBlank()) {
+                    referencedImagePaths.add(File(img.uri).name)
+                }
+            }
+            writeNoteToPrivateStorage(context, plainNote, encryptFileContent)
         }
         val validIds = activeNonDeleted.map { sanitizeNoteId(it.id) }.toSet()
-        return cleanupOrphanedFiles(context, validIds)
+        return cleanupOrphanedFiles(context, validIds, referencedImagePaths)
     }
 
     /**
      * Scans private external and internal storage directories for:
      * 1. Orphaned note files whose note ID no longer exists in the Room database (or was deleted)
      * 2. Incomplete `.tmp` or 0-byte corrupted files
-     * 3. Stale temporary share/update files in externalCacheDir and cacheDir
+     * 3. Unencrypted legacy image files in `aurora_private_images` (auto-encrypts them in-place)
+     *    and orphaned image files not referenced by any active non-deleted note
+     * 4. Stale temporary share/update files in externalCacheDir and cacheDir
      */
     fun cleanupOrphanedFiles(
         context: Context,
-        validNoteIds: Set<String>
+        validNoteIds: Set<String>,
+        referencedImageFileNames: Set<String>? = null
     ): StorageCleanupReport {
         val normalizedValidIds = validNoteIds.map { sanitizeNoteId(it) }.toSet()
         var orphanedRemoved = 0
@@ -351,6 +455,40 @@ object PrivateStorageManager {
                         if (file.delete()) {
                             if (isTempFile) tempRemoved++ else orphanedRemoved++
                             bytesFreed += len
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also scan aurora_private_images: encrypt any unencrypted image files in-place & delete orphans
+        val imageDirs = listOfNotNull(
+            context.getExternalFilesDir(null)?.let { File(it, "aurora_private_images") },
+            File(context.filesDir, "aurora_private_images")
+        ).distinctBy { it.absolutePath }
+
+        imageDirs.forEach { imgDir ->
+            if (imgDir.exists()) {
+                imgDir.listFiles()?.forEach { imgFile ->
+                    if (imgFile.isFile) {
+                        val len = imgFile.length()
+                        val isTemp = imgFile.name.endsWith(".tmp") || imgFile.name.endsWith(".bak")
+                        val isOrphanImage = referencedImageFileNames != null &&
+                            !referencedImageFileNames.contains(imgFile.name)
+                        if (isTemp || len == 0L || isOrphanImage) {
+                            if (imgFile.delete()) {
+                                if (isTemp) tempRemoved++ else orphanedRemoved++
+                                bytesFreed += len
+                            }
+                        } else {
+                            try {
+                                val raw = imgFile.readBytes()
+                                if (!isEncryptedBinary(raw)) {
+                                    val encrypted = encryptBytes(raw)
+                                    imgFile.writeBytes(encrypted)
+                                }
+                            } catch (_: Exception) {
+                            }
                         }
                     }
                 }

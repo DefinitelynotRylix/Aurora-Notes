@@ -1,11 +1,10 @@
 package com.aurora.notes.ui.components
 
-import android.app.Activity
-import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,12 +16,16 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -52,8 +55,25 @@ fun ShareNoteDialog(
     }
 
     val formattedPreview = remember(plainNotes, selectedFormat) {
-        NoteShareHelper.formatNotes(plainNotes, selectedFormat)
+        NoteShareHelper.formatNotes(plainNotes, selectedFormat, embedBase64Images = false)
     }
+
+    val previewBitmaps = remember(plainNotes) {
+        plainNotes.flatMap { it.images }.mapNotNull { img ->
+            PrivateStorageManager.loadDecryptedNoteImageBitmap(img.uri)?.asImageBitmap()
+        }
+    }
+
+    val fullLengthNoteBitmap = remember(plainNotes, selectedFormat) {
+        if (selectedFormat == ShareNoteFormat.NOTE_IMAGE) {
+            runCatching {
+                NoteShareHelper.renderNotesToFullLengthBitmap(plainNotes).asImageBitmap()
+            }.getOrNull()
+        } else {
+            null
+        }
+    }
+
     val suggestedFileName = remember(plainNotes, selectedFormat) {
         NoteShareHelper.buildSuggestedFileName(plainNotes, selectedFormat)
     }
@@ -140,7 +160,7 @@ fun ShareNoteDialog(
                                 )
                             )
                             Text(
-                                text = "Send to apps & contacts or save to a folder",
+                                text = "Markdown with images or full-length Gallery image",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
@@ -163,9 +183,9 @@ fun ShareNoteDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Format Selector: Markdown (.md) vs Plain Text (.txt)
+                // Format Selector: Markdown (.md) vs Note Image (.png)
                 Text(
-                    text = "CHOOSE FORMAT",
+                    text = "CHOOSE EXPORT FORMAT",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = AuroraRoyalViolet
@@ -203,7 +223,11 @@ fun ShareNoteDialog(
                                         color = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = if (format == ShareNoteFormat.MARKDOWN) "Rich headings & lists" else "Universal plain text",
+                                        text = if (format == ShareNoteFormat.MARKDOWN) {
+                                            "Full Markdown + images"
+                                        } else {
+                                            "Full-length Gallery image"
+                                        },
                                         fontSize = 10.sp,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                         maxLines = 1,
@@ -233,7 +257,11 @@ fun ShareNoteDialog(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Default.Description,
+                            imageVector = if (selectedFormat == ShareNoteFormat.NOTE_IMAGE) {
+                                Icons.Default.Image
+                            } else {
+                                Icons.Default.Description
+                            },
                             contentDescription = null,
                             tint = AuroraRoyalViolet,
                             modifier = Modifier.size(14.dp)
@@ -249,7 +277,11 @@ fun ShareNoteDialog(
                         )
                     }
                     Text(
-                        text = "${formattedPreview.length} chars",
+                        text = if (selectedFormat == ShareNoteFormat.NOTE_IMAGE) {
+                            "Full-length PNG"
+                        } else {
+                            "${formattedPreview.length} chars"
+                        },
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
@@ -260,7 +292,7 @@ fun ShareNoteDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 90.dp, max = 150.dp)
+                        .heightIn(min = 120.dp, max = 220.dp)
                         .background(
                             color = MaterialTheme.colorScheme.background,
                             shape = RoundedCornerShape(12.dp)
@@ -268,70 +300,161 @@ fun ShareNoteDialog(
                         .padding(10.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    Text(
-                        text = formattedPreview,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
-                    )
+                    if (selectedFormat == ShareNoteFormat.NOTE_IMAGE && fullLengthNoteBitmap != null) {
+                        Image(
+                            bitmap = fullLengthNoteBitmap,
+                            contentDescription = "Full-length note image preview",
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = formattedPreview,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
+                            )
+                            if (previewBitmaps.isNotEmpty()) {
+                                Text(
+                                    text = "EMBEDDED MARKDOWN IMAGES (${previewBitmaps.size})",
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AuroraRoyalViolet
+                                )
+                                previewBitmaps.forEach { bmp ->
+                                    Image(
+                                        bitmap = bmp,
+                                        contentDescription = "Embedded Markdown image preview",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(110.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Action Buttons
-                // 1. Share to Apps & Contacts
-                Button(
-                    onClick = {
-                        NoteShareHelper.shareToAppsAndContacts(
-                            context = context,
-                            notes = notes,
-                            format = selectedFormat,
-                            asFileAttachment = false
+                if (selectedFormat == ShareNoteFormat.NOTE_IMAGE) {
+                    // Primary action for Note Image: Save directly into Android Gallery
+                    Button(
+                        onClick = {
+                            if (NoteShareHelper.saveNoteImageToGallery(context, plainNotes)) {
+                                onDismiss()
+                            }
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
                         )
-                        onDismiss()
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Share to Apps & Contacts (${selectedFormat.extension.uppercase()})",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Save Note as Image to Android Gallery",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                // 2. Save to Preferred Folder inside Android File Picker
-                OutlinedButton(
-                    onClick = { launchAndroidFolderFilePicker() },
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FolderOpen,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Save to Folder (Android File Picker)",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    OutlinedButton(
+                        onClick = {
+                            NoteShareHelper.shareToAppsAndContacts(
+                                context = context,
+                                notes = plainNotes,
+                                format = ShareNoteFormat.NOTE_IMAGE,
+                                asFileAttachment = true
+                            )
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Share Note Image to Apps & Contacts (PNG)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                } else {
+                    // 1. Share Markdown (.md) with embedded images
+                    Button(
+                        onClick = {
+                            NoteShareHelper.shareToAppsAndContacts(
+                                context = context,
+                                notes = plainNotes,
+                                format = selectedFormat,
+                                asFileAttachment = true
+                            )
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Share Markdown with Images (.MD)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 2. Save to Preferred Folder inside Android File Picker
+                    OutlinedButton(
+                        onClick = { launchAndroidFolderFilePicker() },
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FolderOpen,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Save Markdown to Folder (Android File Picker)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
         }
