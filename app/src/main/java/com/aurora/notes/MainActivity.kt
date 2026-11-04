@@ -30,7 +30,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Tag
@@ -462,6 +464,7 @@ fun AuroraApp(
                                     viewModel.toggleChecklistItem(noteId, itemId)
                                 },
                                 onAddNote = { viewModel.openNewNote() },
+                                onSaveNoteDetails = { updatedNote -> viewModel.saveNote(updatedNote) },
                                 onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
                                 onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
                                 isArchiveTab = false,
@@ -582,6 +585,9 @@ fun AuroraApp(
                             animateCloseEditor {
                                 viewModel.saveNote(updatedNote)
                             }
+                        },
+                        onSaveInPlace = { updatedNote ->
+                            viewModel.saveNote(updatedNote)
                         },
                         onDiscardAndClose = {
                             animateCloseEditor()
@@ -843,28 +849,28 @@ private fun WhatsNewDialog(
     val features = remember {
         listOf(
             WhatsNewFeatureItem(
-                title = "AES-256-GCM Cryptography & Private Storage",
-                badge = "CRYPTOGRAPHY",
-                description = "Every note in the Room SQLite database and mirrored private device storage is now permanently encrypted at rest using hardware-backed AndroidKeyStore AES-256-GCM cryptography.",
-                icon = Icons.Default.Lock
+                title = "Insert Lossless Images & Note Previews",
+                badge = "NEW FEATURE",
+                description = "Tap the Gallery icon in the editor bar to insert lossless images in dedicated vertical blocks. Tap any image in the editor to resize it larger downward or delete it, and preview attached images right on your note cards.",
+                icon = Icons.Default.Image
             ),
             WhatsNewFeatureItem(
-                title = "Automatic Orphaned & Temp File Cleanup",
-                badge = "STORAGE",
-                description = "Orphaned note files, incomplete .tmp writes, and stale shared or update caches are automatically swept on app launch, resume, and every note change.",
+                title = "Persistent Lists, Checkboxes & Compact H2/H1",
+                badge = "EDITOR",
+                description = "Bullet lists and checkboxes now stay active across new lines when pressing Enter until toggled off, coexist cleanly on the same line, and pair with compact H2 and H1 heading buttons.",
                 icon = Icons.Default.CheckCircle
             ),
             WhatsNewFeatureItem(
-                title = "Live Word/Letter Counter & Exact Timestamps",
-                badge = "EDITOR",
-                description = "Track live word and letter counts at the top of the note editor, and see exact hour and minute last-edited timestamps alongside the day and month on every note.",
-                icon = Icons.Default.Tag
+                title = "Checkmark Save & Long-Press Edit Details",
+                badge = "WORKFLOW",
+                description = "Tap the top-right Checkmark icon to save your note and close the keyboard while staying in the editor. Long-press any note in the main menu to open Edit Note Details for titles, tags, and pinning.",
+                icon = Icons.Default.Edit
             ),
             WhatsNewFeatureItem(
-                title = "Smooth Masonry ↔ Column Morphing & Export",
-                badge = "REFINED",
-                description = "Switch between 2-column Masonry Grid and Single Column views with continuous width and position morphing, plus save notes directly via the Android File Picker.",
-                icon = Icons.Default.AutoAwesome
+                title = "AES-256-GCM Cryptography & Auto-Cleanup",
+                badge = "SECURITY",
+                description = "Every note and attached image in the Room SQLite database and private storage is encrypted at rest with AndroidKeyStore AES-256-GCM cryptography and automatic orphaned file cleanup.",
+                icon = Icons.Default.Lock
             )
         )
     }

@@ -11,7 +11,8 @@ import {
   Archive,
   ArchiveRestore,
   Lock,
-  Clock
+  Clock,
+  Edit3
 } from 'lucide-react';
 import { parseTextWithLinks, openUrlInDefaultBrowser } from '../utils/linkUtils';
 
@@ -24,6 +25,7 @@ interface NoteCardProps {
   onDelete: (id: string, e?: React.MouseEvent | React.TouchEvent | null) => void;
   onToggleCheckItem: (noteId: string, itemId: string, e: React.MouseEvent) => void;
   onShare?: (note: Note) => void;
+  onEditDetails?: (note: Note) => void;
   onDeleteTag?: (tag: string) => void;
   isSelectionMode?: boolean;
   isSelected?: boolean;
@@ -41,6 +43,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   onDelete,
   onToggleCheckItem,
   onShare,
+  onEditDetails,
   onDeleteTag,
   isSelectionMode = false,
   isSelected = false,
@@ -142,23 +145,48 @@ export const NoteCard: React.FC<NoteCardProps> = ({
     minute: '2-digit',
   }).format(note.updatedAt);
 
-  const plainTextPreview = React.useMemo(() => {
-    if (!note.content) return '';
+  const { plainTextPreview, previewImages } = React.useMemo(() => {
+    const imgs: string[] = [];
+    if (note.images && note.images.length > 0) {
+      note.images.forEach((im) => {
+        if (im.dataUrl) imgs.push(im.dataUrl);
+      });
+    }
+    if (!note.content) return { plainTextPreview: '', previewImages: imgs };
     try {
       const doc = new DOMParser().parseFromString(note.content, 'text/html');
-      doc.body.querySelectorAll('.aurora-checklist-line').forEach((el) => el.remove());
+      if (imgs.length === 0) {
+        doc.body.querySelectorAll('img').forEach((imgEl) => {
+          const src = imgEl.getAttribute('src');
+          if (src) imgs.push(src);
+        });
+      }
+      doc.body.querySelectorAll('.aurora-image-block, img').forEach((el) => el.remove());
+      doc.body
+        .querySelectorAll('.aurora-checklist-line[data-checklist="true"]')
+        .forEach((el) => el.remove());
+      doc.body.querySelectorAll('.aurora-line-bullet').forEach((el) => {
+        el.textContent = '• ';
+      });
       doc.body.querySelectorAll('br').forEach((br) => br.replaceWith('\n'));
       doc.body.querySelectorAll('div, p, li, h1, h2, h3').forEach((block) => {
         block.append('\n');
       });
-      return (doc.body.textContent || '')
+      const text = (doc.body.textContent || '')
         .replace(/\u200B/g, '')
-        .replace(/\n{2,}/g, '\n')
+        .split('\n')
+        .map((line) => line.trimEnd())
+        .filter((line) => line.trim() !== '' && line.trim() !== '•')
+        .join('\n')
         .trim();
+      return { plainTextPreview: text, previewImages: imgs };
     } catch {
-      return note.content.replace(/<[^>]*>/g, '');
+      return {
+        plainTextPreview: note.content.replace(/<[^>]*>/g, ''),
+        previewImages: imgs,
+      };
     }
-  }, [note.content]);
+  }, [note.content, note.images]);
 
   return (
     <>
@@ -305,6 +333,19 @@ export const NoteCard: React.FC<NoteCardProps> = ({
                           className="absolute right-0 top-7 z-20 w-44 bg-white/95 dark:bg-[#1B1524]/95 backdrop-blur-md rounded-xl border border-[#EADBFC] dark:border-[#322742] shadow-[0_12px_28px_rgba(89,37,220,0.14)] p-1 flex flex-col text-xs font-medium text-[#1E1A24] dark:text-[#F7EEFC]"
                           onClick={(e) => e.stopPropagation()}
                         >
+                          {onEditDetails && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowMenu(false);
+                                onEditDetails(note);
+                              }}
+                              className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] hover:text-[#5925DC] dark:hover:text-[#C296FD] flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Edit Note Details</span>
+                            </button>
+                          )}
                           {onShare && (
                             <button
                               type="button"
@@ -405,6 +446,25 @@ export const NoteCard: React.FC<NoteCardProps> = ({
                 )
               )}
             </p>
+          )}
+
+          {/* Note Image Preview Window (Clicking simply opens the Note Editor, never the image editor) */}
+          {previewImages.length > 0 && (
+            <div
+              data-testid="note-card-image-preview"
+              className="mb-2.5 rounded-xl overflow-hidden border border-[#EADBFC] dark:border-[#322742] bg-[#FAF8FB] dark:bg-[#120E17] relative max-h-28 flex items-center justify-center"
+            >
+              <img
+                src={previewImages[0]}
+                alt="Note attachment preview"
+                className="w-full max-h-28 object-cover pointer-events-none select-none"
+              />
+              {previewImages.length > 1 && (
+                <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-md bg-black/65 text-white text-[9px] font-semibold backdrop-blur-xs">
+                  +{previewImages.length - 1}
+                </span>
+              )}
+            </div>
           )}
 
           {/* Inline Checklists Preview */}

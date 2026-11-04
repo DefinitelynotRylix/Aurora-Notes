@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
@@ -62,6 +63,7 @@ fun NotesScreen(
     onUnarchiveNotesBatch: (List<String>) -> Unit = { ids -> ids.forEach(onUnarchiveNote) },
     onToggleCheckItem: (String, String) -> Unit,
     onAddNote: () -> Unit = {},
+    onSaveNoteDetails: (Note) -> Unit = {},
     onCreateTag: (String) -> Unit = {},
     onDeleteTag: ((String) -> Unit)? = null,
     isArchiveTab: Boolean = false,
@@ -88,6 +90,22 @@ fun NotesScreen(
     // Share dialog state
     var notesToShare by remember { mutableStateOf<List<Note>>(emptyList()) }
 
+    // Edit Note Details dialog state (opened from long-press selection bar)
+    var editingDetailsNote by remember { mutableStateOf<Note?>(null) }
+    var detailsTitle by remember { mutableStateOf("") }
+    val detailsTags = remember { mutableStateListOf<String>() }
+    var detailsNewTagInput by remember { mutableStateOf("") }
+    var detailsIsPinned by remember { mutableStateOf(false) }
+
+    fun openEditNoteDetailsDialog(target: Note) {
+        editingDetailsNote = target
+        detailsTitle = target.title
+        detailsTags.clear()
+        detailsTags.addAll(target.tags)
+        detailsNewTagInput = ""
+        detailsIsPinned = target.isPinned
+    }
+
     // Prune any selected IDs that are no longer in the visible notes list
     LaunchedEffect(notes) {
         val currentIds = notes.map { it.id }.toSet()
@@ -102,6 +120,145 @@ fun NotesScreen(
         ShareNoteDialog(
             notes = notesToShare,
             onDismiss = { notesToShare = emptyList() }
+        )
+    }
+
+    if (editingDetailsNote != null) {
+        AlertDialog(
+            onDismissRequest = { editingDetailsNote = null },
+            title = {
+                Text(text = "Edit Note Details", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = detailsTitle,
+                        onValueChange = { detailsTitle = it },
+                        label = { Text("Title") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text(
+                        "Tags (Long-press a tag to delete)",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    val combinedTags = remember(createdTags, detailsTags.size) {
+                        (createdTags + detailsTags).distinct()
+                    }
+                    if (combinedTags.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            combinedTags.forEach { tag ->
+                                val isAttached = detailsTags.any { it.equals(tag, ignoreCase = true) }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isAttached) AuroraRoyalViolet else AuroraRoyalViolet.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.4f)),
+                                    modifier = Modifier.combinedClickable(
+                                        onClick = {
+                                            if (isAttached) {
+                                                detailsTags.removeAll { it.equals(tag, ignoreCase = true) }
+                                            } else {
+                                                detailsTags.add(tag)
+                                            }
+                                        },
+                                        onLongClick = { pendingDeleteTag = tag }
+                                    )
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = "#$tag",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (isAttached) Color.White else AuroraRoyalViolet
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = detailsNewTagInput,
+                            onValueChange = { detailsNewTagInput = it },
+                            placeholder = { Text("Create new tag...", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = {
+                                val clean = detailsNewTagInput.trim().removePrefix("#").trim()
+                                if (clean.isNotBlank() && detailsTags.none { it.equals(clean, ignoreCase = true) }) {
+                                    detailsTags.add(clean)
+                                    onCreateTag(clean)
+                                    detailsNewTagInput = ""
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text("Add")
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Pin note to top", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Switch(
+                            checked = detailsIsPinned,
+                            onCheckedChange = { detailsIsPinned = it }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val target = editingDetailsNote
+                        if (target != null) {
+                            val updatedNote = target.copy(
+                                title = detailsTitle.trim().ifBlank { "Untitled Note" },
+                                tags = detailsTags.toList(),
+                                category = detailsTags.firstOrNull() ?: "",
+                                isPinned = detailsIsPinned,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            onSaveNoteDetails(updatedNote)
+                        }
+                        editingDetailsNote = null
+                        selectedNoteIds.clear()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
+                ) {
+                    Text("Save Note", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingDetailsNote = null }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
@@ -351,6 +508,30 @@ fun NotesScreen(
                                 Text("Restore", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         } else {
+                            // Edit Note Details (Opened when long-pressing notes in the main menu)
+                            FilledTonalButton(
+                                onClick = {
+                                    val target = notes.firstOrNull { it.id in selectedNoteIds }
+                                    if (target != null) {
+                                        openEditNoteDetailsDialog(target)
+                                    }
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = AuroraRoyalViolet,
+                                    contentColor = Color.White
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Edit Note Details",
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Edit Note Details", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
                             // Archive Selected Notes (1 or multiple)
                             FilledTonalButton(
                                 onClick = {

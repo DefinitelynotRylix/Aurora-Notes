@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   getLineBoundsAtOffset,
   toggleLineCheckboxAtCursor,
+  toggleLineBulletAtCursor,
+  handleEnterKeyWithActiveModes,
   clampSelectionToMinusOneRule,
   toggleCheckboxCheckedStateAtOffset,
   getNoteViewFormatAlignment,
@@ -40,6 +42,53 @@ test('toggleLineCheckboxAtCursor enables and disables checkbox on every specific
   const step4 = toggleLineCheckboxAtCursor(step3.text, step3.selectionStart);
   assert.equal(step4.text, '☐ First line\n☐ Second line\nThird line');
   assert.equal(step4.checkboxEnabledOnLine, true);
+});
+
+test('checkbox can be disabled when both checkbox and bullet list are enabled on the same line', () => {
+  const initial = 'Item text';
+
+  // Enable bullet list first
+  const withBullet = toggleLineBulletAtCursor(initial, 4);
+  assert.equal(withBullet.text, '• Item text');
+  assert.equal(withBullet.bulletEnabledOnLine, true);
+
+  // Enable checkbox on the same line -> both checkbox and bullet coexist on the same line
+  const withBoth = toggleLineCheckboxAtCursor(withBullet.text, withBullet.selectionStart);
+  assert.equal(withBoth.text, '☐ • Item text');
+  assert.equal(withBoth.checkboxEnabledOnLine, true);
+
+  const bounds = getLineBoundsAtOffset(withBoth.text, withBoth.selectionStart);
+  assert.equal(bounds.hasCheckbox, true);
+  assert.equal(bounds.hasBullet, true);
+
+  // Disable checkbox while bullet is on the same line -> checkbox is removed, bullet remains intact
+  const disabledCb = toggleLineCheckboxAtCursor(withBoth.text, withBoth.selectionStart);
+  assert.equal(disabledCb.text, '• Item text');
+  assert.equal(disabledCb.checkboxEnabledOnLine, false);
+
+  // Also test disabling bullet when both are active -> bullet is removed, checkbox remains intact
+  const reEnabledBoth = toggleLineCheckboxAtCursor(disabledCb.text, disabledCb.selectionStart);
+  assert.equal(reEnabledBoth.text, '☐ • Item text');
+  const disabledBullet = toggleLineBulletAtCursor(reEnabledBoth.text, reEnabledBoth.selectionStart);
+  assert.equal(disabledBullet.text, '☐ Item text');
+  assert.equal(disabledBullet.bulletEnabledOnLine, false);
+});
+
+test('handleEnterKeyWithActiveModes continues bullet list and checkbox on every new line without deleting empty bullets', () => {
+  // Bullet active on an empty bullet line: pressing Enter keeps the bullet and creates a new bullet line
+  const emptyBullet = '• ';
+  const afterEnter1 = handleEnterKeyWithActiveModes(emptyBullet, emptyBullet.length, false, true);
+  assert.equal(afterEnter1.text, '• \n• ');
+  assert.equal(afterEnter1.cursorOffset, 5);
+
+  // Pressing Enter again keeps going on every line until disabled
+  const afterEnter2 = handleEnterKeyWithActiveModes(afterEnter1.text, afterEnter1.cursorOffset, false, true);
+  assert.equal(afterEnter2.text, '• \n• \n• ');
+
+  // Both checkbox and bullet active
+  const bothLine = '☐ • First item';
+  const afterEnterBoth = handleEnterKeyWithActiveModes(bothLine, bothLine.length, true, true);
+  assert.equal(afterEnterBoth.text, '☐ • First item\n☐ • ');
 });
 
 test('clampSelectionToMinusOneRule prevents cursor from entering -1 prefix slot before checkbox', () => {
@@ -168,6 +217,7 @@ test('cleanupOrphanedPrivateStorageEntries removes orphaned note files, empty fi
   assert.ok(report.cleanedKeys.includes(`${TEMP_CACHE_FILE_PREFIX}share_123.md`));
   assert.ok(!report.cleanedKeys.includes(`${PRIVATE_EXTERNAL_FILE_PREFIX}note_1.json`));
 });
+
 
 
 

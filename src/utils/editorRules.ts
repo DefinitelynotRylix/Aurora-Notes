@@ -12,13 +12,14 @@ export interface LineBounds {
   hasBullet: boolean;
   /**
    * The index where user-editable text begins on this line (position 0 of line content).
-   * When a checkbox occupies the -1 prefix slot, contentStart is lineStart + 2.
+   * When a checkbox and/or bullet occupy the prefix slots, contentStart is after them.
    */
   contentStart: number;
 }
 
 /**
  * Returns metadata for the line containing the given character offset.
+ * Supports simultaneous checkbox (`☐ ` / `☑ `) and bullet (`• `) prefixes on the same line.
  */
 export function getLineBoundsAtOffset(text: string, offset: number): LineBounds {
   const safeOffset = Math.max(0, Math.min(offset, text.length));
@@ -28,10 +29,19 @@ export function getLineBoundsAtOffset(text: string, offset: number): LineBounds 
   const lineEnd = nextNewline === -1 ? text.length : nextNewline;
   const lineText = text.slice(lineStart, lineEnd);
 
-  const isUnchecked = lineText.startsWith(UNCHECKED_PREFIX);
-  const isChecked = lineText.startsWith(CHECKED_PREFIX);
+  const isUnchecked =
+    lineText.startsWith(UNCHECKED_PREFIX) ||
+    lineText.startsWith(`${BULLET_PREFIX}${UNCHECKED_PREFIX}`);
+  const isChecked =
+    lineText.startsWith(CHECKED_PREFIX) ||
+    lineText.startsWith(`${BULLET_PREFIX}${CHECKED_PREFIX}`);
   const hasCheckbox = isUnchecked || isChecked;
-  const hasBullet = lineText.startsWith(BULLET_PREFIX);
+
+  const hasBullet =
+    lineText.startsWith(BULLET_PREFIX) ||
+    (hasCheckbox && lineText.slice(2).startsWith(BULLET_PREFIX));
+
+  const prefixLen = (hasCheckbox ? 2 : 0) + (hasBullet ? 2 : 0);
 
   let lineIndex = 0;
   for (let i = 0; i < lineStart; i++) {
@@ -46,16 +56,45 @@ export function getLineBoundsAtOffset(text: string, offset: number): LineBounds 
     hasCheckbox,
     isChecked,
     hasBullet,
-    contentStart: hasCheckbox ? lineStart + 2 : lineStart,
+    contentStart: lineStart + prefixLen,
   };
 }
 
 /**
- * Enforces the -1 checkbox rule on a specific line:
- * - If the line does not have a checkbox, places `☐ ` in the dedicated -1 prefix slot
- *   at the start of the line (replacing a bullet if one exists) and shifts the cursor forward.
- * - If the line already has a checkbox (`☐ ` or `☑ `), disables (removes) it from that specific line
- *   and shifts the cursor back cleanly.
+ * Strips any leading checkbox (`☐ ` / `☑ `) and/or bullet (`• `) prefixes from a line string
+ * and returns its normalized components.
+ */
+function parseLinePrefixes(line: string): {
+  hasCheckbox: boolean;
+  checkboxPrefix: string;
+  hasBullet: boolean;
+  cleanBody: string;
+} {
+  let rem = line;
+  let hasCheckbox = false;
+  let checkboxPrefix = UNCHECKED_PREFIX;
+  let hasBullet = false;
+
+  for (let i = 0; i < 2; i++) {
+    if (!hasCheckbox && (rem.startsWith(UNCHECKED_PREFIX) || rem.startsWith(CHECKED_PREFIX))) {
+      hasCheckbox = true;
+      checkboxPrefix = rem.slice(0, 2);
+      rem = rem.slice(2);
+    } else if (!hasBullet && rem.startsWith(BULLET_PREFIX)) {
+      hasBullet = true;
+      rem = rem.slice(2);
+    }
+  }
+
+  return { hasCheckbox, checkboxPrefix, hasBullet, cleanBody: rem };
+}
+
+/**
+ * Enforces the -1 checkbox rule on a specific line while coexisting cleanly with bullet lists:
+ * - If the line already has a checkbox (`☐ ` or `☑ `), disables (removes) the checkbox from that line
+ *   even if a bullet list (`• `) is also on the same line (preserving the bullet).
+ * - If the line does not have a checkbox, places `☐ ` in the dedicated -1 prefix slot at the start of the line
+ *   (preserving any existing bullet `• ` right after the checkbox).
  */
 export function toggleLineCheckboxAtCursor(
   text: string,
@@ -74,45 +113,37 @@ export function toggleLineCheckboxAtCursor(
 
   // Single-line cursor or selection within one line
   if (safeStart === safeEnd || getLineBoundsAtOffset(text, safeEnd).lineStart === firstLine.lineStart) {
-    if (firstLine.hasCheckbox) {
-      // Disable (remove) checkbox on this specific line
+    const parsed = parseLinePrefixes(firstLine.lineText);
+    if (parsed.hasCheckbox) {
+      // Disable (remove) checkbox on this specific line, keeping bullet if present
+      const rebuiltLine = (parsed.hasBullet ? BULLET_PREFIX : '') + parsed.cleanBody;
       const newText =
-        text.slice(0, firstLine.lineStart) + text.slice(firstLine.lineStart + 2);
-      const newStart = Math.max(firstLine.lineStart, safeStart - 2);
-      const newEnd = Math.max(firstLine.lineStart, safeEnd - 2);
+        text.slice(0, firstLine.lineStart) +
+        rebuiltLine +
+        text.slice(firstLine.lineEnd);
+      const minCursor = firstLine.lineStart + (parsed.hasBullet ? 2 : 0);
+      const newStart = Math.max(minCursor, safeStart - 2);
+      const newEnd = Math.max(minCursor, safeEnd - 2);
       return {
         text: newText,
-        selectionStart: newStart,
-        selectionEnd: newEnd,
+        selectionStart: Math.min(newStart, newText.length),
+        selectionEnd: Math.min(newEnd, newText.length),
         checkboxEnabledOnLine: false,
       };
-    } else if (firstLine.hasBullet) {
-      // Replace bullet prefix with checkbox prefix in the -1 slot
-      const newText =
-        text.slice(0, firstLine.lineStart) +
-        UNCHECKED_PREFIX +
-        text.slice(firstLine.lineStart + 2);
-      return {
-        text: newText,
-        selectionStart: Math.max(firstLine.lineStart + 2, safeStart),
-        selectionEnd: Math.max(firstLine.lineStart + 2, safeEnd),
-        checkboxEnabledOnLine: true,
-      };
     } else {
-      // Enable checkbox in the -1 prefix slot of this line
-      const cleanLineRemainder = text
-        .slice(firstLine.lineStart, firstLine.lineEnd)
-        .replace(/^(?:☐ |☑ )+/, '');
+      // Enable checkbox in the -1 prefix slot of this line, keeping bullet if present
+      const rebuiltLine =
+        UNCHECKED_PREFIX + (parsed.hasBullet ? BULLET_PREFIX : '') + parsed.cleanBody;
       const newText =
         text.slice(0, firstLine.lineStart) +
-        UNCHECKED_PREFIX +
-        cleanLineRemainder +
+        rebuiltLine +
         text.slice(firstLine.lineEnd);
-      const delta = 2 - (firstLine.lineText.length - cleanLineRemainder.length);
+      const minCursor = firstLine.lineStart + 2 + (parsed.hasBullet ? 2 : 0);
+      const delta = rebuiltLine.length - firstLine.lineText.length;
       return {
         text: newText,
-        selectionStart: Math.max(firstLine.lineStart + 2, safeStart + delta),
-        selectionEnd: Math.max(firstLine.lineStart + 2, safeEnd + delta),
+        selectionStart: Math.max(minCursor, safeStart + delta),
+        selectionEnd: Math.max(minCursor, safeEnd + delta),
         checkboxEnabledOnLine: true,
       };
     }
@@ -133,17 +164,17 @@ export function toggleLineCheckboxAtCursor(
     const overlaps = lEnd >= safeStart && lStart <= safeEnd;
     if (!overlaps) return line;
 
-    const hasCb = line.startsWith(UNCHECKED_PREFIX) || line.startsWith(CHECKED_PREFIX);
-    if (shouldDisable && hasCb) {
+    const parsed = parseLinePrefixes(line);
+    if (shouldDisable && parsed.hasCheckbox) {
       if (lStart < safeStart) newStart = Math.max(lStart, newStart - 2);
       newEnd = Math.max(newStart, newEnd - 2);
-      return line.slice(2);
-    } else if (!shouldDisable && !hasCb) {
-      const stripped = line.startsWith(BULLET_PREFIX) ? line.slice(2) : line;
-      const diff = 2 - (line.length - stripped.length);
+      return (parsed.hasBullet ? BULLET_PREFIX : '') + parsed.cleanBody;
+    } else if (!shouldDisable && !parsed.hasCheckbox) {
+      const rebuilt = UNCHECKED_PREFIX + (parsed.hasBullet ? BULLET_PREFIX : '') + parsed.cleanBody;
+      const diff = rebuilt.length - line.length;
       if (lStart <= safeStart) newStart += diff;
       newEnd += diff;
-      return UNCHECKED_PREFIX + stripped;
+      return rebuilt;
     }
     return line;
   });
@@ -158,7 +189,87 @@ export function toggleLineCheckboxAtCursor(
 }
 
 /**
- * Clamps cursor selection so it can never enter the -1 prefix slot (before the checkbox)
+ * Toggles bullet list (`• `) on the current line while preserving any checkbox on the same line.
+ */
+export function toggleLineBulletAtCursor(
+  text: string,
+  selectionStart: number,
+  selectionEnd: number = selectionStart
+): {
+  text: string;
+  selectionStart: number;
+  selectionEnd: number;
+  bulletEnabledOnLine: boolean;
+} {
+  const safeStart = Math.max(0, Math.min(selectionStart, text.length));
+  const safeEnd = Math.max(safeStart, Math.min(selectionEnd, text.length));
+  const firstLine = getLineBoundsAtOffset(text, safeStart);
+  const parsed = parseLinePrefixes(firstLine.lineText);
+
+  if (parsed.hasBullet) {
+    // Disable bullet on this line, keeping checkbox if present
+    const rebuiltLine =
+      (parsed.hasCheckbox ? parsed.checkboxPrefix : '') + parsed.cleanBody;
+    const newText =
+      text.slice(0, firstLine.lineStart) +
+      rebuiltLine +
+      text.slice(firstLine.lineEnd);
+    const minCursor = firstLine.lineStart + (parsed.hasCheckbox ? 2 : 0);
+    return {
+      text: newText,
+      selectionStart: Math.min(Math.max(minCursor, safeStart - 2), newText.length),
+      selectionEnd: Math.min(Math.max(minCursor, safeEnd - 2), newText.length),
+      bulletEnabledOnLine: false,
+    };
+  } else {
+    // Enable bullet on this line, keeping checkbox in front if present
+    const rebuiltLine =
+      (parsed.hasCheckbox ? parsed.checkboxPrefix : '') +
+      BULLET_PREFIX +
+      parsed.cleanBody;
+    const newText =
+      text.slice(0, firstLine.lineStart) +
+      rebuiltLine +
+      text.slice(firstLine.lineEnd);
+    const minCursor = firstLine.lineStart + (parsed.hasCheckbox ? 2 : 0) + 2;
+    const delta = rebuiltLine.length - firstLine.lineText.length;
+    return {
+      text: newText,
+      selectionStart: Math.max(minCursor, safeStart + delta),
+      selectionEnd: Math.max(minCursor, safeEnd + delta),
+      bulletEnabledOnLine: true,
+    };
+  }
+}
+
+/**
+ * Handles pressing Enter / Send when bullet list and/or checkbox mode is active.
+ * Never deletes the bullet or checkbox on an empty line; continues active modes on every new line
+ * until the user explicitly disables the button.
+ */
+export function handleEnterKeyWithActiveModes(
+  text: string,
+  cursorOffset: number,
+  isCheckboxActive: boolean,
+  isBulletActive: boolean
+): {
+  text: string;
+  cursorOffset: number;
+} {
+  const safeCursor = Math.max(0, Math.min(cursorOffset, text.length));
+  const continuationPrefix =
+    (isCheckboxActive ? UNCHECKED_PREFIX : '') +
+    (isBulletActive ? BULLET_PREFIX : '');
+  const inserted = `\n${continuationPrefix}`;
+  const newText = text.slice(0, safeCursor) + inserted + text.slice(safeCursor);
+  return {
+    text: newText,
+    cursorOffset: safeCursor + inserted.length,
+  };
+}
+
+/**
+ * Clamps cursor selection so it can never enter the -1 prefix slot (before the checkbox/bullet)
  * on any line that has a checkbox enabled.
  */
 export function clampSelectionToMinusOneRule(

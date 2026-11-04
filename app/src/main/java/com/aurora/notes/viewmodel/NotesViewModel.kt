@@ -30,7 +30,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_BIOMETRIC_LOCK = "key_biometric_lock_enabled"
         private const val KEY_WELCOME_SEEN = "key_welcome_tour_seen_v1"
         private const val KEY_WHATS_NEW_SEEN_VERSION = "key_whats_new_seen_version_v1"
-        const val CURRENT_MAJOR_UPDATE_ID = "1.3.30"
+        const val CURRENT_MAJOR_UPDATE_ID = "1.3.34"
         private const val KEY_USER_TAGS = "key_user_created_tags_v1"
         private const val KEY_THEME_MODE = "key_theme_mode_v1"
         private const val KEY_HAPTICS_ENABLED = "key_haptics_enabled_v1"
@@ -338,7 +338,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             .trim()
         val hasChecklistContent = note.checklist.any { it.text.trim().isNotBlank() }
 
-        if (cleanTitle.isBlank() && cleanContent.isBlank() && !hasChecklistContent) {
+        if (cleanTitle.isBlank() && cleanContent.isBlank() && !hasChecklistContent && note.images.isEmpty()) {
             LocalLogger.warn("NOTE", "Discarded blank note with empty title and body")
             return
         }

@@ -2,14 +2,14 @@ import React from 'react';
 import {
   Sparkles,
   Lock,
-  Sliders,
-  ShieldCheck,
-  Clock,
+  Image as ImageIcon,
+  ListChecks,
+  Edit3,
   Check,
   X
 } from 'lucide-react';
 
-export const CURRENT_WHATS_NEW_VERSION = '1.3.30';
+export const CURRENT_WHATS_NEW_VERSION = '1.3.34';
 
 interface WhatsNewModalProps {
   isOpen: boolean;
@@ -24,32 +24,32 @@ export const WhatsNewModal: React.FC<WhatsNewModalProps> = ({
 
   const highlights = [
     {
-      icon: <Lock className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
-      title: 'AES-256-GCM Cryptography & Private Storage',
-      badge: 'CRYPTOGRAPHY',
+      icon: <ImageIcon className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
+      title: 'Insert Lossless Images & Note Card Previews',
+      badge: 'NEW FEATURE',
       description:
-        'Every note in the Room SQLite database and mirrored private device storage is now permanently encrypted at rest using hardware-backed AndroidKeyStore AES-256-GCM cryptography.',
+        'Tap the Gallery icon in the editor bar to insert lossless images in dedicated vertical blocks. Tap any image in the editor to resize it larger downward or delete it, and see image previews right on your note cards.',
     },
     {
-      icon: <ShieldCheck className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'Automatic Orphaned & Temp File Cleanup',
-      badge: 'STORAGE',
-      description:
-        'Orphaned note files, incomplete .tmp writes, and stale shared or update caches are automatically swept on app launch, resume, and every note change.',
-    },
-    {
-      icon: <Clock className="w-5 h-5 text-[#8B3DFF] dark:text-[#C296FD]" />,
-      title: 'Live Word & Letter Counter + Exact Edit Timestamps',
+      icon: <ListChecks className="w-5 h-5 text-[#8B3DFF] dark:text-[#C296FD]" />,
+      title: 'Persistent Bullet Lists, Checkboxes & Compact H2/H1',
       badge: 'EDITOR',
       description:
-        'Track real-time word and letter counts at the top of the note editor, and see exact hour and minute last-edited timestamps alongside the day and month on every note.',
+        'Bullet lists and checkboxes now stay active across new lines when pressing Enter until toggled off, coexist cleanly on the same line without pushing text underneath, and pair with compact H2 and H1 buttons.',
     },
     {
-      icon: <Sliders className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'Seamless Masonry ↔ Column Morphing & Folder Export',
-      badge: 'REFINED',
+      icon: <Edit3 className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
+      title: 'In-Place Checkmark Save & Long-Press Edit Note Details',
+      badge: 'WORKFLOW',
       description:
-        'Switch between 2-column Masonry Grid and Single Column views with continuous width and coordinate interpolation, plus export notes directly via the Android File Picker.',
+        'Tap the top-right Checkmark icon to save your note and close the keyboard while staying in the editor. Long-press any note in the main menu to open Edit Note Details for titles, tags, and pinning.',
+    },
+    {
+      icon: <Lock className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
+      title: 'AES-256-GCM Cryptography & Auto-Cleanup',
+      badge: 'SECURITY',
+      description:
+        'Every note and attached image in the Room SQLite database and private storage is encrypted at rest with AndroidKeyStore AES-256-GCM cryptography and automatic orphaned file cleanup.',
     },
   ];
 

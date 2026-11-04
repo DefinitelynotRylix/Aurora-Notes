@@ -9,7 +9,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.aurora.notes.model.Note
 
-@Database(entities = [Note::class], version = 3, exportSchema = false)
+@Database(entities = [Note::class], version = 4, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AuroraDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
@@ -60,6 +60,27 @@ abstract class AuroraDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val cursor = db.query("PRAGMA table_info(`notes`)")
+                var hasImagesColumn = false
+                try {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) {
+                        if (nameIndex >= 0 && cursor.getString(nameIndex) == "images") {
+                            hasImagesColumn = true
+                            break
+                        }
+                    }
+                } finally {
+                    cursor.close()
+                }
+                if (!hasImagesColumn) {
+                    db.execSQL("ALTER TABLE `notes` ADD COLUMN `images` TEXT NOT NULL DEFAULT '[]'")
+                }
+            }
+        }
+
         fun getDatabase(context: Context): AuroraDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -67,7 +88,7 @@ abstract class AuroraDatabase : RoomDatabase() {
                     AuroraDatabase::class.java,
                     "aurora_notes.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                 INSTANCE = instance
@@ -76,3 +97,4 @@ abstract class AuroraDatabase : RoomDatabase() {
         }
     }
 }
+

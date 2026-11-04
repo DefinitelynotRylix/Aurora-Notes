@@ -1,13 +1,17 @@
 package com.aurora.notes.ui.components
 
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Schedule
@@ -25,6 +29,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,6 +41,7 @@ import com.aurora.notes.model.Note
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.util.LinkHelper
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -58,6 +66,7 @@ fun NoteCard(
     val formattedDate = dateFormat.format(Date(note.updatedAt))
 
     val plainTextPreview = note.content
+        .replace(Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]"), "")
         .replace(Regex("<[^>]*>"), "")
         .replace("&nbsp;", " ")
         .trim()
@@ -242,6 +251,64 @@ fun NoteCard(
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Note Image Preview Window (Clicking the image preview simply opens the Note Editor, never the image editor)
+            if (note.images.isNotEmpty()) {
+                val firstImg = note.images.first()
+                val previewBitmap = remember(firstImg.uri) {
+                    try {
+                        val file = File(firstImg.uri)
+                        if (file.exists()) {
+                            BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                        } else null
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(96.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.background)
+                        .clickable { onClick() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (previewBitmap != null) {
+                        Image(
+                            bitmap = previewBitmap,
+                            contentDescription = "Note image preview",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = "Note image preview",
+                            tint = AuroraRoyalViolet.copy(alpha = 0.7f),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    if (note.images.size > 1) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.Black.copy(alpha = 0.65f),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(6.dp)
+                        ) {
+                            Text(
+                                text = "+${note.images.size - 1}",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
             }
 

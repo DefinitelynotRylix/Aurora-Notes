@@ -1,15 +1,18 @@
 package com.aurora.notes.util
 
 import android.content.Context
+import android.net.Uri
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.aurora.notes.model.ChecklistItem
 import com.aurora.notes.model.Note
+import com.aurora.notes.model.NoteImage
 import com.google.gson.GsonBuilder
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
+import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -42,6 +45,7 @@ object PrivateStorageManager {
     private const val GCM_IV_BYTES = 12
     private const val ENC_PREFIX = "ENCv1:"
     private const val PRIVATE_NOTES_DIR_NAME = "aurora_private_notes"
+    private const val PRIVATE_IMAGES_DIR_NAME = "aurora_private_images"
 
     private val gson = GsonBuilder().setPrettyPrinting().create()
 
@@ -124,6 +128,9 @@ object PrivateStorageManager {
             checklist = plain.checklist.map { item ->
                 item.copy(text = encryptText(item.text))
             },
+            images = plain.images.map { img ->
+                img.copy(uri = encryptText(img.uri))
+            },
             tags = plain.tags.map { tag -> encryptText(tag) },
             category = encryptText(plain.category)
         )
@@ -135,7 +142,8 @@ object PrivateStorageManager {
             isEncryptedValue(note.styleSpansJson) ||
             isEncryptedValue(note.category) ||
             note.tags.any { isEncryptedValue(it) } ||
-            note.checklist.any { isEncryptedValue(it.text) }
+            note.checklist.any { isEncryptedValue(it.text) } ||
+            note.images.any { isEncryptedValue(it.uri) }
 
         if (!needsDecrypt) return note
 
@@ -150,9 +158,54 @@ object PrivateStorageManager {
                     completed = item.completed
                 )
             },
+            images = note.images.map { img ->
+                NoteImage(
+                    id = img.id,
+                    uri = decryptText(img.uri),
+                    isExpanded = img.isExpanded
+                )
+            },
             tags = note.tags.map { tag -> decryptText(tag) },
             category = decryptText(note.category)
         )
+    }
+
+    /**
+     * Copies a user-selected image from the Android File Picker (`content://`) byte-for-byte
+     * (100% lossless quality, zero recompression) into the app's private storage directory.
+     */
+    fun saveLosslessNoteImage(context: Context, sourceUri: Uri): String? {
+        return try {
+            val externalImagesDir = try {
+                context.getExternalFilesDir(PRIVATE_IMAGES_DIR_NAME)
+            } catch (_: Exception) {
+                null
+            }
+            val targetDir = externalImagesDir ?: File(context.filesDir, PRIVATE_IMAGES_DIR_NAME)
+            if (!targetDir.exists()) {
+                targetDir.mkdirs()
+            }
+            val mimeType = context.contentResolver.getType(sourceUri) ?: "image/png"
+            val ext = when {
+                mimeType.contains("png", ignoreCase = true) -> "png"
+                mimeType.contains("webp", ignoreCase = true) -> "webp"
+                mimeType.contains("gif", ignoreCase = true) -> "gif"
+                else -> "jpg"
+            }
+            val destFile = File(targetDir, "img_${UUID.randomUUID()}.$ext")
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                destFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            } ?: return null
+            destFile.absolutePath
+        } catch (e: Exception) {
+            LocalLogger.error(
+                "IMAGE",
+                "Failed saving lossless image to private storage: ${e.localizedMessage ?: "I/O error"}"
+            )
+            null
+        }
     }
 
     /**
@@ -373,16 +426,18 @@ object PrivateStorageManager {
 
     /**
      * Computes live word and letter counts for the Note Editor header.
-     * Strips inline checkbox (`☐ `, `☑ `) and bullet (`• `) prefixes so formatting markers
-     * are not counted as words or letters.
+     * Strips inline checkbox (`☐ `, `☑ `), bullet (`• `), and image block (`[[AURORA_IMG:...]]`) markers
+     * so formatting markers are not counted as words or letters.
      */
     fun computeWordAndLetterCounts(title: String, body: String): WordLetterCount {
         val sanitizedBody = body
+            .replace(Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]"), " ")
             .replace("☐ ", " ")
             .replace("☑ ", " ")
             .replace("• ", " ")
             .replace("☐", " ")
             .replace("☑", " ")
+            .replace("•", " ")
 
         val combined = buildString {
             if (title.isNotBlank()) {
@@ -407,3 +462,4 @@ object PrivateStorageManager {
         return WordLetterCount(words = words, letters = letters)
     }
 }
+

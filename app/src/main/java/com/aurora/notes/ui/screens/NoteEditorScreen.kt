@@ -1,9 +1,14 @@
 package com.aurora.notes.ui.screens
 
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -22,11 +27,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Unarchive
@@ -35,14 +43,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -62,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aurora.notes.model.ChecklistItem
 import com.aurora.notes.model.Note
+import com.aurora.notes.model.NoteImage
 import com.aurora.notes.ui.components.ShareNoteDialog
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
@@ -70,14 +84,56 @@ import com.aurora.notes.util.PrivateStorageManager
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CancellationException
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import kotlin.math.min
 
 private const val UNCHECKED_BOX_PREFIX = "☐ "
 private const val CHECKED_BOX_PREFIX = "☑ "
 private const val BULLET_LINE_PREFIX = "• "
+
+private data class ParsedLinePrefix(
+    val hasCheckbox: Boolean,
+    val checkboxPrefix: String,
+    val hasBullet: Boolean,
+    val cleanBody: String
+) {
+    val totalPrefixLength: Int
+        get() = (if (hasCheckbox) 2 else 0) + (if (hasBullet) 2 else 0)
+
+    val canonicalPrefix: String
+        get() = (if (hasCheckbox) checkboxPrefix else "") + (if (hasBullet) BULLET_LINE_PREFIX else "")
+}
+
+private fun parseLinePrefixes(line: String): ParsedLinePrefix {
+    var rem = line
+    var hasCheckbox = false
+    var checkboxPrefix = UNCHECKED_BOX_PREFIX
+    var hasBullet = false
+
+    repeat(2) {
+        when {
+            !hasCheckbox && (rem.startsWith(UNCHECKED_BOX_PREFIX) || rem.startsWith(CHECKED_BOX_PREFIX)) -> {
+                hasCheckbox = true
+                checkboxPrefix = rem.substring(0, 2)
+                rem = rem.substring(2)
+            }
+            !hasBullet && rem.startsWith(BULLET_LINE_PREFIX) -> {
+                hasBullet = true
+                rem = rem.substring(2)
+            }
+        }
+    }
+    return ParsedLinePrefix(
+        hasCheckbox = hasCheckbox,
+        checkboxPrefix = checkboxPrefix,
+        hasBullet = hasBullet,
+        cleanBody = rem
+    )
+}
 
 private fun findLineStart(text: String, offset: Int): Int {
     val safe = offset.coerceIn(0, text.length)
@@ -91,21 +147,32 @@ private fun findLineEnd(text: String, lineStart: Int): Int {
     return if (nextNewline == -1) text.length else nextNewline
 }
 
+private fun getParsedLineAt(text: String, lineStart: Int): ParsedLinePrefix {
+    val safeStart = lineStart.coerceIn(0, text.length)
+    val lineEnd = findLineEnd(text, safeStart)
+    return parseLinePrefixes(text.substring(safeStart, lineEnd))
+}
+
 private fun hasCheckboxAtLineStart(text: String, lineStart: Int): Boolean {
-    return text.startsWith(UNCHECKED_BOX_PREFIX, lineStart) ||
-        text.startsWith(CHECKED_BOX_PREFIX, lineStart)
+    return getParsedLineAt(text, lineStart).hasCheckbox
+}
+
+private fun hasBulletAtLineStart(text: String, lineStart: Int): Boolean {
+    return getParsedLineAt(text, lineStart).hasBullet
 }
 
 /**
- * Enforces the -1 rule: on any line that has a checkbox in its -1 prefix slot (`lineStart..lineStart+1`),
- * the cursor/selection cannot enter before `lineStart + 2` (position 0 of the line's user text).
+ * Enforces the -1 rule: on any line that has a checkbox and/or bullet prefix,
+ * the cursor/selection cannot enter before the user text start (`lineStart + totalPrefixLength`).
  */
 private fun clampSelectionToMinusOneRule(text: String, selection: TextRange): TextRange {
     fun clampOffset(offset: Int): Int {
         val safe = offset.coerceIn(0, text.length)
         val lineStart = findLineStart(text, safe)
-        return if (hasCheckboxAtLineStart(text, lineStart) && safe < lineStart + 2) {
-            (lineStart + 2).coerceAtMost(text.length)
+        val parsed = getParsedLineAt(text, lineStart)
+        val minAllowed = lineStart + parsed.totalPrefixLength
+        return if (parsed.hasCheckbox && safe < minAllowed) {
+            minAllowed.coerceAtMost(text.length)
         } else {
             safe
         }
@@ -114,52 +181,89 @@ private fun clampSelectionToMinusOneRule(text: String, selection: TextRange): Te
 }
 
 /**
- * Cleans up broken prefix states when the user presses Backspace at position 0 (right after `☐ ` or `☑ `)
- * and prevents duplicate checkboxes on a single line.
+ * Normalizes line prefixes and handles Enter key continuation when Bullet List and/or Checkbox
+ * mode is active so pressing Enter NEVER deletes the bullet or checkbox and continues on every new line
+ * until the user disables the button.
  */
 private fun normalizeCheckboxLinesAfterEdit(
     oldText: String,
     newText: String,
-    newSelection: TextRange
+    newSelection: TextRange,
+    isCheckboxModeActive: Boolean,
+    isBulletModeActive: Boolean
 ): Pair<String, TextRange> {
     if (newText.isEmpty()) return newText to TextRange(0)
-    val lines = newText.split('\n')
-    var modified = false
-    var cursor = newSelection.start.coerceIn(0, newText.length)
+
+    var workingText = newText
+    var workingCursor = newSelection.start.coerceIn(0, workingText.length)
+
+    // Detect if the user just pressed Enter / Send (inserted a single '\n' at cursor - 1)
+    if (newText.length == oldText.length + 1 &&
+        workingCursor > 0 &&
+        workingText[workingCursor - 1] == '\n'
+    ) {
+        val prevLineStart = findLineStart(workingText, (workingCursor - 1).coerceAtLeast(0))
+        val prevParsed = getParsedLineAt(workingText, prevLineStart)
+        val continueCb = isCheckboxModeActive || prevParsed.hasCheckbox
+        val continueBullet = isBulletModeActive || prevParsed.hasBullet
+        val autoPrefix =
+            (if (continueCb) UNCHECKED_BOX_PREFIX else "") +
+                (if (continueBullet) BULLET_LINE_PREFIX else "")
+
+        if (autoPrefix.isNotEmpty() && !workingText.startsWith(autoPrefix, workingCursor)) {
+            workingText =
+                workingText.substring(0, workingCursor) +
+                    autoPrefix +
+                    workingText.substring(workingCursor)
+            workingCursor += autoPrefix.length
+        }
+    }
+
+    val lines = workingText.split('\n')
+    var modified = workingText != newText
     var charOffset = 0
 
     val normalizedLines = lines.map { line ->
         val lStart = charOffset
         charOffset += line.length + 1
 
-        // If user pressed Backspace right after `☐ ` or `☑ `, the space was deleted leaving `☐` or `☑`
-        if ((line.startsWith("☐") && !line.startsWith(UNCHECKED_BOX_PREFIX)) ||
-            (line.startsWith("☑") && !line.startsWith(CHECKED_BOX_PREFIX))
-        ) {
-            modified = true
-            if (cursor > lStart) {
-                cursor = (cursor - 1).coerceAtLeast(lStart)
+        // Canonicalize `• ☐ ` -> `☐ • ` and `• ☑ ` -> `☑ • ` so checkbox and bullet stay side-by-side on the same line
+        when {
+            line.startsWith("$BULLET_LINE_PREFIX$UNCHECKED_BOX_PREFIX") -> {
+                modified = true
+                "$UNCHECKED_BOX_PREFIX$BULLET_LINE_PREFIX" + line.substring(4)
             }
-            line.substring(1)
-        } else if (line.startsWith("☐ ☐ ") || line.startsWith("☑ ☐ ") || line.startsWith("☐ ☑ ") || line.startsWith("☑ ☑ ")) {
-            modified = true
-            if (cursor > lStart + 2) {
-                cursor = (cursor - 2).coerceAtLeast(lStart + 2)
+            line.startsWith("$BULLET_LINE_PREFIX$CHECKED_BOX_PREFIX") -> {
+                modified = true
+                "$CHECKED_BOX_PREFIX$BULLET_LINE_PREFIX" + line.substring(4)
             }
-            line.substring(0, 2) + line.substring(4)
-        } else {
-            line
+            (line.startsWith("☐") && !line.startsWith(UNCHECKED_BOX_PREFIX)) ||
+                (line.startsWith("☑") && !line.startsWith(CHECKED_BOX_PREFIX)) -> {
+                modified = true
+                if (workingCursor > lStart) {
+                    workingCursor = (workingCursor - 1).coerceAtLeast(lStart)
+                }
+                line.substring(1)
+            }
+            line.startsWith("☐ ☐ ") || line.startsWith("☑ ☐ ") || line.startsWith("☐ ☑ ") || line.startsWith("☑ ☑ ") -> {
+                modified = true
+                if (workingCursor > lStart + 2) {
+                    workingCursor = (workingCursor - 2).coerceAtLeast(lStart + 2)
+                }
+                line.substring(0, 2) + line.substring(4)
+            }
+            else -> line
         }
     }
 
-    val finalString = if (modified) normalizedLines.joinToString("\n") else newText
-    val finalRange = if (modified) {
-        clampSelectionToMinusOneRule(finalString, TextRange(cursor.coerceIn(0, finalString.length)))
-    } else {
-        clampSelectionToMinusOneRule(finalString, newSelection)
-    }
+    val finalString = if (modified) normalizedLines.joinToString("\n") else workingText
+    val finalRange = clampSelectionToMinusOneRule(
+        finalString,
+        TextRange(workingCursor.coerceIn(0, finalString.length))
+    )
     return finalString to finalRange
 }
+
 
 enum class TextSizeMode {
     SMALL,
@@ -287,6 +391,7 @@ fun NoteEditorScreen(
     note: Note,
     userTags: List<String> = emptyList(),
     onSaveAndClose: (Note) -> Unit,
+    onSaveInPlace: (Note) -> Unit = {},
     onDiscardAndClose: () -> Unit = {},
     onUnarchiveNote: ((String) -> Unit)? = null,
     onDeleteNote: ((String) -> Unit)? = null,
@@ -295,14 +400,16 @@ fun NoteEditorScreen(
     modifier: Modifier = Modifier
 ) {
     val isReadOnly = note.isArchived
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var title by remember(note.id) { mutableStateOf(note.title) }
     var isPinned by remember(note.id) { mutableStateOf(note.isPinned) }
     val tags = remember(note.id) { mutableStateListOf(*note.tags.toTypedArray()) }
     val checklistItems = remember(note.id) { mutableStateListOf(*note.checklist.toTypedArray()) }
+    val noteImages = remember(note.id) { mutableStateListOf(*note.images.toTypedArray()) }
+    var activeImageMenuId by remember(note.id) { mutableStateOf<String?>(null) }
 
-    var newTagInput by remember { mutableStateOf("") }
     var newChecklistInput by remember { mutableStateOf("") }
-    var showDoneDetailsDialog by remember { mutableStateOf(false) }
     var showAddChecklistDialog by remember { mutableStateOf(false) }
     var pendingDeleteTag by remember { mutableStateOf<String?>(null) }
 
@@ -310,6 +417,11 @@ fun NoteEditorScreen(
     var isBoldActive by remember { mutableStateOf(false) }
     var isItalicActive by remember { mutableStateOf(false) }
     var activeSizeMode by remember { mutableStateOf(TextSizeMode.SMALL) }
+
+    // Explicit active / inactive toggle states for Bullet List and Checkbox
+    var isBulletModeActive by remember(note.id) { mutableStateOf(false) }
+    var isCheckboxModeActive by remember(note.id) { mutableStateOf(false) }
+    var lastSyncedLineStart by remember(note.id) { mutableIntStateOf(-1) }
 
     var bodyValue by remember(note.id) {
         mutableStateOf(
@@ -322,6 +434,18 @@ fun NoteEditorScreen(
 
     var charSpans by remember(note.id) {
         mutableStateOf(parseSpansJson(note.styleSpansJson, note.content.length))
+    }
+
+    // Sync active/inactive button states when cursor moves to a different line
+    LaunchedEffect(bodyValue.selection.start, bodyValue.text) {
+        val safeCursor = bodyValue.selection.start.coerceIn(0, bodyValue.text.length)
+        val lineStart = findLineStart(bodyValue.text, safeCursor)
+        if (lineStart != lastSyncedLineStart) {
+            lastSyncedLineStart = lineStart
+            val parsed = getParsedLineAt(bodyValue.text, lineStart)
+            isCheckboxModeActive = parsed.hasCheckbox
+            isBulletModeActive = parsed.hasBullet
+        }
     }
 
     val editorScrollState = rememberScrollState()
@@ -379,6 +503,37 @@ fun NoteEditorScreen(
     }
 
     val context = LocalContext.current
+
+    // Native Android File Picker for inserting lossless images into the note
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { pickedUri: Uri? ->
+        if (pickedUri != null && !isReadOnly) {
+            val savedPath = PrivateStorageManager.saveLosslessNoteImage(context, pickedUri)
+            if (savedPath != null) {
+                val newImg = NoteImage(
+                    id = UUID.randomUUID().toString(),
+                    uri = savedPath,
+                    isExpanded = false
+                )
+                noteImages.add(newImg)
+                val marker = "[[AURORA_IMG:${newImg.id}]]"
+                val curText = bodyValue.text
+                val curCursor = bodyValue.selection.end.coerceIn(0, curText.length)
+                val lineEnd = findLineEnd(curText, findLineStart(curText, curCursor))
+                val prefixBefore = if (lineEnd > 0 && curText[lineEnd - 1] != '\n') "\n" else ""
+                val suffixAfter = "\n"
+                val inserted = "$prefixBefore$marker$suffixAfter"
+                val updatedText = curText.substring(0, lineEnd) + inserted + curText.substring(lineEnd)
+                val newCursorPos = (lineEnd + inserted.length).coerceIn(0, updatedText.length)
+                bodyValue = TextFieldValue(
+                    text = updatedText,
+                    selection = TextRange(newCursorPos)
+                )
+            }
+        }
+    }
+
     val detectedBodyLinks = remember(bodyValue.text) {
         LinkHelper.extractLinks(bodyValue.text)
     }
@@ -387,7 +542,7 @@ fun NoteEditorScreen(
         PrivateStorageManager.computeWordAndLetterCounts(title, bodyValue.text)
     }
 
-    // VisualTransformation keeps IME typing 100% lag-free, styles user spans, inline checkboxes, and highlights links in purple
+    // VisualTransformation keeps IME typing 100% lag-free, styles user spans, inline checkboxes/bullets, and highlights links in purple
     val richVisualTransformation = remember(charSpans) {
         VisualTransformation { text ->
             val raw = text.text
@@ -415,11 +570,12 @@ fun NoteEditorScreen(
                     }
                 }
 
-                // Style inline per-line checkboxes (`☐ ` and `☑ `) in the -1 prefix slot
+                // Style inline per-line checkboxes (`☐ ` and `☑ `) and bullets (`• `) on the same line
                 var lineStart = 0
                 while (lineStart <= len) {
                     val lineEnd = findLineEnd(raw, lineStart)
-                    if (raw.startsWith(UNCHECKED_BOX_PREFIX, lineStart)) {
+                    val parsed = getParsedLineAt(raw, lineStart)
+                    if (parsed.hasCheckbox) {
                         addStyle(
                             style = SpanStyle(
                                 color = AuroraRoyalViolet,
@@ -429,24 +585,27 @@ fun NoteEditorScreen(
                             start = lineStart,
                             end = (lineStart + 1).coerceAtMost(len)
                         )
-                    } else if (raw.startsWith(CHECKED_BOX_PREFIX, lineStart)) {
-                        addStyle(
-                            style = SpanStyle(
-                                color = AuroraRoyalViolet,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 17.sp
-                            ),
-                            start = lineStart,
-                            end = (lineStart + 1).coerceAtMost(len)
-                        )
-                        if (lineStart + 2 < lineEnd) {
+                        if (parsed.checkboxPrefix == CHECKED_BOX_PREFIX && lineStart + parsed.totalPrefixLength < lineEnd) {
                             addStyle(
                                 style = SpanStyle(
                                     color = AuroraRoyalViolet.copy(alpha = 0.58f),
                                     textDecoration = TextDecoration.LineThrough
                                 ),
-                                start = lineStart + 2,
+                                start = lineStart + parsed.totalPrefixLength,
                                 end = lineEnd
+                            )
+                        }
+                    }
+                    if (parsed.hasBullet) {
+                        val bulletPos = lineStart + (if (parsed.hasCheckbox) 2 else 0)
+                        if (bulletPos < len) {
+                            addStyle(
+                                style = SpanStyle(
+                                    color = AuroraRoyalViolet,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                start = bulletPos,
+                                end = (bulletPos + 1).coerceAtMost(len)
                             )
                         }
                     }
@@ -481,11 +640,13 @@ fun NoteEditorScreen(
             return
         }
         val cleanTitle = title.trim()
-        val cleanBody = bodyValue.text.trim()
+        val cleanBody = bodyValue.text
+            .replace(Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]"), "")
+            .trim()
         val validChecklists = checklistItems.filter { it.text.trim().isNotEmpty() }
 
-        // If user created a note and typed nothing in title, body, or checklist, do not save it
-        if (cleanTitle.isEmpty() && cleanBody.isEmpty() && validChecklists.isEmpty()) {
+        // If user created a note and typed nothing in title, body, checklist, or images, do not save it
+        if (cleanTitle.isEmpty() && cleanBody.isEmpty() && validChecklists.isEmpty() && noteImages.isEmpty()) {
             onDiscardAndClose()
             return
         }
@@ -495,6 +656,7 @@ fun NoteEditorScreen(
             content = bodyValue.text,
             styleSpansJson = if (charSpans.isEmpty()) "" else spanGson.toJson(charSpans),
             checklist = validChecklists,
+            images = noteImages.toList(),
             tags = tags.toList(),
             category = tags.firstOrNull() ?: "",
             isPinned = isPinned,
@@ -503,7 +665,38 @@ fun NoteEditorScreen(
         onSaveAndClose(updatedNote)
     }
 
-    val isSubDialogOpen = showDoneDetailsDialog || showAddChecklistDialog || pendingDeleteTag != null
+    fun handleSaveStayInEditor() {
+        // Close user keyboard and clear focus while staying in the Note Editor
+        focusManager.clearFocus()
+        keyboardController?.hide()
+        activeImageMenuId = null
+        if (isReadOnly) return
+
+        val cleanTitle = title.trim()
+        val cleanBody = bodyValue.text
+            .replace(Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]"), "")
+            .trim()
+        val validChecklists = checklistItems.filter { it.text.trim().isNotEmpty() }
+
+        if (cleanTitle.isEmpty() && cleanBody.isEmpty() && validChecklists.isEmpty() && noteImages.isEmpty()) {
+            return
+        }
+
+        val updatedNote = note.copy(
+            title = cleanTitle,
+            content = bodyValue.text,
+            styleSpansJson = if (charSpans.isEmpty()) "" else spanGson.toJson(charSpans),
+            checklist = validChecklists,
+            images = noteImages.toList(),
+            tags = tags.toList(),
+            category = tags.firstOrNull() ?: "",
+            isPinned = isPinned,
+            updatedAt = System.currentTimeMillis()
+        )
+        onSaveInPlace(updatedNote)
+    }
+
+    val isSubDialogOpen = showAddChecklistDialog || pendingDeleteTag != null
 
     PredictiveBackHandler(enabled = !isSubDialogOpen) { progress ->
         try {
@@ -518,7 +711,6 @@ fun NoteEditorScreen(
 
     BackHandler(enabled = isSubDialogOpen) {
         when {
-            showDoneDetailsDialog -> showDoneDetailsDialog = false
             showAddChecklistDialog -> showAddChecklistDialog = false
             pendingDeleteTag != null -> pendingDeleteTag = null
         }
@@ -587,134 +779,6 @@ fun NoteEditorScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showAddChecklistDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    if (showDoneDetailsDialog && !isReadOnly) {
-        AlertDialog(
-            onDismissRequest = { showDoneDetailsDialog = false },
-            title = {
-                Text(text = "Save Note Details", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = title,
-                        onValueChange = { title = it },
-                        label = { Text("Title") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Text(
-                        "Tags (Long-press a tag to delete)",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    // Existing user tags for quick toggle + note's current tags
-                    val combinedTags = remember(userTags, tags.size) {
-                        (userTags + tags).distinct()
-                    }
-                    if (combinedTags.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            combinedTags.forEach { tag ->
-                                val isAttached = tags.any { it.equals(tag, ignoreCase = true) }
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (isAttached) AuroraRoyalViolet else AuroraRoyalViolet.copy(alpha = 0.12f),
-                                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.4f)),
-                                    modifier = Modifier.combinedClickable(
-                                        onClick = {
-                                            if (isAttached) {
-                                                tags.removeAll { it.equals(tag, ignoreCase = true) }
-                                            } else {
-                                                tags.add(tag)
-                                            }
-                                        },
-                                        onLongClick = { pendingDeleteTag = tag }
-                                    )
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                    ) {
-                                        Text(
-                                            text = "#$tag",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = if (isAttached) Color.White else AuroraRoyalViolet
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = newTagInput,
-                            onValueChange = { newTagInput = it },
-                            placeholder = { Text("Create new tag...", fontSize = 11.sp) },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Button(
-                            onClick = {
-                                val clean = newTagInput.trim().removePrefix("#").trim()
-                                if (clean.isNotBlank() && tags.none { it.equals(clean, ignoreCase = true) }) {
-                                    tags.add(clean)
-                                    newTagInput = ""
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text("Add")
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Pin note to top", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Switch(
-                            checked = isPinned,
-                            onCheckedChange = { isPinned = it }
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showDoneDetailsDialog = false
-                        handleExitEditor()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
-                ) {
-                    Text("Save Note", color = Color.White)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDoneDetailsDialog = false }) {
                     Text("Cancel")
                 }
             }
@@ -806,8 +870,7 @@ fun NoteEditorScreen(
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = MaterialTheme.colorScheme.background,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-                                modifier = Modifier.clickable { showDoneDetailsDialog = true }
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -937,32 +1000,20 @@ fun NoteEditorScreen(
                                 )
                             }
 
-                            // Compact Done Button sized to always fit cleanly in the top bar
+                            // Checkmark Icon Button: saves note in place without popup, closes keyboard, stays in editor
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = AuroraRoyalViolet,
                                 modifier = Modifier
-                                    .height(30.dp)
-                                    .clickable { showDoneDetailsDialog = true }
+                                    .size(30.dp)
+                                    .clickable { handleSaveStayInEditor() }
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         Icons.Default.Check,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(13.dp),
+                                        contentDescription = "Save Note",
+                                        modifier = Modifier.size(16.dp),
                                         tint = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text(
-                                        text = "Done",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        softWrap = false
                                     )
                                 }
                             }
@@ -1040,10 +1091,8 @@ fun NoteEditorScreen(
                             }
                         }
 
-                        // Text Sizing Buttons:
-                        // Default is Small (neither Medium nor Large is enabled by default).
-                        // Tapping Medium toggles Medium on/off (reverting to Small when turned off).
-                        // Tapping Large toggles Large on/off (reverting to Small when turned off).
+                        // Compact H2 and H1 Text Size Buttons:
+                        // Default is Small (neither H2 nor H1 is enabled by default).
                         Row(
                             modifier = Modifier
                                 .background(
@@ -1054,7 +1103,7 @@ fun NoteEditorScreen(
                             horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             TextSizeButton(
-                                label = "Medium",
+                                label = "H2",
                                 selected = activeSizeMode == TextSizeMode.MEDIUM,
                                 onClick = {
                                     activeSizeMode = if (activeSizeMode == TextSizeMode.MEDIUM) {
@@ -1065,7 +1114,7 @@ fun NoteEditorScreen(
                                 }
                             )
                             TextSizeButton(
-                                label = "Large",
+                                label = "H1",
                                 selected = activeSizeMode == TextSizeMode.LARGE,
                                 onClick = {
                                     activeSizeMode = if (activeSizeMode == TextSizeMode.LARGE) {
@@ -1077,19 +1126,20 @@ fun NoteEditorScreen(
                             )
                         }
 
-                        // Current cursor line metadata for Bullet & Checkbox (-1 rule)
+                        // Current cursor line metadata for Bullet & Checkbox (-1 rule + coexistence)
                         val activeCursor = bodyValue.selection.start.coerceIn(0, bodyValue.text.length)
                         val activeLineStart = findLineStart(bodyValue.text, activeCursor)
-                        val isCurrentLineBullet = bodyValue.text.startsWith(BULLET_LINE_PREFIX, activeLineStart)
-                        val isCurrentLineCheckbox = hasCheckboxAtLineStart(bodyValue.text, activeLineStart)
+                        val activeLineParsed = getParsedLineAt(bodyValue.text, activeLineStart)
+                        val isBulletHighlighted = isBulletModeActive || activeLineParsed.hasBullet
+                        val isCheckboxHighlighted = isCheckboxModeActive || activeLineParsed.hasCheckbox
 
-                        // Insert / Toggle Bullet on Current Line
+                        // Toggle Bullet List (Active / Inactive state; continues on Enter until disabled)
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = if (isCurrentLineBullet) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
+                            color = if (isBulletHighlighted) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
                             border = BorderStroke(
                                 1.dp,
-                                if (isCurrentLineBullet) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                if (isBulletHighlighted) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
                             ),
                             modifier = Modifier
                                 .height(34.dp)
@@ -1098,18 +1148,21 @@ fun NoteEditorScreen(
                                     val text = bodyValue.text
                                     val cursor = bodyValue.selection.start.coerceIn(0, text.length)
                                     val lineStart = findLineStart(text, cursor)
-                                    val hasBullet = text.startsWith(BULLET_LINE_PREFIX, lineStart)
-                                    val hasCheckbox = hasCheckboxAtLineStart(text, lineStart)
-                                    val newText = when {
-                                        hasBullet -> text.removeRange(lineStart, lineStart + 2)
-                                        hasCheckbox -> text.substring(0, lineStart) + BULLET_LINE_PREFIX + text.substring(lineStart + 2)
-                                        else -> text.substring(0, lineStart) + BULLET_LINE_PREFIX + text.substring(lineStart)
-                                    }
-                                    val newCursor = when {
-                                        hasBullet -> (cursor - 2).coerceAtLeast(lineStart)
-                                        hasCheckbox -> cursor.coerceAtLeast(lineStart + 2)
-                                        else -> cursor + 2
-                                    }
+                                    val lineEnd = findLineEnd(text, lineStart)
+                                    val parsed = getParsedLineAt(text, lineStart)
+                                    val nextBulletState = !parsed.hasBullet
+                                    isBulletModeActive = nextBulletState
+                                    isCheckboxModeActive = parsed.hasCheckbox
+
+                                    val rebuiltLine =
+                                        (if (parsed.hasCheckbox) parsed.checkboxPrefix else "") +
+                                            (if (nextBulletState) BULLET_LINE_PREFIX else "") +
+                                            parsed.cleanBody
+                                    val newText = text.substring(0, lineStart) + rebuiltLine + text.substring(lineEnd)
+                                    val minCursor = lineStart + (if (parsed.hasCheckbox) 2 else 0) + (if (nextBulletState) 2 else 0)
+                                    val delta = rebuiltLine.length - (lineEnd - lineStart)
+                                    val newCursor = (cursor + delta).coerceAtLeast(minCursor).coerceIn(0, newText.length)
+
                                     charSpans = applyTextEditToSpans(
                                         oldText = text,
                                         newText = newText,
@@ -1120,7 +1173,7 @@ fun NoteEditorScreen(
                                     )
                                     bodyValue = TextFieldValue(
                                         text = newText,
-                                        selection = TextRange(newCursor.coerceIn(0, newText.length))
+                                        selection = clampSelectionToMinusOneRule(newText, TextRange(newCursor))
                                     )
                                 }
                         ) {
@@ -1128,19 +1181,19 @@ fun NoteEditorScreen(
                                 Icon(
                                     Icons.AutoMirrored.Filled.FormatListBulleted,
                                     contentDescription = "Bullet List",
-                                    tint = if (isCurrentLineBullet) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
+                                    tint = if (isBulletHighlighted) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
 
-                        // Per-Line Checkbox Toggle (-1 Rule: enables/disables checkbox in the -1 slot of the current line)
+                        // Toggle Checkbox (Active / Inactive state; coexists with Bullet List on the same line and can always be disabled)
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = if (isCurrentLineCheckbox) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
+                            color = if (isCheckboxHighlighted) AuroraRoyalViolet.copy(alpha = 0.15f) else Color.Transparent,
                             border = BorderStroke(
                                 1.dp,
-                                if (isCurrentLineCheckbox) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                if (isCheckboxHighlighted) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
                             ),
                             modifier = Modifier
                                 .height(34.dp)
@@ -1149,18 +1202,21 @@ fun NoteEditorScreen(
                                     val text = bodyValue.text
                                     val cursor = bodyValue.selection.start.coerceIn(0, text.length)
                                     val lineStart = findLineStart(text, cursor)
-                                    val hasCheckbox = hasCheckboxAtLineStart(text, lineStart)
-                                    val hasBullet = text.startsWith(BULLET_LINE_PREFIX, lineStart)
-                                    val newText = when {
-                                        hasCheckbox -> text.removeRange(lineStart, lineStart + 2)
-                                        hasBullet -> text.substring(0, lineStart) + UNCHECKED_BOX_PREFIX + text.substring(lineStart + 2)
-                                        else -> text.substring(0, lineStart) + UNCHECKED_BOX_PREFIX + text.substring(lineStart)
-                                    }
-                                    val newCursor = when {
-                                        hasCheckbox -> (cursor - 2).coerceAtLeast(lineStart)
-                                        hasBullet -> cursor.coerceAtLeast(lineStart + 2)
-                                        else -> (cursor + 2).coerceAtLeast(lineStart + 2)
-                                    }
+                                    val lineEnd = findLineEnd(text, lineStart)
+                                    val parsed = getParsedLineAt(text, lineStart)
+                                    val nextCheckboxState = !parsed.hasCheckbox
+                                    isCheckboxModeActive = nextCheckboxState
+                                    isBulletModeActive = parsed.hasBullet
+
+                                    val rebuiltLine =
+                                        (if (nextCheckboxState) UNCHECKED_BOX_PREFIX else "") +
+                                            (if (parsed.hasBullet) BULLET_LINE_PREFIX else "") +
+                                            parsed.cleanBody
+                                    val newText = text.substring(0, lineStart) + rebuiltLine + text.substring(lineEnd)
+                                    val minCursor = lineStart + (if (nextCheckboxState) 2 else 0) + (if (parsed.hasBullet) 2 else 0)
+                                    val delta = rebuiltLine.length - (lineEnd - lineStart)
+                                    val newCursor = (cursor + delta).coerceAtLeast(minCursor).coerceIn(0, newText.length)
+
                                     charSpans = applyTextEditToSpans(
                                         oldText = text,
                                         newText = newText,
@@ -1173,7 +1229,7 @@ fun NoteEditorScreen(
                                         text = newText,
                                         selection = clampSelectionToMinusOneRule(
                                             newText,
-                                            TextRange(newCursor.coerceIn(0, newText.length))
+                                            TextRange(newCursor)
                                         )
                                     )
                                 }
@@ -1182,7 +1238,32 @@ fun NoteEditorScreen(
                                 Icon(
                                     Icons.Default.CheckBox,
                                     contentDescription = "Toggle Line Checkbox",
-                                    tint = if (isCurrentLineCheckbox) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
+                                    tint = if (isCheckboxHighlighted) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        // Insert Image Button (Gallery Icon -> Opens Native Android File Picker)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                            ),
+                            modifier = Modifier
+                                .height(34.dp)
+                                .width(36.dp)
+                                .clickable {
+                                    imagePickerLauncher.launch("image/*")
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Image,
+                                    contentDescription = "Insert Image",
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -1417,120 +1498,399 @@ fun NoteEditorScreen(
                     }
                 }
 
-                // Unified Multiline Note Body Editor (Read-only when archived; tapping purple links opens Android default browser; tapping inline checkbox toggles it)
-                BasicTextField(
-                    value = bodyValue,
-                    onValueChange = { newValue ->
-                        val oldText = bodyValue.text
-                        val newText = newValue.text
+                // Segmented Note Body + Dedicated Lossless Image Blocks:
+                // Users can only write ABOVE and UNDER an image (never behind or next to it).
+                // Clicking an image brings up a small window next to the pushed image with Resize (extends downward) and Delete (removes image and pulls text up).
+                if (noteImages.isEmpty()) {
+                    BasicTextField(
+                        value = bodyValue,
+                        onValueChange = { newValue ->
+                            activeImageMenuId = null
+                            val oldText = bodyValue.text
+                            val newText = newValue.text
 
-                        // Handle tap inside text when characters did not change
-                        if (oldText == newText && newValue.selection.collapsed && newValue.selection != bodyValue.selection) {
-                            val tappedOffset = newValue.selection.start.coerceIn(0, newText.length)
-                            val tappedLineStart = findLineStart(newText, tappedOffset)
+                            if (oldText == newText && newValue.selection.collapsed && newValue.selection != bodyValue.selection) {
+                                val tappedOffset = newValue.selection.start.coerceIn(0, newText.length)
+                                val tappedLineStart = findLineStart(newText, tappedOffset)
+                                val parsed = getParsedLineAt(newText, tappedLineStart)
 
-                            // If the user tapped on the -1 checkbox slot (`☐ ` or `☑ `) on this line, toggle checked/unchecked!
-                            if (!isReadOnly && hasCheckboxAtLineStart(newText, tappedLineStart) && tappedOffset in tappedLineStart..(tappedLineStart + 1)) {
-                                val isCurrentlyChecked = newText.startsWith(CHECKED_BOX_PREFIX, tappedLineStart)
-                                val replacementPrefix = if (isCurrentlyChecked) UNCHECKED_BOX_PREFIX else CHECKED_BOX_PREFIX
-                                val toggledText = newText.substring(0, tappedLineStart) +
-                                    replacementPrefix +
-                                    newText.substring(tappedLineStart + 2)
-                                bodyValue = TextFieldValue(
-                                    text = toggledText,
-                                    selection = TextRange((tappedLineStart + 2).coerceAtMost(toggledText.length))
-                                )
-                                return@BasicTextField
-                            }
-
-                            val clickedLink = detectedBodyLinks.firstOrNull { link ->
-                                tappedOffset > link.start && tappedOffset < link.end
-                            }
-                            if (clickedLink != null) {
-                                LinkHelper.openUrlInDefaultBrowser(context, clickedLink.normalizedUrl)
-                            }
-                        }
-
-                        if (isReadOnly) return@BasicTextField
-
-                        val (normalizedText, clampedSelection) = normalizeCheckboxLinesAfterEdit(
-                            oldText = oldText,
-                            newText = newText,
-                            newSelection = newValue.selection
-                        )
-
-                        if (oldText != normalizedText) {
-                            charSpans = applyTextEditToSpans(
-                                oldText = oldText,
-                                newText = normalizedText,
-                                oldSpans = charSpans,
-                                activeSizeMode = activeSizeMode,
-                                isBoldActive = isBoldActive,
-                                isItalicActive = isItalicActive
-                            )
-                        }
-                        bodyValue = newValue.copy(
-                            text = normalizedText,
-                            selection = clampedSelection
-                        )
-                    },
-                    readOnly = isReadOnly,
-                    singleLine = false,
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.Sentences,
-                        imeAction = ImeAction.Default
-                    ),
-                    onTextLayout = { textLayoutResult = it },
-                    visualTransformation = richVisualTransformation,
-                    textStyle = TextStyle(
-                        fontSize = 15.sp,
-                        lineHeight = 23.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    ),
-                    cursorBrush = SolidColor(AuroraRoyalViolet),
-                    decorationBox = { innerTextField ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .defaultMinSize(minHeight = 360.dp)
-                        ) {
-                            if (bodyValue.text.isEmpty() && !isReadOnly) {
-                                Text(
-                                    text = "Start typing your note here...",
-                                    style = TextStyle(
-                                        fontSize = 15.sp,
-                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
+                                if (!isReadOnly && parsed.hasCheckbox && tappedOffset in tappedLineStart..(tappedLineStart + 1)) {
+                                    val isCurrentlyChecked = newText.startsWith(CHECKED_BOX_PREFIX, tappedLineStart)
+                                    val replacementPrefix = if (isCurrentlyChecked) UNCHECKED_BOX_PREFIX else CHECKED_BOX_PREFIX
+                                    val toggledText = newText.substring(0, tappedLineStart) +
+                                        replacementPrefix +
+                                        newText.substring(tappedLineStart + 2)
+                                    bodyValue = TextFieldValue(
+                                        text = toggledText,
+                                        selection = TextRange((tappedLineStart + parsed.totalPrefixLength).coerceAtMost(toggledText.length))
                                     )
+                                    return@BasicTextField
+                                }
+
+                                val clickedLink = detectedBodyLinks.firstOrNull { link ->
+                                    tappedOffset > link.start && tappedOffset < link.end
+                                }
+                                if (clickedLink != null) {
+                                    LinkHelper.openUrlInDefaultBrowser(context, clickedLink.normalizedUrl)
+                                }
+                            }
+
+                            if (isReadOnly) return@BasicTextField
+
+                            val (normalizedText, clampedSelection) = normalizeCheckboxLinesAfterEdit(
+                                oldText = oldText,
+                                newText = newText,
+                                newSelection = newValue.selection,
+                                isCheckboxModeActive = isCheckboxModeActive,
+                                isBulletModeActive = isBulletModeActive
+                            )
+
+                            if (oldText != normalizedText) {
+                                charSpans = applyTextEditToSpans(
+                                    oldText = oldText,
+                                    newText = normalizedText,
+                                    oldSpans = charSpans,
+                                    activeSizeMode = activeSizeMode,
+                                    isBoldActive = isBoldActive,
+                                    isItalicActive = isItalicActive
                                 )
                             }
-                            innerTextField()
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .defaultMinSize(minHeight = 360.dp)
-                        .let { mod ->
-                            if (isReadOnly && detectedBodyLinks.isNotEmpty()) {
-                                mod.pointerInput(bodyValue.text, detectedBodyLinks) {
-                                    detectTapGestures { tapOffset ->
-                                        val layout = textLayoutResult ?: return@detectTapGestures
-                                        val charOffset = layout.getOffsetForPosition(tapOffset)
-                                        val hitLink = detectedBodyLinks.firstOrNull { link ->
-                                            charOffset in link.start..link.end
+                            bodyValue = newValue.copy(
+                                text = normalizedText,
+                                selection = clampedSelection
+                            )
+                        },
+                        readOnly = isReadOnly,
+                        singleLine = false,
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Sentences,
+                            imeAction = ImeAction.Default
+                        ),
+                        onTextLayout = { textLayoutResult = it },
+                        visualTransformation = richVisualTransformation,
+                        textStyle = TextStyle(
+                            fontSize = 15.sp,
+                            lineHeight = 23.sp,
+                            color = MaterialTheme.colorScheme.onBackground
+                        ),
+                        cursorBrush = SolidColor(AuroraRoyalViolet),
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 360.dp)
+                            ) {
+                                if (bodyValue.text.isEmpty() && !isReadOnly) {
+                                    Text(
+                                        text = "Start typing your note here...",
+                                        style = TextStyle(
+                                            fontSize = 15.sp,
+                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 360.dp)
+                            .let { mod ->
+                                if (isReadOnly && detectedBodyLinks.isNotEmpty()) {
+                                    mod.pointerInput(bodyValue.text, detectedBodyLinks) {
+                                        detectTapGestures { tapOffset ->
+                                            val layout = textLayoutResult ?: return@detectTapGestures
+                                            val charOffset = layout.getOffsetForPosition(tapOffset)
+                                            val hitLink = detectedBodyLinks.firstOrNull { link ->
+                                                charOffset in link.start..link.end
+                                            }
+                                            if (hitLink != null) {
+                                                LinkHelper.openUrlInDefaultBrowser(context, hitLink.normalizedUrl)
+                                            }
                                         }
-                                        if (hitLink != null) {
-                                            LinkHelper.openUrlInDefaultBrowser(context, hitLink.normalizedUrl)
+                                    }
+                                } else {
+                                    mod
+                                }
+                            }
+                            .onGloballyPositioned { coords ->
+                                bodyTopInColumnPx = coords.positionInParent().y
+                            }
+                    )
+                } else {
+                    // Split note content by [[AURORA_IMG:<id>]] markers so text is strictly ABOVE and UNDER each image
+                    val markerRegex = remember { Regex("\\n?\\[\\[AURORA_IMG:([^\\]]+)\\]\\]\\n?") }
+                    val matches = remember(bodyValue.text) { markerRegex.findAll(bodyValue.text).toList() }
+                    val textSegments = remember(bodyValue.text, noteImages.size) {
+                        val list = ArrayList<String>()
+                        var lastIdx = 0
+                        for (m in matches) {
+                            list.add(bodyValue.text.substring(lastIdx, m.range.first))
+                            lastIdx = m.range.last + 1
+                        }
+                        list.add(bodyValue.text.substring(lastIdx))
+                        while (list.size <= noteImages.size) {
+                            list.add("")
+                        }
+                        list
+                    }
+
+                    fun rebuildBodyWithSegments(updatedSegments: List<String>, activeSegIdx: Int, segCursor: Int) {
+                        val sb = StringBuilder()
+                        var globalCursor = 0
+                        for (i in updatedSegments.indices) {
+                            if (i == activeSegIdx) {
+                                globalCursor = sb.length + segCursor.coerceIn(0, updatedSegments[i].length)
+                            }
+                            sb.append(updatedSegments[i])
+                            if (i < noteImages.size) {
+                                val imgId = noteImages[i].id
+                                sb.append("\n[[AURORA_IMG:$imgId]]\n")
+                            }
+                        }
+                        val full = sb.toString()
+                        bodyValue = TextFieldValue(
+                            text = full,
+                            selection = TextRange(globalCursor.coerceIn(0, full.length))
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onGloballyPositioned { coords ->
+                                bodyTopInColumnPx = coords.positionInParent().y
+                            },
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (segIdx in 0..noteImages.size) {
+                            val segText = textSegments.getOrElse(segIdx) { "" }
+                            var segFieldValue by remember(note.id, segIdx, noteImages.size) {
+                                mutableStateOf(TextFieldValue(text = segText, selection = TextRange(segText.length)))
+                            }
+                            if (segFieldValue.text != segText) {
+                                segFieldValue = segFieldValue.copy(
+                                    text = segText,
+                                    selection = TextRange(segFieldValue.selection.start.coerceIn(0, segText.length))
+                                )
+                            }
+
+                            // Editable text block ABOVE / UNDER the image
+                            BasicTextField(
+                                value = segFieldValue,
+                                onValueChange = { newSegVal ->
+                                    activeImageMenuId = null
+                                    if (isReadOnly) return@BasicTextField
+                                    val (normSeg, clampedSegSel) = normalizeCheckboxLinesAfterEdit(
+                                        oldText = segFieldValue.text,
+                                        newText = newSegVal.text,
+                                        newSelection = newSegVal.selection,
+                                        isCheckboxModeActive = isCheckboxModeActive,
+                                        isBulletModeActive = isBulletModeActive
+                                    )
+                                    segFieldValue = newSegVal.copy(text = normSeg, selection = clampedSegSel)
+                                    val updatedList = textSegments.toMutableList()
+                                    if (segIdx < updatedList.size) {
+                                        updatedList[segIdx] = normSeg
+                                    }
+                                    rebuildBodyWithSegments(updatedList, segIdx, clampedSegSel.start)
+                                },
+                                readOnly = isReadOnly,
+                                singleLine = false,
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.Sentences,
+                                    imeAction = ImeAction.Default
+                                ),
+                                textStyle = TextStyle(
+                                    fontSize = 15.sp,
+                                    lineHeight = 23.sp,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                ),
+                                cursorBrush = SolidColor(AuroraRoyalViolet),
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .defaultMinSize(minHeight = if (segIdx == noteImages.size) 160.dp else 32.dp)
+                                    ) {
+                                        if (segFieldValue.text.isEmpty() && !isReadOnly) {
+                                            Text(
+                                                text = if (segIdx == 0) "Write above image..." else "Write under image...",
+                                                style = TextStyle(
+                                                    fontSize = 14.sp,
+                                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.32f)
+                                                )
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            // Dedicated Image Block (Cannot write behind or next to the image; only above and under it)
+                            if (segIdx < noteImages.size) {
+                                val imgItem = noteImages[segIdx]
+                                val isMenuOpen = activeImageMenuId == imgItem.id
+                                val bitmap = remember(imgItem.uri) {
+                                    try {
+                                        val file = File(imgItem.uri)
+                                        if (file.exists()) {
+                                            val opts = BitmapFactory.Options().apply {
+                                                inScaled = false
+                                            }
+                                            BitmapFactory.decodeFile(file.absolutePath, opts)?.asImageBitmap()
+                                        } else null
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.Top,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    // Image stays anchored at its first reserved top line and only expands downward
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(
+                                            if (isMenuOpen) 2.dp else 1.dp,
+                                            if (isMenuOpen) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                        ),
+                                        color = MaterialTheme.colorScheme.surface,
+                                        modifier = Modifier
+                                            .let { mod ->
+                                                if (imgItem.isExpanded) {
+                                                    mod
+                                                        .widthIn(min = 180.dp, max = 260.dp)
+                                                        .heightIn(min = 160.dp, max = 280.dp)
+                                                } else {
+                                                    mod
+                                                        .width(132.dp)
+                                                        .heightIn(max = 132.dp)
+                                                }
+                                            }
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable(enabled = !isReadOnly) {
+                                                activeImageMenuId = if (isMenuOpen) null else imgItem.id
+                                            }
+                                    ) {
+                                        if (bitmap != null) {
+                                            Image(
+                                                bitmap = bitmap,
+                                                contentDescription = "Inserted note image",
+                                                contentScale = ContentScale.Fit,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(120.dp)
+                                                    .background(AuroraRoyalViolet.copy(alpha = 0.08f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Image,
+                                                    contentDescription = null,
+                                                    tint = AuroraRoyalViolet
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Small floating window right next to the clicked image (Resize downward/smaller + Delete)
+                                    if (isMenuOpen && !isReadOnly) {
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = MaterialTheme.colorScheme.surface,
+                                            tonalElevation = 6.dp,
+                                            shadowElevation = 6.dp,
+                                            border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.45f))
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(6.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                // Resize Option: Extends image downward & pushes text under it down; clicking again shrinks back & pulls text up
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = AuroraRoyalViolet.copy(alpha = 0.12f),
+                                                    modifier = Modifier.clickable {
+                                                        noteImages[segIdx] = imgItem.copy(isExpanded = !imgItem.isExpanded)
+                                                    }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = if (imgItem.isExpanded) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
+                                                            contentDescription = null,
+                                                            tint = AuroraRoyalViolet,
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                        Text(
+                                                            text = if (imgItem.isExpanded) "Smaller" else "Resize",
+                                                            fontSize = 11.5.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = AuroraRoyalViolet
+                                                        )
+                                                    }
+                                                }
+
+                                                // Delete Option: Removes image completely and fills text under it back into the empty space above
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = AuroraDangerRed.copy(alpha = 0.12f),
+                                                    modifier = Modifier.clickable {
+                                                        val updatedSegments = textSegments.toMutableList()
+                                                        val above = updatedSegments.getOrElse(segIdx) { "" }
+                                                        val below = updatedSegments.getOrElse(segIdx + 1) { "" }
+                                                        val merged = when {
+                                                            above.isEmpty() -> below
+                                                            below.isEmpty() -> above
+                                                            else -> "$above\n$below"
+                                                        }
+                                                        updatedSegments[segIdx] = merged
+                                                        if (segIdx + 1 < updatedSegments.size) {
+                                                            updatedSegments.removeAt(segIdx + 1)
+                                                        }
+                                                        noteImages.removeAt(segIdx)
+                                                        activeImageMenuId = null
+                                                        rebuildBodyWithSegments(updatedSegments, segIdx, above.length)
+                                                    }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Delete,
+                                                            contentDescription = null,
+                                                            tint = AuroraDangerRed,
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                        Text(
+                                                            text = "Delete",
+                                                            fontSize = 11.5.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = AuroraDangerRed
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                            } else {
-                                mod
                             }
                         }
-                        .onGloballyPositioned { coords ->
-                            bodyTopInColumnPx = coords.positionInParent().y
-                        }
-                )
+                    }
+                }
 
                 // Extra bottom space so the scroll container can always push the cursor and
                 // surrounding lines up well above the bottom formatting bar and keyboard
@@ -1555,9 +1915,10 @@ private fun TextSizeButton(
         Text(
             text = label,
             fontSize = 11.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            fontWeight = FontWeight.Bold,
             color = if (selected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
         )
     }
 }
+

@@ -10,6 +10,12 @@ data class ChecklistItem(
     val completed: Boolean = false
 )
 
+data class NoteImage(
+    val id: String = UUID.randomUUID().toString(),
+    val uri: String,
+    val isExpanded: Boolean = false
+)
+
 @Entity(tableName = "notes")
 data class Note(
     @PrimaryKey
@@ -18,6 +24,7 @@ data class Note(
     val content: String = "",
     val styleSpansJson: String = "",
     val checklist: List<ChecklistItem> = emptyList(),
+    val images: List<NoteImage> = emptyList(),
     val tags: List<String> = emptyList(),
     val category: String = "",
     val isPinned: Boolean = false,
@@ -27,3 +34,4 @@ data class Note(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
+

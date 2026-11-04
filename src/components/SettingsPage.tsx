@@ -123,10 +123,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [isLockChecking, setIsLockChecking] = useState(false);
   const [lockStatusMsg, setLockStatusMsg] = useState<{ text: string; isError?: boolean } | null>(null);
 
-  const themeOptions: { id: ThemeOption; label: string; icon: React.ElementType; desc: string }[] = [
-    { id: 'system', label: 'System Default', icon: Monitor, desc: 'Syncs with device operating system theme' },
-    { id: 'light', label: 'Light Mode', icon: Sun, desc: 'Warm mauve canvas with royal violet accents' },
-    { id: 'dark', label: 'Dark Mode', icon: Moon, desc: 'Obsidian mauve canvas with luminous amethyst accents' },
+  const themeOptions: { id: ThemeOption; label: string; icon: React.ElementType; }[] = [
+    { id: 'system', label: 'System Default', icon: Monitor},
+    { id: 'light', label: 'Light Mode', icon: Sun},
+    { id: 'dark', label: 'Dark Mode', icon: Moon},
   ];
 
   const handleScanForUpdates = async () => {
@@ -471,7 +471,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
                 <div>
                   <div className="text-xs font-bold">{opt.label}</div>
-                  <div className="text-[10px] opacity-75 mt-0.5 line-clamp-1">{opt.desc}</div>
                 </div>
               </button>
             );
@@ -587,12 +586,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         )}
       </div>
 
-      {/* 2b. Private External Storage & Mandatory Room Database Encryption */}
+      {/* 2b. Storage Encryption */}
       <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#5925DC] dark:text-[#C296FD]">
-              DEVICE STORAGE & ROOM ENCRYPTION
+              ENCRYPTION
             </span>
             <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] mt-0.5 flex items-center gap-2">
               <Folder className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
@@ -624,7 +623,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <span>Room Database & File Encryption</span>
             </div>
             <p className="text-[11px] text-[#484455] dark:text-[#A39BAC] leading-relaxed">
-              Mandatory hardware-backed AndroidKeyStore AES-256-GCM encryption is permanently enabled for all Room SQLite records and mirrored device storage files.
+              Hardware-backed AndroidKeyStore AES-256-GCM encryption is enabled for all Room SQLite records and mirrored device storage files.
             </p>
           </div>
         </div>
