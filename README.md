@@ -7,6 +7,27 @@ Aurora Notes is a privacy-first, local-only note-taking app built natively for A
 
 ---
 
+## Visual Showcase & Screenshots
+
+Experience Aurora Notes' tactile minimalism, fluid navigation, and deep focus interface:
+
+| 📱 Home & Masonry Grid | ✍️ Note Editor & Checklists | 🏷️ Save Note & Categories |
+| :---: | :---: | :---: |
+| <a href="./docs/screenshots/01_home_masonry_grid.jpg"><img src="./docs/screenshots/01_home_masonry_grid.jpg" width="260" alt="Aurora Notes Home Screen with Masonry Grid, Search, and Category Pills" /></a> | <a href="./docs/screenshots/02_note_editor_checklists.jpg"><img src="./docs/screenshots/02_note_editor_checklists.jpg" width="260" alt="Full-Screen Note Editor with Live Word/Letter Counter and Formatting Toolbar" /></a> | <a href="./docs/screenshots/03_save_note_details_tags.jpg"><img src="./docs/screenshots/03_save_note_details_tags.jpg" width="260" alt="Save Note Details Modal with Custom Tag Pills and Pinning" /></a> |
+| **Masonry Grid & Liquid Pill Navbar** | **Live Word Counter & Isolated Checklists** | **Custom Category Tags & Pin to Top** |
+
+| ⚙️ Settings & Theme Customization | 🔒 Hardware-Backed AES-256 Storage | ✨ What's New & Release Highlights |
+| :---: | :---: | :---: |
+| <a href="./docs/screenshots/05_settings_appearance_theme.jpg"><img src="./docs/screenshots/05_settings_appearance_theme.jpg" width="260" alt="Settings & Preferences with Self-Update Scanner and Theme Selector" /></a> | <a href="./docs/screenshots/06_private_storage_encryption.jpg"><img src="./docs/screenshots/06_private_storage_encryption.jpg" width="260" alt="Device Private Storage and AndroidKeyStore AES-256-GCM Encryption" /></a> | <a href="./docs/screenshots/07_whats_new_release_notes.jpg"><img src="./docs/screenshots/07_whats_new_release_notes.jpg" width="260" alt="What's New in Aurora Notes In-App Release Notes Modal" /></a> |
+| **System, Light & Obsidian Dark Themes** | **Room DB & File-Level Encryption** | **In-App Version Changelog & Updates** |
+
+| 🗑️ Local Trash & Safe Recovery |
+| :---: |
+| <a href="./docs/screenshots/04_local_trash_recovery.jpg"><img src="./docs/screenshots/04_local_trash_recovery.jpg" width="260" alt="Local Trash with Instant Note Restore and Empty Trash" /></a> |
+| **Search Trashed Notes & One-Tap Restore** |
+
+---
+
 ## Architecture & Features
 
 1. **Mandatory AES-256-GCM Cryptography & Private Device Storage**:
