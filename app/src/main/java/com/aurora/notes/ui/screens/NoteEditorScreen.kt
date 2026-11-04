@@ -369,7 +369,7 @@ private fun applyTextEditToSpans(
         }
     }
 
-    // Only add a span for newly typed text if a non-default style is active
+    // Add a span for newly typed text if a non-default style is active
     if (insEnd > insStart && (activeSizeMode != TextSizeMode.SMALL || isBoldActive || isItalicActive)) {
         adjusted.add(
             StyledCharSpan(
@@ -383,6 +383,148 @@ private fun applyTextEditToSpans(
     }
 
     return mergeSpans(adjusted)
+}
+
+/**
+ * Applies a style update across a selected character range `[selStart, selEnd)` in `oldSpans`,
+ * splitting any partially overlapping spans and applying the updated style to the selected slice.
+ */
+private fun applyStyleToSelectionRange(
+    oldSpans: List<StyledCharSpan>,
+    rangeStart: Int,
+    rangeEnd: Int,
+    targetSizeMode: TextSizeMode,
+    targetBold: Boolean,
+    targetItalic: Boolean
+): List<StyledCharSpan> {
+    if (rangeEnd <= rangeStart) return oldSpans
+    val result = ArrayList<StyledCharSpan>(oldSpans.size + 3)
+
+    for (sp in oldSpans) {
+        when {
+            sp.end <= rangeStart || sp.start >= rangeEnd -> result.add(sp)
+            else -> {
+                if (sp.start < rangeStart) {
+                    result.add(sp.copy(end = rangeStart))
+                }
+                if (sp.end > rangeEnd) {
+                    result.add(sp.copy(start = rangeEnd))
+                }
+            }
+        }
+    }
+
+    if (targetSizeMode != TextSizeMode.SMALL || targetBold || targetItalic) {
+        result.add(
+            StyledCharSpan(
+                start = rangeStart,
+                end = rangeEnd,
+                sizeMode = targetSizeMode,
+                isBold = targetBold,
+                isItalic = targetItalic
+            )
+        )
+    }
+
+    return mergeSpans(result)
+}
+
+/**
+ * Value-equal `VisualTransformation` implementation backed by an immutable `spans` snapshot
+ * and `baseOffset` so Compose's `BasicTextField` always detects span updates and re-filters immediately.
+ */
+private data class RichNoteVisualTransformation(
+    val spans: List<StyledCharSpan>,
+    val baseOffset: Int = 0
+) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val raw = text.text
+        val len = raw.length
+        val annotated = buildAnnotatedString {
+            append(raw)
+            for (span in spans) {
+                val localStart = (span.start - baseOffset).coerceIn(0, len)
+                val localEnd = (span.end - baseOffset).coerceIn(0, len)
+                if (localStart < localEnd) {
+                    val fontSize = when (span.sizeMode) {
+                        TextSizeMode.SMALL -> 15.sp
+                        TextSizeMode.MEDIUM -> 19.sp
+                        TextSizeMode.LARGE -> 24.sp
+                    }
+                    addStyle(
+                        style = SpanStyle(
+                            fontSize = fontSize,
+                            fontWeight = if (span.isBold) FontWeight.Bold else FontWeight.Normal,
+                            fontStyle = if (span.isItalic) FontStyle.Italic else FontStyle.Normal
+                        ),
+                        start = localStart,
+                        end = localEnd
+                    )
+                }
+            }
+
+            // Style inline per-line checkboxes (`☐ ` and `☑ `) and bullets (`• `) on the same line
+            var lineStart = 0
+            while (lineStart <= len) {
+                val lineEnd = findLineEnd(raw, lineStart)
+                val parsed = getParsedLineAt(raw, lineStart)
+                if (parsed.hasCheckbox) {
+                    addStyle(
+                        style = SpanStyle(
+                            color = AuroraRoyalViolet,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp
+                        ),
+                        start = lineStart,
+                        end = (lineStart + 1).coerceAtMost(len)
+                    )
+                    if (parsed.checkboxPrefix == CHECKED_BOX_PREFIX && lineStart + parsed.totalPrefixLength < lineEnd) {
+                        addStyle(
+                            style = SpanStyle(
+                                color = AuroraRoyalViolet.copy(alpha = 0.58f),
+                                textDecoration = TextDecoration.LineThrough
+                            ),
+                            start = lineStart + parsed.totalPrefixLength,
+                            end = lineEnd
+                        )
+                    }
+                }
+                if (parsed.hasBullet) {
+                    val bulletPos = lineStart + (if (parsed.hasCheckbox) 2 else 0)
+                    if (bulletPos < len) {
+                        addStyle(
+                            style = SpanStyle(
+                                color = AuroraRoyalViolet,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            ),
+                            start = bulletPos,
+                            end = (bulletPos + 1).coerceAtMost(len)
+                        )
+                    }
+                }
+                lineStart = lineEnd + 1
+            }
+
+            val links = LinkHelper.extractLinks(raw)
+            for (link in links) {
+                val ls = link.start.coerceIn(0, len)
+                val le = link.end.coerceIn(0, len)
+                if (ls < le) {
+                    addStyle(
+                        style = SpanStyle(
+                            color = LinkHelper.LinkPurpleColor,
+                            fontWeight = FontWeight.SemiBold,
+                            textDecoration = TextDecoration.Underline
+                        ),
+                        start = ls,
+                        end = le
+                    )
+                }
+            }
+        }
+        return TransformedText(annotated, OffsetMapping.Identity)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -408,6 +550,15 @@ fun NoteEditorScreen(
     val checklistItems = remember(note.id) { mutableStateListOf(*note.checklist.toTypedArray()) }
     val noteImages = remember(note.id) { mutableStateListOf(*note.images.toTypedArray()) }
     var activeImageMenuId by remember(note.id) { mutableStateOf<String?>(null) }
+
+    // Save indicator & anti-spam clean state for the top-bar Checkmark button
+    var isSavedClean by remember(note.id) { mutableStateOf(false) }
+    var showSavedIndicator by remember(note.id) { mutableStateOf(false) }
+
+    fun markNoteDirty() {
+        isSavedClean = false
+        showSavedIndicator = false
+    }
 
     var newChecklistInput by remember { mutableStateOf("") }
     var showAddChecklistDialog by remember { mutableStateOf(false) }
@@ -526,10 +677,19 @@ fun NoteEditorScreen(
                 val inserted = "$prefixBefore$marker$suffixAfter"
                 val updatedText = curText.substring(0, lineEnd) + inserted + curText.substring(lineEnd)
                 val newCursorPos = (lineEnd + inserted.length).coerceIn(0, updatedText.length)
+                charSpans = applyTextEditToSpans(
+                    oldText = curText,
+                    newText = updatedText,
+                    oldSpans = charSpans,
+                    activeSizeMode = TextSizeMode.SMALL,
+                    isBoldActive = false,
+                    isItalicActive = false
+                )
                 bodyValue = TextFieldValue(
                     text = updatedText,
                     selection = TextRange(newCursorPos)
                 )
+                markNoteDirty()
             }
         }
     }
@@ -542,95 +702,9 @@ fun NoteEditorScreen(
         PrivateStorageManager.computeWordAndLetterCounts(title, bodyValue.text)
     }
 
-    // VisualTransformation keeps IME typing 100% lag-free, styles user spans, inline checkboxes/bullets, and highlights links in purple
+    // Value-based VisualTransformation keeps IME typing 100% lag-free and immediately reflects charSpans updates
     val richVisualTransformation = remember(charSpans) {
-        VisualTransformation { text ->
-            val raw = text.text
-            val annotated = buildAnnotatedString {
-                append(raw)
-                val len = raw.length
-                for (span in charSpans) {
-                    val s = span.start.coerceIn(0, len)
-                    val e = span.end.coerceIn(0, len)
-                    if (s < e) {
-                        val fontSize = when (span.sizeMode) {
-                            TextSizeMode.SMALL -> 15.sp
-                            TextSizeMode.MEDIUM -> 19.sp
-                            TextSizeMode.LARGE -> 24.sp
-                        }
-                        addStyle(
-                            style = SpanStyle(
-                                fontSize = fontSize,
-                                fontWeight = if (span.isBold) FontWeight.Bold else FontWeight.Normal,
-                                fontStyle = if (span.isItalic) FontStyle.Italic else FontStyle.Normal
-                            ),
-                            start = s,
-                            end = e
-                        )
-                    }
-                }
-
-                // Style inline per-line checkboxes (`☐ ` and `☑ `) and bullets (`• `) on the same line
-                var lineStart = 0
-                while (lineStart <= len) {
-                    val lineEnd = findLineEnd(raw, lineStart)
-                    val parsed = getParsedLineAt(raw, lineStart)
-                    if (parsed.hasCheckbox) {
-                        addStyle(
-                            style = SpanStyle(
-                                color = AuroraRoyalViolet,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 17.sp
-                            ),
-                            start = lineStart,
-                            end = (lineStart + 1).coerceAtMost(len)
-                        )
-                        if (parsed.checkboxPrefix == CHECKED_BOX_PREFIX && lineStart + parsed.totalPrefixLength < lineEnd) {
-                            addStyle(
-                                style = SpanStyle(
-                                    color = AuroraRoyalViolet.copy(alpha = 0.58f),
-                                    textDecoration = TextDecoration.LineThrough
-                                ),
-                                start = lineStart + parsed.totalPrefixLength,
-                                end = lineEnd
-                            )
-                        }
-                    }
-                    if (parsed.hasBullet) {
-                        val bulletPos = lineStart + (if (parsed.hasCheckbox) 2 else 0)
-                        if (bulletPos < len) {
-                            addStyle(
-                                style = SpanStyle(
-                                    color = AuroraRoyalViolet,
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                start = bulletPos,
-                                end = (bulletPos + 1).coerceAtMost(len)
-                            )
-                        }
-                    }
-                    lineStart = lineEnd + 1
-                }
-
-                val links = LinkHelper.extractLinks(raw)
-                for (link in links) {
-                    val ls = link.start.coerceIn(0, len)
-                    val le = link.end.coerceIn(0, len)
-                    if (ls < le) {
-                        addStyle(
-                            style = SpanStyle(
-                                color = LinkHelper.LinkPurpleColor,
-                                fontWeight = FontWeight.SemiBold,
-                                textDecoration = TextDecoration.Underline
-                            ),
-                            start = ls,
-                            end = le
-                        )
-                    }
-                }
-            }
-            TransformedText(annotated, OffsetMapping.Identity)
-        }
+        RichNoteVisualTransformation(spans = charSpans.toList(), baseOffset = 0)
     }
 
     fun handleExitEditor() {
@@ -666,11 +740,12 @@ fun NoteEditorScreen(
     }
 
     fun handleSaveStayInEditor() {
+        if (isReadOnly || isSavedClean) return
+
         // Close user keyboard and clear focus while staying in the Note Editor
         focusManager.clearFocus()
         keyboardController?.hide()
         activeImageMenuId = null
-        if (isReadOnly) return
 
         val cleanTitle = title.trim()
         val cleanBody = bodyValue.text
@@ -678,22 +753,23 @@ fun NoteEditorScreen(
             .trim()
         val validChecklists = checklistItems.filter { it.text.trim().isNotEmpty() }
 
-        if (cleanTitle.isEmpty() && cleanBody.isEmpty() && validChecklists.isEmpty() && noteImages.isEmpty()) {
-            return
+        if (cleanTitle.isNotEmpty() || cleanBody.isNotEmpty() || validChecklists.isNotEmpty() || noteImages.isNotEmpty()) {
+            val updatedNote = note.copy(
+                title = cleanTitle,
+                content = bodyValue.text,
+                styleSpansJson = if (charSpans.isEmpty()) "" else spanGson.toJson(charSpans),
+                checklist = validChecklists,
+                images = noteImages.toList(),
+                tags = tags.toList(),
+                category = tags.firstOrNull() ?: "",
+                isPinned = isPinned,
+                updatedAt = System.currentTimeMillis()
+            )
+            onSaveInPlace(updatedNote)
         }
 
-        val updatedNote = note.copy(
-            title = cleanTitle,
-            content = bodyValue.text,
-            styleSpansJson = if (charSpans.isEmpty()) "" else spanGson.toJson(charSpans),
-            checklist = validChecklists,
-            images = noteImages.toList(),
-            tags = tags.toList(),
-            category = tags.firstOrNull() ?: "",
-            isPinned = isPinned,
-            updatedAt = System.currentTimeMillis()
-        )
-        onSaveInPlace(updatedNote)
+        isSavedClean = true
+        showSavedIndicator = true
     }
 
     val isSubDialogOpen = showAddChecklistDialog || pendingDeleteTag != null
@@ -988,6 +1064,37 @@ fun NoteEditorScreen(
                                 }
                             }
                         } else {
+                            if (showSavedIndicator) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.background,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = Color(0xFF10B981),
+                                            modifier = Modifier.size(11.dp)
+                                        )
+                                        Text(
+                                            text = "Saved",
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+
                             IconButton(
                                 onClick = { showShareDialog = true },
                                 modifier = Modifier.size(30.dp)
@@ -1000,20 +1107,34 @@ fun NoteEditorScreen(
                                 )
                             }
 
-                            // Checkmark Icon Button: saves note in place without popup, closes keyboard, stays in editor
+                            // Checkmark Icon Button: saves note in place without popup, closes keyboard, stays in editor,
+                            // and turns grey/disabled after saving until the user changes something in the note.
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = AuroraRoyalViolet,
+                                color = if (isSavedClean) {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
+                                } else {
+                                    AuroraRoyalViolet
+                                },
+                                border = if (isSavedClean) {
+                                    BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+                                } else {
+                                    null
+                                },
                                 modifier = Modifier
                                     .size(30.dp)
-                                    .clickable { handleSaveStayInEditor() }
+                                    .clickable(enabled = !isSavedClean) { handleSaveStayInEditor() }
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         Icons.Default.Check,
-                                        contentDescription = "Save Note",
+                                        contentDescription = if (isSavedClean) "Saved" else "Save Note",
                                         modifier = Modifier.size(16.dp),
-                                        tint = Color.White
+                                        tint = if (isSavedClean) {
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
+                                        } else {
+                                            Color.White
+                                        }
                                     )
                                 }
                             }
@@ -1053,7 +1174,21 @@ fun NoteEditorScreen(
                                 .height(34.dp)
                                 .width(32.dp)
                                 .clickable {
-                                    isBoldActive = !isBoldActive
+                                    val nextBold = !isBoldActive
+                                    isBoldActive = nextBold
+                                    if (!bodyValue.selection.collapsed) {
+                                        val s = bodyValue.selection.min.coerceIn(0, bodyValue.text.length)
+                                        val e = bodyValue.selection.max.coerceIn(0, bodyValue.text.length)
+                                        charSpans = applyStyleToSelectionRange(
+                                            oldSpans = charSpans,
+                                            rangeStart = s,
+                                            rangeEnd = e,
+                                            targetSizeMode = activeSizeMode,
+                                            targetBold = nextBold,
+                                            targetItalic = isItalicActive
+                                        )
+                                    }
+                                    markNoteDirty()
                                 }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -1078,7 +1213,21 @@ fun NoteEditorScreen(
                                 .height(34.dp)
                                 .width(32.dp)
                                 .clickable {
-                                    isItalicActive = !isItalicActive
+                                    val nextItalic = !isItalicActive
+                                    isItalicActive = nextItalic
+                                    if (!bodyValue.selection.collapsed) {
+                                        val s = bodyValue.selection.min.coerceIn(0, bodyValue.text.length)
+                                        val e = bodyValue.selection.max.coerceIn(0, bodyValue.text.length)
+                                        charSpans = applyStyleToSelectionRange(
+                                            oldSpans = charSpans,
+                                            rangeStart = s,
+                                            rangeEnd = e,
+                                            targetSizeMode = activeSizeMode,
+                                            targetBold = isBoldActive,
+                                            targetItalic = nextItalic
+                                        )
+                                    }
+                                    markNoteDirty()
                                 }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -1106,22 +1255,50 @@ fun NoteEditorScreen(
                                 label = "H2",
                                 selected = activeSizeMode == TextSizeMode.MEDIUM,
                                 onClick = {
-                                    activeSizeMode = if (activeSizeMode == TextSizeMode.MEDIUM) {
+                                    val nextMode = if (activeSizeMode == TextSizeMode.MEDIUM) {
                                         TextSizeMode.SMALL
                                     } else {
                                         TextSizeMode.MEDIUM
                                     }
+                                    activeSizeMode = nextMode
+                                    if (!bodyValue.selection.collapsed) {
+                                        val s = bodyValue.selection.min.coerceIn(0, bodyValue.text.length)
+                                        val e = bodyValue.selection.max.coerceIn(0, bodyValue.text.length)
+                                        charSpans = applyStyleToSelectionRange(
+                                            oldSpans = charSpans,
+                                            rangeStart = s,
+                                            rangeEnd = e,
+                                            targetSizeMode = nextMode,
+                                            targetBold = isBoldActive,
+                                            targetItalic = isItalicActive
+                                        )
+                                    }
+                                    markNoteDirty()
                                 }
                             )
                             TextSizeButton(
                                 label = "H1",
                                 selected = activeSizeMode == TextSizeMode.LARGE,
                                 onClick = {
-                                    activeSizeMode = if (activeSizeMode == TextSizeMode.LARGE) {
+                                    val nextMode = if (activeSizeMode == TextSizeMode.LARGE) {
                                         TextSizeMode.SMALL
                                     } else {
                                         TextSizeMode.LARGE
                                     }
+                                    activeSizeMode = nextMode
+                                    if (!bodyValue.selection.collapsed) {
+                                        val s = bodyValue.selection.min.coerceIn(0, bodyValue.text.length)
+                                        val e = bodyValue.selection.max.coerceIn(0, bodyValue.text.length)
+                                        charSpans = applyStyleToSelectionRange(
+                                            oldSpans = charSpans,
+                                            rangeStart = s,
+                                            rangeEnd = e,
+                                            targetSizeMode = nextMode,
+                                            targetBold = isBoldActive,
+                                            targetItalic = isItalicActive
+                                        )
+                                    }
+                                    markNoteDirty()
                                 }
                             )
                         }
@@ -1175,6 +1352,7 @@ fun NoteEditorScreen(
                                         text = newText,
                                         selection = clampSelectionToMinusOneRule(newText, TextRange(newCursor))
                                     )
+                                    markNoteDirty()
                                 }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -1232,6 +1410,7 @@ fun NoteEditorScreen(
                                             TextRange(newCursor)
                                         )
                                     )
+                                    markNoteDirty()
                                 }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -1319,7 +1498,12 @@ fun NoteEditorScreen(
                 // Note Title Input
                 BasicTextField(
                     value = title,
-                    onValueChange = { if (!isReadOnly) title = it },
+                    onValueChange = {
+                        if (!isReadOnly) {
+                            title = it
+                            markNoteDirty()
+                        }
+                    },
                     readOnly = isReadOnly,
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
@@ -1395,6 +1579,7 @@ fun NoteEditorScreen(
                                     onCheckedChange = { checked ->
                                         if (!isReadOnly) {
                                             checklistItems[idx] = item.copy(completed = checked)
+                                            markNoteDirty()
                                         }
                                     },
                                     colors = CheckboxDefaults.colors(checkedColor = AuroraRoyalViolet),
@@ -1427,7 +1612,10 @@ fun NoteEditorScreen(
                                 )
                                 if (!isReadOnly) {
                                     IconButton(
-                                        onClick = { checklistItems.removeAt(idx) },
+                                        onClick = {
+                                            checklistItems.removeAt(idx)
+                                            markNoteDirty()
+                                        },
                                         modifier = Modifier.size(24.dp)
                                     ) {
                                         Icon(
@@ -1524,6 +1712,7 @@ fun NoteEditorScreen(
                                         text = toggledText,
                                         selection = TextRange((tappedLineStart + parsed.totalPrefixLength).coerceAtMost(toggledText.length))
                                     )
+                                    markNoteDirty()
                                     return@BasicTextField
                                 }
 
@@ -1554,6 +1743,7 @@ fun NoteEditorScreen(
                                     isBoldActive = isBoldActive,
                                     isItalicActive = isItalicActive
                                 )
+                                markNoteDirty()
                             }
                             bodyValue = newValue.copy(
                                 text = normalizedText,
@@ -1635,7 +1825,21 @@ fun NoteEditorScreen(
                         list
                     }
 
+                    val segmentStartOffsets = remember(textSegments, noteImages.toList()) {
+                        val offsets = IntArray(textSegments.size)
+                        var running = 0
+                        for (i in textSegments.indices) {
+                            offsets[i] = running
+                            running += textSegments[i].length
+                            if (i < noteImages.size) {
+                                running += "\n[[AURORA_IMG:${noteImages[i].id}]]\n".length
+                            }
+                        }
+                        offsets
+                    }
+
                     fun rebuildBodyWithSegments(updatedSegments: List<String>, activeSegIdx: Int, segCursor: Int) {
+                        val oldFull = bodyValue.text
                         val sb = StringBuilder()
                         var globalCursor = 0
                         for (i in updatedSegments.indices) {
@@ -1649,6 +1853,17 @@ fun NoteEditorScreen(
                             }
                         }
                         val full = sb.toString()
+                        if (oldFull != full) {
+                            charSpans = applyTextEditToSpans(
+                                oldText = oldFull,
+                                newText = full,
+                                oldSpans = charSpans,
+                                activeSizeMode = activeSizeMode,
+                                isBoldActive = isBoldActive,
+                                isItalicActive = isItalicActive
+                            )
+                            markNoteDirty()
+                        }
                         bodyValue = TextFieldValue(
                             text = full,
                             selection = TextRange(globalCursor.coerceIn(0, full.length))
@@ -1665,6 +1880,10 @@ fun NoteEditorScreen(
                     ) {
                         for (segIdx in 0..noteImages.size) {
                             val segText = textSegments.getOrElse(segIdx) { "" }
+                            val segStartOffset = segmentStartOffsets.getOrElse(segIdx) { 0 }
+                            val segVisualTransformation = remember(charSpans, segStartOffset) {
+                                RichNoteVisualTransformation(spans = charSpans.toList(), baseOffset = segStartOffset)
+                            }
                             var segFieldValue by remember(note.id, segIdx, noteImages.size) {
                                 mutableStateOf(TextFieldValue(text = segText, selection = TextRange(segText.length)))
                             }
@@ -1697,6 +1916,7 @@ fun NoteEditorScreen(
                                 },
                                 readOnly = isReadOnly,
                                 singleLine = false,
+                                visualTransformation = segVisualTransformation,
                                 keyboardOptions = KeyboardOptions(
                                     capitalization = KeyboardCapitalization.Sentences,
                                     imeAction = ImeAction.Default
@@ -1820,6 +2040,7 @@ fun NoteEditorScreen(
                                                     color = AuroraRoyalViolet.copy(alpha = 0.12f),
                                                     modifier = Modifier.clickable {
                                                         noteImages[segIdx] = imgItem.copy(isExpanded = !imgItem.isExpanded)
+                                                        markNoteDirty()
                                                     }
                                                 ) {
                                                     Row(
@@ -1861,6 +2082,7 @@ fun NoteEditorScreen(
                                                         }
                                                         noteImages.removeAt(segIdx)
                                                         activeImageMenuId = null
+                                                        markNoteDirty()
                                                         rebuildBodyWithSegments(updatedSegments, segIdx, above.length)
                                                     }
                                                 ) {

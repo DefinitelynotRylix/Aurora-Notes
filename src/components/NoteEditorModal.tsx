@@ -59,12 +59,23 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   const [showDoneModal, setShowDoneModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
 
-  // Active Size Mode ('small' | 'medium' | 'large')
+  // Active Formatting Modes ('small' | 'medium' | 'large', Bold, Italic)
   const [textSizeMode, setTextSizeMode] = useState<'small' | 'medium' | 'large'>('small');
+  const [isBoldActive, setIsBoldActive] = useState(false);
+  const [isItalicActive, setIsItalicActive] = useState(false);
 
   // Explicit active/inactive toggle states for Checkbox and Bullet List
   const [isCurrentLineChecklist, setIsCurrentLineChecklist] = useState(false);
   const [isBulletModeActive, setIsBulletModeActive] = useState(false);
+
+  // Save indicator & anti-spam clean state for the top-bar Checkmark button
+  const [isSavedClean, setIsSavedClean] = useState(false);
+  const [showSavedIndicator, setShowSavedIndicator] = useState(false);
+
+  const markNoteDirty = useCallback(() => {
+    setIsSavedClean(false);
+    setShowSavedIndicator(false);
+  }, []);
 
   // Selected image popover state (small window next to clicked image)
   const [activeImagePopover, setActiveImagePopover] = useState<{
@@ -174,9 +185,10 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       checkbox.onchange = () => {
         if (isReadOnly) return;
         applyVisualState(checkbox.checked);
+        markNoteDirty();
       };
     },
-    [isReadOnly]
+    [isReadOnly, markNoteDirty]
   );
 
   // Populate editor initial content on mount & sync checkboxes and clickable purple links
@@ -191,6 +203,8 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         bindCheckboxBehavior(cb as HTMLInputElement);
       });
     }
+    setIsSavedClean(false);
+    setShowSavedIndicator(false);
   }, [note.id, isReadOnly, bindCheckboxBehavior]);
 
   /**
@@ -213,7 +227,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         if (line) {
           const clone = line.cloneNode(true) as HTMLElement;
           clone.querySelectorAll('input[type="checkbox"], .aurora-line-bullet').forEach((c) => c.remove());
-          const text = clone.textContent?.trim() || '';
+          const text = (clone.textContent || '').replace(/\u200B/g, '').trim();
           if (text) {
             extractedChecklist.push({
               id: `chk-${index}-${Date.now()}`,
@@ -289,10 +303,11 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   };
 
   /**
-   * Quick Save Handler (Checkmark button: saves note without popup, closes keyboard, stays in editor)
+   * Quick Save Handler (Checkmark button: saves note without popup, closes keyboard, stays in editor,
+   * shows "Saved" indicator, and turns grey/disabled until the user changes something in the note)
    */
   const handleQuickSaveInEditor = () => {
-    if (isReadOnly) return;
+    if (isReadOnly || isSavedClean) return;
 
     // Close user keyboard by blurring active input/editor while staying in the Note Editor
     editorRef.current?.blur();
@@ -315,13 +330,14 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       .trim();
     const cleanTitle = title.trim();
 
-    if (!cleanTitle && !cleanText && !hasEmbeddedImages) {
-      return;
+    if (cleanTitle || cleanText || hasEmbeddedImages) {
+      const updated = getConstructedNote();
+      onSave(updated);
+      logger.security('NOTE', `Saved local note in editor: "${updated.title}" (ID: ${updated.id})`);
     }
 
-    const updated = getConstructedNote();
-    onSave(updated);
-    logger.security('NOTE', `Saved local note in editor: "${updated.title}" (ID: ${updated.id})`);
+    setIsSavedClean(true);
+    setShowSavedIndicator(true);
   };
 
   // Register Android native back button & gesture popstate listener
@@ -346,50 +362,50 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     };
   }, []);
 
-  /**
-   * Formatting Functions
-   */
-  const handleBoldClick = () => {
-    document.execCommand('bold', false);
+  const sizePxMap: Record<'small' | 'medium' | 'large', string> = {
+    small: '0.925rem',
+    medium: '1.25rem',
+    large: '1.65rem',
   };
 
-  const handleItalicClick = () => {
-    document.execCommand('italic', false);
+  const createActiveStyleSpan = (
+    bold: boolean,
+    italic: boolean,
+    sizeMode: 'small' | 'medium' | 'large',
+    initialText: string = '\u200B'
+  ): HTMLSpanElement => {
+    const span = document.createElement('span');
+    span.setAttribute('data-aurora-style', 'true');
+    span.style.fontSize = sizePxMap[sizeMode];
+    span.style.fontWeight = bold ? '700' : '400';
+    span.style.fontStyle = italic ? 'italic' : 'normal';
+    span.style.lineHeight = '1.35';
+    span.textContent = initialText;
+    return span;
   };
 
-  const handleSelectSize = (clickedMode: 'small' | 'medium' | 'large') => {
-    // Tapping H2 or H1 again toggles it off and returns to normal small size
-    const nextMode: 'small' | 'medium' | 'large' =
-      clickedMode !== 'small' && textSizeMode === clickedMode ? 'small' : clickedMode;
-
-    setTextSizeMode(nextMode);
-
-    if (!editorRef.current) return;
-    editorRef.current.focus();
-
+  const placeCaretInEditableTarget = (targetEditable: HTMLElement, atStart: boolean = false) => {
     const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
+    if (!selection) return;
 
-    const sizePxMap = {
-      small: '0.925rem',
-      medium: '1.25rem',
-      large: '1.65rem',
-    };
-    const targetSize = sizePxMap[nextMode];
+    const styledSpans = targetEditable.querySelectorAll('span[data-aurora-style="true"]');
+    const lastStyledSpan =
+      styledSpans.length > 0 ? (styledSpans[styledSpans.length - 1] as HTMLElement) : null;
 
-    const range = selection.getRangeAt(0);
-    const fontSpan = document.createElement('span');
-    fontSpan.style.fontSize = targetSize;
-    fontSpan.style.lineHeight = '1.35';
-    const zwsp = document.createTextNode('\u200B');
-    fontSpan.appendChild(zwsp);
-
-    range.collapse(false);
-    range.insertNode(fontSpan);
+    if (lastStyledSpan && lastStyledSpan.firstChild && lastStyledSpan.firstChild.nodeType === Node.TEXT_NODE) {
+      const textNode = lastStyledSpan.firstChild as Text;
+      const newRange = document.createRange();
+      const offset = atStart ? Math.min(1, textNode.length) : textNode.length;
+      newRange.setStart(textNode, offset);
+      newRange.setEnd(textNode, offset);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+      return;
+    }
 
     const newRange = document.createRange();
-    newRange.setStart(zwsp, 1);
-    newRange.setEnd(zwsp, 1);
+    newRange.selectNodeContents(targetEditable);
+    newRange.collapse(atStart);
     selection.removeAllRanges();
     selection.addRange(newRange);
   };
@@ -424,6 +440,16 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     };
     unwrapBlocks(temp);
 
+    temp.querySelectorAll('span[data-aurora-style="true"]').forEach((spanEl) => {
+      const visible = (spanEl.textContent || '').replace(/\u200B/g, '');
+      if (visible.length === 0) {
+        spanEl.innerHTML = '';
+        spanEl.textContent = '\u200B';
+      } else {
+        spanEl.querySelectorAll('br').forEach((br) => br.remove());
+      }
+    });
+
     while (temp.firstChild) {
       fragment.appendChild(temp.firstChild);
     }
@@ -433,6 +459,8 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   /**
    * Creates a unified single-row line element that can hold a Checkbox, a Bullet, or both
    * side-by-side with inline text right next to them (never pushing text underneath).
+   * Note: Only `editorRef` is `contenteditable="true"`; prefix elements (`checkbox`, `bullet`)
+   * are `contenteditable="false"`, avoiding nested editing hosts so selection and formatting never break.
    */
   const createFormattedLine = (options: {
     initialContent?: Node | string;
@@ -441,38 +469,44 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     hasBullet: boolean;
   }): HTMLDivElement => {
     const { initialContent, hasCheckbox, checked = false, hasBullet } = options;
+    const hasActiveInlineStyle = isBoldActive || isItalicActive || textSizeMode !== 'small';
+
+    const populateLineTextContainer = (container: HTMLElement, frag: DocumentFragment) => {
+      const hasVisibleText = (frag.textContent || '').replace(/\u200B/g, '').trim().length > 0;
+      const hasStyledSpan = Boolean(
+        (frag as ParentNode).querySelector &&
+          (frag as ParentNode).querySelector('span[data-aurora-style="true"], b, strong, i, em')
+      );
+
+      if (frag.childNodes.length > 0 && (hasVisibleText || hasStyledSpan)) {
+        container.appendChild(frag);
+      } else if (hasActiveInlineStyle) {
+        container.appendChild(createActiveStyleSpan(isBoldActive, isItalicActive, textSizeMode));
+      } else {
+        container.innerHTML = '<br>';
+      }
+    };
 
     if (!hasCheckbox && !hasBullet) {
       const plainLine = document.createElement('div');
       plainLine.className = 'my-1 focus:outline-none min-h-[1.5em]';
-      plainLine.setAttribute('contenteditable', 'true');
       const frag = extractCleanInlineNodes(initialContent);
-      if (frag.childNodes.length > 0 && (frag.textContent || '').trim().length > 0) {
-        plainLine.appendChild(frag);
-      } else {
-        plainLine.innerHTML = '<br>';
-      }
+      populateLineTextContainer(plainLine, frag);
       return plainLine;
     }
 
     const line = document.createElement('div');
     line.className =
-      'aurora-checklist-line flex items-center gap-2 my-1.5 group select-none';
-    line.setAttribute('contenteditable', 'false');
+      'aurora-checklist-line flex items-center gap-2 my-1.5 group';
     line.setAttribute('data-checklist', hasCheckbox ? 'true' : 'false');
     line.setAttribute('data-bullet', hasBullet ? 'true' : 'false');
 
     const textDiv = document.createElement('div');
     textDiv.className =
       'aurora-checklist-text flex-1 focus:outline-none min-w-[20px] text-sm sm:text-base leading-relaxed text-[#1E1A24] dark:text-[#F7EEFC] select-text';
-    textDiv.setAttribute('contenteditable', 'true');
 
     const frag = extractCleanInlineNodes(initialContent);
-    if (frag.childNodes.length > 0 && (frag.textContent || '').replace(/\u200B/g, '').trim().length > 0) {
-      textDiv.appendChild(frag);
-    } else {
-      textDiv.innerHTML = '<br>';
-    }
+    populateLineTextContainer(textDiv, frag);
 
     if (hasCheckbox) {
       const checkbox = document.createElement('input');
@@ -482,7 +516,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         checkbox.setAttribute('checked', 'checked');
       }
       checkbox.className =
-        'w-4 h-4 rounded accent-[#5925DC] dark:accent-[#9D5AF5] cursor-pointer shrink-0 border-[#EADBFC] dark:border-[#322742]';
+        'w-4 h-4 rounded accent-[#5925DC] dark:accent-[#9D5AF5] cursor-pointer shrink-0 border-[#EADBFC] dark:border-[#322742] select-none';
       checkbox.setAttribute('contenteditable', 'false');
       line.appendChild(checkbox);
       bindCheckboxBehavior(checkbox, textDiv);
@@ -508,6 +542,11 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   const normalizeEditorLines = () => {
     const root = editorRef.current;
     if (!root) return;
+
+    // Strip any legacy nested contenteditable attributes on line divs so root is the single editing host
+    root.querySelectorAll('.aurora-checklist-line, .aurora-checklist-text').forEach((el) => {
+      el.removeAttribute('contenteditable');
+    });
 
     // Convert any legacy <ul> / <ol> lists into aurora formatted bullet lines
     const legacyLists = Array.from(root.querySelectorAll('ul, ol'));
@@ -568,7 +607,6 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         if (!currentBlock) {
           const emptyLine = document.createElement('div');
           emptyLine.className = 'my-1 focus:outline-none min-h-[1.5em]';
-          emptyLine.setAttribute('contenteditable', 'true');
           emptyLine.innerHTML = '<br>';
           root.replaceChild(emptyLine, node);
         } else {
@@ -593,7 +631,6 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       if (!currentBlock) {
         currentBlock = document.createElement('div');
         currentBlock.className = 'my-1 focus:outline-none min-h-[1.5em]';
-        currentBlock.setAttribute('contenteditable', 'true');
         root.insertBefore(currentBlock, node);
       }
       currentBlock.appendChild(node);
@@ -647,6 +684,183 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   };
 
   /**
+   * Ensures there is a focused editable line container at the current selection and applies
+   * the active Bold, Italic, and H2/H1 style either to the selected range or at the caret.
+   */
+  const applyInlineStyleAtCursorOrSelection = (
+    nextBold: boolean,
+    nextItalic: boolean,
+    nextSizeMode: 'small' | 'medium' | 'large'
+  ) => {
+    const root = editorRef.current;
+    if (!root || isReadOnly) return;
+    root.focus();
+    normalizeEditorLines();
+
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    let range: Range | null = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+    let topLine: HTMLElement | null =
+      range && root.contains(range.startContainer)
+        ? resolveTopLevelLine(range.startContainer)
+        : (root.lastElementChild as HTMLElement | null);
+
+    if (!topLine || topLine.classList.contains('aurora-image-block')) {
+      const created = createFormattedLine({
+        hasCheckbox: isCurrentLineChecklist,
+        hasBullet: isBulletModeActive,
+      });
+      if (topLine && topLine.parentNode === root) {
+        root.insertBefore(created, topLine.nextSibling);
+      } else {
+        root.appendChild(created);
+      }
+      topLine = created;
+      range = null;
+    }
+
+    const editableTarget =
+      (topLine.querySelector('.aurora-checklist-text') as HTMLElement | null) || topLine;
+
+    if (!range || !editableTarget.contains(range.startContainer)) {
+      range = document.createRange();
+      range.selectNodeContents(editableTarget);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
+    // Case 1: User selected text -> wrap/apply style directly to the selected text
+    if (!range.collapsed) {
+      const selectedText = (range.toString() || '').replace(/\u200B/g, '');
+      if (selectedText.length > 0) {
+        range.deleteContents();
+        const styledSpan = createActiveStyleSpan(nextBold, nextItalic, nextSizeMode, selectedText);
+        range.insertNode(styledSpan);
+        const newRange = document.createRange();
+        newRange.selectNodeContents(styledSpan);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+        markNoteDirty();
+        setBodyContentSnapshot(root.innerHTML || '');
+        return;
+      }
+    }
+
+    // Case 2: Caret is collapsed -> check if already inside an existing [data-aurora-style="true"] span
+    const startEl =
+      range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? (range.startContainer as HTMLElement)
+        : range.startContainer.parentElement;
+    const existingStyleSpan = startEl?.closest('span[data-aurora-style="true"]') as HTMLElement | null;
+
+    if (existingStyleSpan && editableTarget.contains(existingStyleSpan)) {
+      const visibleInExisting = (existingStyleSpan.textContent || '').replace(/\u200B/g, '');
+      if (visibleInExisting.length === 0) {
+        // Empty style placeholder span -> update its styles in place
+        existingStyleSpan.style.fontSize = sizePxMap[nextSizeMode];
+        existingStyleSpan.style.fontWeight = nextBold ? '700' : '400';
+        existingStyleSpan.style.fontStyle = nextItalic ? 'italic' : 'normal';
+        if (!existingStyleSpan.firstChild || existingStyleSpan.firstChild.nodeType !== Node.TEXT_NODE) {
+          existingStyleSpan.textContent = '\u200B';
+        }
+        const textNode = existingStyleSpan.firstChild as Text;
+        const newRange = document.createRange();
+        newRange.setStart(textNode, textNode.length);
+        newRange.setEnd(textNode, textNode.length);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+        markNoteDirty();
+        setBodyContentSnapshot(root.innerHTML || '');
+        return;
+      }
+
+      // Existing span already has text -> split at caret and insert new sibling span right after it
+      const afterInSpan = document.createRange();
+      afterInSpan.selectNodeContents(existingStyleSpan);
+      afterInSpan.setStart(range.endContainer, range.endOffset);
+      const trailingText = (afterInSpan.toString() || '').replace(/\u200B/g, '');
+      let trailingSpan: HTMLSpanElement | null = null;
+      if (trailingText.length > 0) {
+        afterInSpan.deleteContents();
+        trailingSpan = existingStyleSpan.cloneNode(false) as HTMLSpanElement;
+        trailingSpan.textContent = trailingText;
+      }
+
+      const styledSpan = createActiveStyleSpan(nextBold, nextItalic, nextSizeMode, '\u200B');
+      const spanParent = existingStyleSpan.parentNode || editableTarget;
+      spanParent.insertBefore(styledSpan, existingStyleSpan.nextSibling);
+      if (trailingSpan) {
+        spanParent.insertBefore(trailingSpan, styledSpan.nextSibling);
+      }
+
+      const textNode = styledSpan.firstChild as Text;
+      const newRange = document.createRange();
+      newRange.setStart(textNode, textNode.length);
+      newRange.setEnd(textNode, textNode.length);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+      markNoteDirty();
+      setBodyContentSnapshot(root.innerHTML || '');
+      return;
+    }
+
+    // If the line only had a placeholder <br>, clear it before inserting the styled span
+    if (
+      editableTarget.childNodes.length === 1 &&
+      editableTarget.firstChild instanceof HTMLElement &&
+      editableTarget.firstChild.tagName === 'BR'
+    ) {
+      editableTarget.innerHTML = '';
+      range = document.createRange();
+      range.selectNodeContents(editableTarget);
+      range.collapse(false);
+    }
+
+    const styledSpan = createActiveStyleSpan(nextBold, nextItalic, nextSizeMode, '\u200B');
+    range.collapse(false);
+    range.insertNode(styledSpan);
+
+    const textNode = styledSpan.firstChild as Text;
+    const newRange = document.createRange();
+    newRange.setStart(textNode, textNode.length);
+    newRange.setEnd(textNode, textNode.length);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+
+    markNoteDirty();
+    setBodyContentSnapshot(root.innerHTML || '');
+  };
+
+  /**
+   * Formatting Functions (Bold, Italic, H2, H1)
+   */
+  const handleBoldClick = () => {
+    if (isReadOnly) return;
+    const nextBold = !isBoldActive;
+    setIsBoldActive(nextBold);
+    applyInlineStyleAtCursorOrSelection(nextBold, isItalicActive, textSizeMode);
+  };
+
+  const handleItalicClick = () => {
+    if (isReadOnly) return;
+    const nextItalic = !isItalicActive;
+    setIsItalicActive(nextItalic);
+    applyInlineStyleAtCursorOrSelection(isBoldActive, nextItalic, textSizeMode);
+  };
+
+  const handleSelectSize = (clickedMode: 'small' | 'medium' | 'large') => {
+    if (isReadOnly) return;
+    // Tapping H2 or H1 again toggles it off and returns to normal small size
+    const nextMode: 'small' | 'medium' | 'large' =
+      clickedMode !== 'small' && textSizeMode === clickedMode ? 'small' : clickedMode;
+
+    setTextSizeMode(nextMode);
+    applyInlineStyleAtCursorOrSelection(isBoldActive, isItalicActive, nextMode);
+  };
+
+  /**
    * Updates `isCurrentLineChecklist` & `isBulletModeActive` state and clamps the caret out of the prefix slot.
    */
   const syncCursorLineStateAndEnforceMinusOneRule = useCallback(() => {
@@ -666,15 +880,11 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     setIsBulletModeActive(hasBullet);
 
     // Enforce the -1 rule: if the caret landed on the line container before .aurora-checklist-text,
-    // move it to position 0 inside .aurora-checklist-text.
+    // move it inside .aurora-checklist-text.
     if (line && (hasCheckbox || hasBullet) && range.collapsed) {
       const textDiv = line.querySelector('.aurora-checklist-text') as HTMLElement | null;
       if (textDiv && !textDiv.contains(range.startContainer)) {
-        const clampedRange = document.createRange();
-        clampedRange.setStart(textDiv, 0);
-        clampedRange.collapse(true);
-        selection.removeAllRanges();
-        selection.addRange(clampedRange);
+        placeCaretInEditableTarget(textDiv, true);
       }
     }
   }, [resolveTopLevelLine]);
@@ -703,17 +913,12 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     const targetEditable =
       (replacement.querySelector('.aurora-checklist-text') as HTMLElement | null) ||
       replacement;
-    const selection = window.getSelection();
-    if (selection) {
-      const newRange = document.createRange();
-      newRange.selectNodeContents(targetEditable);
-      newRange.collapse(placeCaretAtStart);
-      selection.removeAllRanges();
-      selection.addRange(newRange);
-    }
+    editorRef.current?.focus();
+    placeCaretInEditableTarget(targetEditable, placeCaretAtStart);
 
     setIsCurrentLineChecklist(nextHasCheckbox);
     setIsBulletModeActive(nextHasBullet);
+    markNoteDirty();
     if (editorRef.current) {
       setBodyContentSnapshot(editorRef.current.innerHTML || '');
     }
@@ -747,10 +952,10 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     let endLine = resolveTopLevelLine(range.endContainer);
 
     if (!startLine || startLine.classList.contains('aurora-image-block')) {
-      const plainDiv = document.createElement('div');
-      plainDiv.className = 'my-1 focus:outline-none min-h-[1.5em]';
-      plainDiv.setAttribute('contenteditable', 'true');
-      plainDiv.innerHTML = '<br>';
+      const plainDiv = createFormattedLine({
+        hasCheckbox: false,
+        hasBullet: false,
+      });
       if (startLine && startLine.classList.contains('aurora-image-block')) {
         startLine.parentNode?.insertBefore(plainDiv, startLine.nextSibling);
       } else {
@@ -894,14 +1099,9 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
     const targetEditable =
       (lineBelow.querySelector('.aurora-checklist-text') as HTMLElement | null) || lineBelow;
-    if (selection) {
-      const newRange = document.createRange();
-      newRange.selectNodeContents(targetEditable);
-      newRange.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(newRange);
-    }
+    placeCaretInEditableTarget(targetEditable, true);
 
+    markNoteDirty();
     setBodyContentSnapshot(root.innerHTML || '');
     requestAnimationFrame(ensureCaretVisible);
   };
@@ -929,6 +1129,8 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         ? 'aurora-note-img rounded-xl border border-[#5925DC] dark:border-[#9D5AF5] object-contain transition-all duration-200 cursor-pointer w-full max-w-md max-h-80 shadow-md'
         : 'aurora-note-img rounded-xl border border-[#EADBFC] dark:border-[#322742] object-contain transition-all duration-200 cursor-pointer w-36 sm:w-44 max-h-44 shadow-xs';
     }
+
+    markNoteDirty();
 
     // Recompute popover position next to the resized image
     requestAnimationFrame(() => {
@@ -976,6 +1178,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       prevLine.remove();
     }
 
+    markNoteDirty();
     setActiveImagePopover(null);
     setBodyContentSnapshot(root.innerHTML || '');
   };
@@ -995,6 +1198,41 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     if (currentLine && currentLine.classList.contains('aurora-image-block')) {
       e.preventDefault();
       return;
+    }
+
+    // Ensure printable characters always inherit the active Bold, Italic, and H2/H1 toolbar states
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && range.collapsed) {
+      const startEl =
+        range.startContainer.nodeType === Node.ELEMENT_NODE
+          ? (range.startContainer as HTMLElement)
+          : range.startContainer.parentElement;
+      const currentStyleSpan = startEl?.closest('span[data-aurora-style="true"]') as HTMLElement | null;
+      const hasActiveInlineStyle = isBoldActive || isItalicActive || textSizeMode !== 'small';
+
+      if (hasActiveInlineStyle) {
+        const expectedSize = sizePxMap[textSizeMode];
+        const expectedWeight = isBoldActive ? '700' : '400';
+        const expectedStyle = isItalicActive ? 'italic' : 'normal';
+        const matchesCurrent =
+          currentStyleSpan &&
+          currentStyleSpan.style.fontSize === expectedSize &&
+          (currentStyleSpan.style.fontWeight === expectedWeight ||
+            (isBoldActive && currentStyleSpan.style.fontWeight === 'bold') ||
+            (!isBoldActive && currentStyleSpan.style.fontWeight === 'normal')) &&
+          currentStyleSpan.style.fontStyle === expectedStyle;
+
+        if (!matchesCurrent) {
+          applyInlineStyleAtCursorOrSelection(isBoldActive, isItalicActive, textSizeMode);
+        }
+      } else if (currentStyleSpan) {
+        const isDefaultSpan =
+          currentStyleSpan.style.fontSize === sizePxMap.small &&
+          (currentStyleSpan.style.fontWeight === '400' || currentStyleSpan.style.fontWeight === 'normal') &&
+          currentStyleSpan.style.fontStyle === 'normal';
+        if (!isDefaultSpan) {
+          applyInlineStyleAtCursorOrSelection(false, false, 'small');
+        }
+      }
     }
 
     if (e.key === 'Backspace' && range.collapsed && currentLine) {
@@ -1018,8 +1256,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     }
 
     // Pressing Enter / Send:
-    // If Bullet List and/or Checkbox is enabled, keep creating a new line with the active
-    // Bullet List and/or Checkbox without ever disabling or deleting the current line's bullet/checkbox!
+    // Create a new line preserving active Bullet List, Checkbox, and inline Bold/Italic/H2/H1 styles!
     if (e.key === 'Enter' && !e.shiftKey) {
       const root = editorRef.current;
       if (!root) return;
@@ -1029,8 +1266,14 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       const lineFlags = getLineFormattingFlags(activeLine);
       const continueCheckbox = isCurrentLineChecklist || lineFlags.hasCheckbox;
       const continueBullet = isBulletModeActive || lineFlags.hasBullet;
+      const hasActiveInlineStyle = isBoldActive || isItalicActive || textSizeMode !== 'small';
 
-      if (continueCheckbox || continueBullet || (activeLine && activeLine.classList.contains('aurora-checklist-line'))) {
+      if (
+        continueCheckbox ||
+        continueBullet ||
+        hasActiveInlineStyle ||
+        (activeLine && activeLine.classList.contains('aurora-checklist-line'))
+      ) {
         e.preventDefault();
 
         // Extract any trailing text after the cursor to move onto the new line
@@ -1041,9 +1284,9 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           const afterRange = range.cloneRange();
           afterRange.selectNodeContents(textContainer);
           afterRange.setStart(range.endContainer, range.endOffset);
-          if ((afterRange.toString() || '').length > 0) {
+          if ((afterRange.toString() || '').replace(/\u200B/g, '').length > 0) {
             trailingFragment = afterRange.extractContents();
-            if (!textContainer.innerHTML.trim()) {
+            if (!(textContainer.textContent || '').replace(/\u200B/g, '').trim()) {
               textContainer.innerHTML = '<br>';
             }
           }
@@ -1068,14 +1311,12 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
         const targetEditable =
           (newLine.querySelector('.aurora-checklist-text') as HTMLElement | null) || newLine;
-        const newRange = document.createRange();
-        newRange.setStart(targetEditable, 0);
-        newRange.collapse(true);
-        selection.removeAllRanges();
-        selection.addRange(newRange);
+        root.focus();
+        placeCaretInEditableTarget(targetEditable, true);
 
         setIsCurrentLineChecklist(continueCheckbox);
         setIsBulletModeActive(continueBullet);
+        markNoteDirty();
         setBodyContentSnapshot(root.innerHTML || '');
         requestAnimationFrame(ensureCaretVisible);
         return;
@@ -1093,6 +1334,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       e.preventDefault();
       return;
     }
+    markNoteDirty();
     const plainText = e.clipboardData?.getData('text/plain') || '';
     if (plainText && /((?:https?:\/\/|www\.)[^\s<>"']+)/i.test(plainText)) {
       e.preventDefault();
@@ -1206,11 +1448,13 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     if (clean && !tags.includes(clean)) {
       setTags([...tags, clean]);
       setNewTagInput('');
+      markNoteDirty();
     }
   };
 
   const handleRemoveTag = (tagToRemove: string) => {
     setTags(tags.filter((t) => t !== tagToRemove));
+    markNoteDirty();
   };
 
   const originX =
@@ -1316,7 +1560,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           </div>
         </div>
 
-        {/* Right side: Restore + Delete when archived, or Share + Compact Done when active */}
+        {/* Right side: Restore + Delete when archived, or Share + Save Indicator + Checkmark when active */}
         <div className="flex items-center gap-1.5 shrink-0">
           {isReadOnly ? (
             <>
@@ -1351,6 +1595,16 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
             </>
           ) : (
             <>
+              {showSavedIndicator && (
+                <span
+                  data-testid="editor-saved-indicator"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[10.5px] font-semibold text-[#797487] dark:text-[#A39BAC] select-none shrink-0"
+                >
+                  <Check className="w-3 h-3 text-emerald-500 stroke-[2.5]" />
+                  <span>Saved</span>
+                </span>
+              )}
+
               <button
                 type="button"
                 onClick={() => setShowShareModal(true)}
@@ -1363,11 +1617,16 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
               <button
                 type="button"
+                disabled={isSavedClean}
                 onClick={handleQuickSaveInEditor}
                 aria-label="Save note"
                 data-testid="editor-save-checkmark-btn"
-                className="w-7.5 h-7.5 rounded-lg bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white shadow-xs flex items-center justify-center transition-all active:scale-95 cursor-pointer shrink-0"
-                title="Save note"
+                className={`w-7.5 h-7.5 rounded-lg flex items-center justify-center transition-all shrink-0 ${
+                  isSavedClean
+                    ? 'bg-gray-200 dark:bg-[#2A2433] text-gray-400 dark:text-gray-500 border border-gray-300 dark:border-[#3A3146] cursor-not-allowed opacity-75'
+                    : 'bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white shadow-xs active:scale-95 cursor-pointer'
+                }`}
+                title={isSavedClean ? 'Note saved (make a change to save again)' : 'Save note'}
               >
                 <Check className="w-4 h-4 stroke-[2.5]" />
               </button>
@@ -1417,7 +1676,12 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           aria-label="Note title"
           placeholder="Title"
           value={title}
-          onChange={(e) => !isReadOnly && setTitle(e.target.value)}
+          onChange={(e) => {
+            if (!isReadOnly) {
+              setTitle(e.target.value);
+              markNoteDirty();
+            }
+          }}
           className="w-full text-2xl sm:text-3xl font-bold text-[#1E1A24] dark:text-[#F7EEFC] placeholder-[#797487]/50 dark:placeholder-[#A39BAC]/50 border-none focus:outline-none focus:ring-0 bg-transparent tracking-tight py-1"
         />
 
@@ -1457,6 +1721,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
             isReadOnly
               ? undefined
               : () => {
+                  markNoteDirty();
                   if (editorRef.current) {
                     setBodyContentSnapshot(editorRef.current.innerHTML || '');
                   }
@@ -1530,8 +1795,13 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={handleBoldClick}
             aria-label="Make text thick and bold"
-            className="w-8.5 h-9 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
-            title="Thick / Bold"
+            aria-pressed={isBoldActive}
+            className={`w-8.5 h-9 rounded-xl border flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0 ${
+              isBoldActive
+                ? 'bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border-[#5925DC] dark:border-[#9D5AF5] shadow-xs'
+                : 'bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] border-[#EADBFC] dark:border-[#322742]'
+            }`}
+            title={isBoldActive ? 'Disable Bold' : 'Thick / Bold'}
           >
             <Bold className="w-3.5 h-3.5 stroke-[2.5]" />
           </button>
@@ -1542,8 +1812,13 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={handleItalicClick}
             aria-label="Make text italic"
-            className="w-8.5 h-9 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
-            title="Italic"
+            aria-pressed={isItalicActive}
+            className={`w-8.5 h-9 rounded-xl border flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0 ${
+              isItalicActive
+                ? 'bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border-[#5925DC] dark:border-[#9D5AF5] shadow-xs'
+                : 'bg-[#FAF8FB] dark:bg-[#120E17] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] text-[#1E1A24] dark:text-[#F7EEFC] hover:text-[#5925DC] dark:hover:text-[#C296FD] border-[#EADBFC] dark:border-[#322742]'
+            }`}
+            title={isItalicActive ? 'Disable Italic' : 'Italic'}
           >
             <Italic className="w-3.5 h-3.5 stroke-[2.2]" />
           </button>
