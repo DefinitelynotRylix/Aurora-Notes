@@ -81,7 +81,7 @@ fun FloatingPillNavigationBar(
     var isHoldingPill by remember { mutableStateOf(false) }
     var dragTabPos by remember { mutableFloatStateOf(selectedTab.toFloat()) }
     var lastTabSwitchTime by remember { mutableLongStateOf(0L) }
-    val tabSwitchCooldownMs = 260L
+    val tabSwitchCooldownMs = 480L
 
     LaunchedEffect(selectedTab) {
         if (!isHoldingPill) {
@@ -91,26 +91,25 @@ fun FloatingPillNavigationBar(
 
     val targetPillPos = if (isHoldingPill) dragTabPos else selectedTab.toFloat()
 
-    // Dual fluid-drop springs with horizontal overshoot:
-    // 1. dropTabPos: Glides smoothly to the selected button, goes past it a little bit toward the next button,
-    //    and settles back into place without blocking or delaying menu transitions.
-    // 2. bodyTabPos: Follows along the connected liquid bridge and settles into the leading drop.
+    // Single stretching pill animation with arrival overshoot:
+    // dropTabPos leads briskly and overshoots the destination slot slightly before settling;
+    // bodyTabPos follows right behind with gentle elastic rebound into place.
     val dropTabPos by animateFloatAsState(
         targetValue = targetPillPos,
         animationSpec = spring(
-            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.62f,
-            stiffness = if (isHoldingPill) 540f else 220f
+            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.58f,
+            stiffness = if (isHoldingPill) 420f else 210f
         ),
-        label = "fluid_drop_lead_pos"
+        label = "pill_lead_pos"
     )
 
     val bodyTabPos by animateFloatAsState(
         targetValue = targetPillPos,
         animationSpec = spring(
-            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.70f,
-            stiffness = if (isHoldingPill) 210f else 110f
+            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.64f,
+            stiffness = if (isHoldingPill) 260f else 135f
         ),
-        label = "fluid_pill_body_pos"
+        label = "pill_trail_pos"
     )
 
     // Highlight the hovered or selected menu immediately

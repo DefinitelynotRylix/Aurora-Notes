@@ -785,8 +785,16 @@ fun SettingsScreen(
                                     }
                                 )
                             } else {
-                                onSetBiometricLock(false)
-                                Toast.makeText(context, "Biometric Lock Disabled", Toast.LENGTH_SHORT).show()
+                                // Require biometric authentication to disable app lock
+                                onTriggerBiometricAuth(
+                                    {
+                                        onSetBiometricLock(false)
+                                        Toast.makeText(context, "Biometric verified. App lock disabled.", Toast.LENGTH_SHORT).show()
+                                    },
+                                    { err ->
+                                        Toast.makeText(context, "Authentication required to disable lock: $err", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
                             }
                         }
                     )

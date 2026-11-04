@@ -273,10 +273,19 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setIsLockChecking(true);
 
     if (isNativeLockOn) {
-      setNativeLockEnabled(false);
-      setIsNativeLockOn(false);
-      setLockStatusMsg({ text: 'Android native lock disabled.' });
+      // Require biometric unlock when attempting to disable the app lock
+      const verifyResult = await verifyWithAndroidNativeLock();
       setIsLockChecking(false);
+      if (verifyResult.success) {
+        setNativeLockEnabled(false);
+        setIsNativeLockOn(false);
+        setLockStatusMsg({ text: 'Biometric verified. Android native lock disabled.' });
+      } else {
+        setLockStatusMsg({
+          text: verifyResult.error || 'Biometric authentication required to disable app lock.',
+          isError: true,
+        });
+      }
       return;
     }
 

@@ -17,12 +17,6 @@ interface NavItem {
   badge?: number;
 }
 
-const easeFluidOvershoot = (t: number, overshoot: number = 1.32): number => {
-  const clamped = Math.min(1, Math.max(0, t));
-  const inv = clamped - 1;
-  return 1 + (overshoot + 1) * Math.pow(inv, 3) + overshoot * Math.pow(inv, 2);
-};
-
 function triggerWebHaptic(enabled: boolean) {
   if (
     enabled &&
@@ -33,93 +27,11 @@ function triggerWebHaptic(enabled: boolean) {
   }
 }
 
-function buildMetaballDropPath(
-  dropPos: number,
-  bodyPos: number,
-  tabCount: number,
-  width: number,
-  height: number
-): string {
-  const slotWidth = width / Math.max(1, tabCount);
-  const h = height;
-  const centerY = h / 2;
-  const maxTabIndex = Math.max(0, tabCount - 1);
-  const clampedDrop = Math.min(maxTabIndex, Math.max(0, dropPos));
-  const clampedBody = Math.min(maxTabIndex, Math.max(0, bodyPos));
-  const sep = Math.abs(clampedDrop - clampedBody);
-  const dropShrink = Math.min(1, Math.max(0, sep / (sep + 0.28)));
-
-  if (sep < 0.005) {
-    const left = Math.max(0, Math.min(width - slotWidth, clampedDrop * slotWidth));
-    const right = Math.max(left + h, Math.min(width, left + slotWidth));
-    const r = h / 2;
-    const lc = left + r;
-    const rc = Math.max(lc, right - r);
-    return `M ${lc} 0 L ${rc} 0 A ${r} ${r} 0 0 1 ${rc} ${h} L ${lc} ${h} A ${r} ${r} 0 0 1 ${lc} 0 Z`;
-  }
-
-  const isMovingRight = clampedDrop >= clampedBody;
-  const bodyCenterX = (clampedBody + 0.5) * slotWidth;
-  const bodyH = Math.max(h * 0.88, h * (1 - 0.03 * dropShrink));
-  const bodyW = Math.max(bodyH, slotWidth * (1 - 0.08 * dropShrink));
-
-  const dropCenterX = (clampedDrop + 0.5) * slotWidth;
-  const dropH = Math.max(h * 0.80, h * (1 - 0.14 * dropShrink));
-  const dropW = Math.max(dropH, slotWidth * (1 - 0.24 * dropShrink));
-
-  const leftCX = isMovingRight ? bodyCenterX : dropCenterX;
-  const leftW = isMovingRight ? bodyW : dropW;
-  const leftH = isMovingRight ? bodyH : dropH;
-  const rightCX = isMovingRight ? dropCenterX : bodyCenterX;
-  const rightW = isMovingRight ? dropW : bodyW;
-  const rightH = isMovingRight ? dropH : bodyH;
-
-  // Strictly clamp inside [0, width] so the pill can never clip outside the navbar
-  const leftOuter = Math.max(0, Math.min(Math.max(0, width - leftH), leftCX - leftW / 2));
-  const rightOuter = Math.max(
-    Math.min(width, leftOuter + rightH),
-    Math.min(width, rightCX + rightW / 2)
-  );
-
-  const leftTop = centerY - leftH / 2;
-  const leftBottom = centerY + leftH / 2;
-  const rightTop = centerY - rightH / 2;
-  const rightBottom = centerY + rightH / 2;
-
-  const leftCapCenterX = leftOuter + leftH / 2;
-  const rightCapCenterX = rightOuter - rightH / 2;
-
-  if (rightCapCenterX <= leftCapCenterX + 2) {
-    const r = h / 2;
-    const lc = leftOuter + r;
-    const rc = Math.max(lc, rightOuter - r);
-    return `M ${lc} 0 L ${rc} 0 A ${r} ${r} 0 0 1 ${rc} ${h} L ${lc} ${h} A ${r} ${r} 0 0 1 ${lc} 0 Z`;
-  }
-
-  const neckBias = isMovingRight ? 0.56 : 0.44;
-  const neckX = leftCapCenterX + (rightCapCenterX - leftCapCenterX) * neckBias;
-  const minLobeHalfH = Math.min(leftH, rightH) * 0.5;
-  const neckHalfH = Math.max(h * 0.34, Math.min(minLobeHalfH, minLobeHalfH * (1 - 0.26 * dropShrink)));
-
-  const neckTopY = centerY - neckHalfH;
-  const neckBottomY = centerY + neckHalfH;
-
-  const leftSpan = Math.max(1, neckX - leftCapCenterX);
-  const rightSpan = Math.max(1, rightCapCenterX - neckX);
-  const lr = leftH / 2;
-  const rr = rightH / 2;
-
-  return [
-    `M ${leftCapCenterX} ${leftTop}`,
-    `C ${leftCapCenterX + leftSpan * 0.54} ${leftTop}, ${neckX - leftSpan * 0.36} ${neckTopY}, ${neckX} ${neckTopY}`,
-    `C ${neckX + rightSpan * 0.36} ${neckTopY}, ${rightCapCenterX - rightSpan * 0.54} ${rightTop}, ${rightCapCenterX} ${rightTop}`,
-    `A ${rr} ${rr} 0 0 1 ${rightCapCenterX} ${rightBottom}`,
-    `C ${rightCapCenterX - rightSpan * 0.54} ${rightBottom}, ${neckX + rightSpan * 0.36} ${neckBottomY}, ${neckX} ${neckBottomY}`,
-    `C ${neckX - leftSpan * 0.36} ${neckBottomY}, ${leftCapCenterX + leftSpan * 0.54} ${leftBottom}, ${leftCapCenterX} ${leftBottom}`,
-    `A ${lr} ${lr} 0 0 1 ${leftCapCenterX} ${leftTop}`,
-    'Z',
-  ].join(' ');
-}
+const easeSmoothOvershoot = (t: number, overshoot: number = 1.85): number => {
+  const clamped = Math.min(1, Math.max(0, t));
+  const inv = clamped - 1;
+  return 1 + (overshoot + 1) * Math.pow(inv, 3) + overshoot * Math.pow(inv, 2);
+};
 
 export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   activeTab,
@@ -145,17 +57,18 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   const [isHoldingPill, setIsHoldingPill] = useState(false);
   const [dragTabPos, setDragTabPos] = useState(targetIndex);
 
-  const [animState, setAnimState] = useState({
-    dropPos: targetIndex,
-    bodyPos: targetIndex,
+  const [animBounds, setAnimBounds] = useState({
+    leftSlot: targetIndex,
+    rightSlot: targetIndex + 1,
   });
 
   const animRef = useRef({
-    startDrop: targetIndex,
-    startBody: targetIndex,
-    currentDrop: targetIndex,
-    currentBody: targetIndex,
-    target: targetIndex,
+    currentLeft: targetIndex,
+    currentRight: targetIndex + 1,
+    startLeft: targetIndex,
+    startRight: targetIndex + 1,
+    targetLeft: targetIndex,
+    targetRight: targetIndex + 1,
     startTime: 0,
     rafId: 0,
   });
@@ -190,7 +103,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     return () => window.removeEventListener('resize', updateMeasure);
   }, []);
 
-  // Sync while holding & sliding the purple pill
+  // Follow finger smoothly when holding and sliding across buttons
   useEffect(() => {
     if (!isHoldingPill) return;
     cancelAnimationFrame(animRef.current.rafId);
@@ -198,18 +111,17 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     let raf = 0;
     const step = () => {
       const state = animRef.current;
-      const nextDrop = state.currentDrop + (dragTabPos - state.currentDrop) * 0.36;
-      const nextBody = state.currentBody + (dragTabPos - state.currentBody) * 0.18;
-      state.currentDrop = nextDrop;
-      state.currentBody = nextBody;
-      setAnimState({
-        dropPos: nextDrop,
-        bodyPos: nextBody,
+      const targetLeft = dragTabPos;
+      const targetRight = dragTabPos + 1;
+      const nextLeft = state.currentLeft + (targetLeft - state.currentLeft) * 0.35;
+      const nextRight = state.currentRight + (targetRight - state.currentRight) * 0.35;
+      state.currentLeft = nextLeft;
+      state.currentRight = nextRight;
+      setAnimBounds({
+        leftSlot: nextLeft,
+        rightSlot: nextRight,
       });
-      if (
-        Math.abs(dragTabPos - nextDrop) > 0.002 ||
-        Math.abs(dragTabPos - nextBody) > 0.002
-      ) {
+      if (Math.abs(targetLeft - nextLeft) > 0.002 || Math.abs(targetRight - nextRight) > 0.002) {
         raf = requestAnimationFrame(step);
       }
     };
@@ -217,63 +129,78 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     return () => cancelAnimationFrame(raf);
   }, [isHoldingPill, dragTabPos]);
 
-  // Animate fluid drop going slightly past the target button and settling back into place smoothly
+  // Single solid pill travels smoothly, overshoots destination slightly upon arrival, and rebounds into place
   useEffect(() => {
     if (isHoldingPill) return;
     const state = animRef.current;
     if (
-      state.target === targetIndex &&
-      Math.abs(state.currentDrop - targetIndex) < 0.005 &&
-      Math.abs(state.currentBody - targetIndex) < 0.005
+      state.targetLeft === targetIndex &&
+      Math.abs(state.currentLeft - targetIndex) < 0.005 &&
+      Math.abs(state.currentRight - (targetIndex + 1)) < 0.005
     ) {
       return;
     }
 
     cancelAnimationFrame(state.rafId);
-    state.startDrop = state.currentDrop;
-    state.startBody = state.currentBody;
-    state.target = targetIndex;
+    state.startLeft = state.currentLeft;
+    state.startRight = state.currentRight;
+    state.targetLeft = targetIndex;
+    state.targetRight = targetIndex + 1;
     state.startTime = performance.now();
 
-    const DROP_DURATION = 420;
-    const BODY_DURATION = 660;
+    const DURATION = 460;
 
     const tick = (now: number) => {
       const elapsed = Math.max(0, now - state.startTime);
-      const dropProgress = easeFluidOvershoot(elapsed / DROP_DURATION, 1.32);
-      const bodyProgress = easeFluidOvershoot(elapsed / BODY_DURATION, 1.12);
+      const progress = Math.min(1, elapsed / DURATION);
 
-      const nextDrop = Math.min(
-        items.length - 1,
-        Math.max(0, state.startDrop + (state.target - state.startDrop) * dropProgress)
-      );
-      const nextBody = Math.min(
-        items.length - 1,
-        Math.max(0, state.startBody + (state.target - state.startBody) * bodyProgress)
-      );
+      const movingRight = state.targetLeft >= state.startLeft;
 
-      state.currentDrop = nextDrop;
-      state.currentBody = nextBody;
-      setAnimState({
-        dropPos: nextDrop,
-        bodyPos: nextBody,
+      // Leading edge overshoots slightly past destination slot
+      const leadProgress = easeSmoothOvershoot(progress, 2.1);
+      // Trailing edge follows smoothly with slight overshoot before settling
+      const trailProgress = progress < 0.05
+        ? 0
+        : easeSmoothOvershoot((progress - 0.05) / 0.95, 1.45);
+
+      let nextLeft = state.currentLeft;
+      let nextRight = state.currentRight;
+
+      if (movingRight) {
+        nextRight = state.startRight + (state.targetRight - state.startRight) * leadProgress;
+        nextLeft = state.startLeft + (state.targetLeft - state.startLeft) * trailProgress;
+        // Clamp stretch during travel while allowing overshoot on arrival
+        if (nextRight - nextLeft > 1.32) {
+          nextLeft = nextRight - 1.32;
+        }
+      } else {
+        nextLeft = state.startLeft + (state.targetLeft - state.startLeft) * leadProgress;
+        nextRight = state.startRight + (state.targetRight - state.startRight) * trailProgress;
+        if (nextRight - nextLeft > 1.32) {
+          nextRight = nextLeft + 1.32;
+        }
+      }
+
+      if (progress >= 1) {
+        nextLeft = state.targetLeft;
+        nextRight = state.targetRight;
+      }
+
+      state.currentLeft = nextLeft;
+      state.currentRight = nextRight;
+      setAnimBounds({
+        leftSlot: nextLeft,
+        rightSlot: nextRight,
       });
 
-      if (elapsed < BODY_DURATION) {
+      if (progress < 1) {
         state.rafId = requestAnimationFrame(tick);
-      } else {
-        state.currentDrop = state.target;
-        state.currentBody = state.target;
-        setAnimState({
-          dropPos: state.target,
-          bodyPos: state.target,
-        });
       }
     };
 
     state.rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(state.rafId);
-  }, [targetIndex, isHoldingPill, items.length]);
+  }, [targetIndex, isHoldingPill]);
 
   const computeDragPosFromClientX = (clientX: number): number => {
     if (!trackRef.current) return targetIndex;
@@ -284,7 +211,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   };
 
   const lastSwitchTimeRef = useRef<number>(0);
-  const TAB_COOLDOWN_MS = 260;
+  const TAB_COOLDOWN_MS = 480;
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!trackRef.current) return;
@@ -380,13 +307,12 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     }
   };
 
-  const pillPath = buildMetaballDropPath(
-    animState.dropPos,
-    animState.bodyPos,
-    items.length,
-    trackSize.width,
-    trackSize.height
-  );
+  const slotWidth = trackSize.width / Math.max(1, items.length);
+  const h = trackSize.height;
+  const leftPx = Math.max(0, Math.min(trackSize.width - h, animBounds.leftSlot * slotWidth));
+  const rightPx = Math.max(leftPx + h, Math.min(trackSize.width, animBounds.rightSlot * slotWidth));
+  const pillWidth = Math.max(h, rightPx - leftPx);
+  const pillRadius = h / 2;
 
   const visualActiveIndex = isHoldingPill
     ? Math.min(items.length - 1, Math.max(0, Math.round(dragTabPos)))
@@ -427,8 +353,13 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
                 </feMerge>
               </filter>
             </defs>
-            <path
-              d={pillPath}
+            <rect
+              x={leftPx}
+              y={0}
+              width={pillWidth}
+              height={h}
+              rx={pillRadius}
+              ry={pillRadius}
               fill="url(#aurora-pill-grad)"
               stroke="rgba(255,255,255,0.34)"
               strokeWidth="1"
