@@ -185,6 +185,32 @@ object NoteShareHelper {
         } + "\n"
     }
 
+    private data class PreparedLine(
+        val hasCheckbox: Boolean,
+        val isChecked: Boolean,
+        val hasBullet: Boolean,
+        val layout: StaticLayout
+    )
+
+    private data class PreparedImage(
+        val bitmap: Bitmap,
+        val drawWidth: Int,
+        val drawHeight: Int
+    )
+
+    private sealed class PreparedBlock {
+        data class LinesBlock(val lines: List<PreparedLine>) : PreparedBlock()
+        data class ImageBlock(val image: PreparedImage) : PreparedBlock()
+    }
+
+    private data class PreparedNoteCard(
+        val titleLayout: StaticLayout,
+        val tagsText: String,
+        val dateText: String,
+        val blocks: List<PreparedBlock>,
+        val cardHeight: Int
+    )
+
     /**
      * Renders a full-length viewable bitmap of the note(s), including title, tags, date,
      * formatted text, checkboxes, bullets, and decrypted embedded images in their exact order.
@@ -265,32 +291,6 @@ object NoteShareHelper {
         // First pass: measure exact full height required
         val dateFormat = SimpleDateFormat("MMM d, yyyy • HH:mm", Locale.US)
         var totalHeight = outerPadding
-
-        data class PreparedLine(
-            val hasCheckbox: Boolean,
-            val isChecked: Boolean,
-            val hasBullet: Boolean,
-            val layout: StaticLayout
-        )
-
-        data class PreparedImage(
-            val bitmap: Bitmap,
-            val drawWidth: Int,
-            val drawHeight: Int
-        )
-
-        sealed class PreparedBlock {
-            data class LinesBlock(val lines: List<PreparedLine>) : PreparedBlock()
-            data class ImageBlock(val image: PreparedImage) : PreparedBlock()
-        }
-
-        data class PreparedNoteCard(
-            val titleLayout: StaticLayout,
-            val tagsText: String,
-            val dateText: String,
-            val blocks: List<PreparedBlock>,
-            val cardHeight: Int
-        )
 
         val preparedCards = mutableListOf<PreparedNoteCard>()
         val markerRegex = Regex("\\[\\[AURORA_IMG:([^\\]]+)\\]\\]")
