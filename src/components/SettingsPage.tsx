@@ -352,7 +352,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           Settings & Preferences
         </h2>
         <p className="text-xs text-[#797487] dark:text-[#A39BAC] mt-1 leading-relaxed">
-          Manage app appearance & theme, self-updates, biometric security, storage encryption, and local data.
+          Manage app appearance & theme, self-updates, haptic feedback and biometric security.
         </p>
       </div>
 
@@ -377,7 +377,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         <div className="p-3 rounded-xl bg-[#F4EBFF]/60 dark:bg-[#2B1E3E]/40 border border-[#EADBFC] dark:border-[#322742] flex items-start gap-2.5">
           <ShieldAlert className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD] shrink-0 mt-0.5" />
           <p className="text-[11px] text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            <strong className="text-[#1E1A24] dark:text-[#F7EEFC]">Minimal Internet Access Notice:</strong> All your notes, checklists, and tags remain 100% offline on your device. Internet access is strictly limited to manual update scans when you tap <strong>Scan for Updates</strong> below to pull the latest <code className="font-mono">Aurora Notes.apk</code> from GitHub Releases.
+            <strong className="text-[#1E1A24] dark:text-[#F7EEFC]">Minimal Internet Access:</strong> All your notes, checklists, and tags remain 100% offline on your device. Internet access is strictly limited to manual updates scans.
           </p>
         </div>
 
