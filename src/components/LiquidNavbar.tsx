@@ -7,6 +7,7 @@ import {
   Trash2,
   Settings,
   Share2,
+  Tag,
   Edit3,
   X,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ interface LiquidNavbarProps {
   selectedCount?: number;
   isArchiveTab?: boolean;
   onShareSelected?: () => void;
+  onTagSelected?: () => void;
   onArchiveOrRestoreSelected?: () => void;
   onEditSelected?: () => void;
   onDeleteSelected?: () => void;
@@ -62,6 +64,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   selectedCount = 0,
   isArchiveTab = false,
   onShareSelected,
+  onTagSelected,
   onArchiveOrRestoreSelected,
   onEditSelected,
   onDeleteSelected,
@@ -479,20 +482,36 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
             </button>
 
             <div className="flex items-center justify-around flex-1 min-w-0">
-              {/* Share Button */}
-              <button
-                type="button"
-                aria-label="Share selected notes"
-                data-testid="selection-navbar-share-btn"
-                onClick={() => {
-                  triggerWebHaptic(isHapticsEnabled);
-                  onShareSelected?.();
-                }}
-                className="flex-1 py-2.5 px-1.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-bold text-[#2B194D] dark:text-[#D8CFE8] hover:bg-[#F4EBFF]/70 dark:hover:bg-[#2B1E3E]/70 hover:text-[#5925DC] dark:hover:text-[#C296FD] active:scale-95 transition-all cursor-pointer"
-              >
-                <Share2 className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">Share</span>
-              </button>
+              {/* Share Button (when 1 note is selected) or Tag Together Button (when multiple notes are selected) */}
+              {effectiveSelectedCount === 1 ? (
+                <button
+                  type="button"
+                  aria-label="Share selected notes"
+                  data-testid="selection-navbar-share-btn"
+                  onClick={() => {
+                    triggerWebHaptic(isHapticsEnabled);
+                    onShareSelected?.();
+                  }}
+                  className="flex-1 py-2.5 px-1.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-bold text-[#2B194D] dark:text-[#D8CFE8] hover:bg-[#F4EBFF]/70 dark:hover:bg-[#2B1E3E]/70 hover:text-[#5925DC] dark:hover:text-[#C296FD] active:scale-95 transition-all cursor-pointer"
+                >
+                  <Share2 className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Share</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label="Tag selected notes together"
+                  data-testid="selection-navbar-tag-btn"
+                  onClick={() => {
+                    triggerWebHaptic(isHapticsEnabled);
+                    onTagSelected?.();
+                  }}
+                  className="flex-1 py-2.5 px-1.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-bold text-[#2B194D] dark:text-[#D8CFE8] hover:bg-[#F4EBFF]/70 dark:hover:bg-[#2B1E3E]/70 hover:text-[#5925DC] dark:hover:text-[#C296FD] active:scale-95 transition-all cursor-pointer"
+                >
+                  <Tag className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Tag</span>
+                </button>
+              )}
 
               {/* Archive / Restore Button */}
               <button

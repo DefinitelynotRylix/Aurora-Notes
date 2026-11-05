@@ -44,8 +44,29 @@ class AuroraRepository(
             note = plainUpdated,
             encryptFileContent = isDatabaseEncryptionEnabled
         )
-        cleanupOrphanedStorageFiles()
         LocalLogger.security("NOTE", "Local note saved: \"${plainUpdated.title}\" (ID: ${plainUpdated.id})")
+    }
+
+    suspend fun saveNotesBatch(notes: List<Note>) {
+        if (notes.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val plainNotes = notes.map {
+            PrivateStorageManager.decryptNoteFromRoom(it).copy(updatedAt = now)
+        }
+        val roomEntities = plainNotes.map { plain ->
+            PrivateStorageManager.encryptNoteForRoom(
+                note = plain,
+                encryptionEnabled = isDatabaseEncryptionEnabled
+            )
+        }
+        noteDao.insertAll(roomEntities)
+        plainNotes.forEach { plain ->
+            PrivateStorageManager.writeNoteToPrivateStorage(
+                context = context,
+                note = plain,
+                encryptFileContent = isDatabaseEncryptionEnabled
+            )
+        }
     }
 
     suspend fun togglePin(note: Note) {
@@ -66,7 +87,6 @@ class AuroraRepository(
             note = plainUpdated,
             encryptFileContent = isDatabaseEncryptionEnabled
         )
-        cleanupOrphanedStorageFiles()
     }
 
     suspend fun reorderNotes(orderedNotes: List<Note>) {
@@ -109,7 +129,6 @@ class AuroraRepository(
             note = plainUpdated,
             encryptFileContent = isDatabaseEncryptionEnabled
         )
-        cleanupOrphanedStorageFiles()
     }
 
     suspend fun archiveNote(id: String) {

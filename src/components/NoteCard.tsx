@@ -158,7 +158,9 @@ export const NoteCard: React.FC<NoteCardProps> = ({
     }
     if (!note.content) return { plainTextPreview: '', previewImages: imgs };
     try {
-      const doc = new DOMParser().parseFromString(note.content, 'text/html');
+      const htmlForParse =
+        imgs.length > 0 ? note.content.replace(/<img\b[^>]*>/gi, '') : note.content;
+      const doc = new DOMParser().parseFromString(htmlForParse, 'text/html');
       if (imgs.length === 0) {
         doc.body.querySelectorAll('img').forEach((imgEl) => {
           const src = imgEl.getAttribute('src');
@@ -452,19 +454,24 @@ export const NoteCard: React.FC<NoteCardProps> = ({
             </p>
           )}
 
-          {/* Note Image Preview Window (Clicking simply opens the Note Editor, never the image editor) */}
+          {/* Note Image Preview Window (Clicking directly on the preview image opens the Note Editor) */}
           {previewImages.length > 0 && (
             <div
               data-testid="note-card-image-preview"
-              className="mb-2.5 rounded-xl overflow-hidden border border-[#EADBFC] dark:border-[#322742] bg-[#FAF8FB] dark:bg-[#120E17] relative max-h-28 flex items-center justify-center"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClick(e);
+              }}
+              className="mb-2.5 rounded-xl overflow-hidden border border-[#EADBFC] dark:border-[#322742] bg-[#FAF8FB] dark:bg-[#120E17] relative max-h-28 flex items-center justify-center cursor-pointer"
             >
               <img
                 src={previewImages[0]}
                 alt="Note attachment preview"
-                className="w-full max-h-28 object-cover pointer-events-none select-none"
+                draggable={false}
+                className="w-full max-h-28 object-cover select-none cursor-pointer"
               />
               {previewImages.length > 1 && (
-                <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-md bg-black/65 text-white text-[9px] font-semibold backdrop-blur-xs">
+                <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-md bg-black/65 text-white text-[9px] font-semibold backdrop-blur-xs pointer-events-none">
                   +{previewImages.length - 1}
                 </span>
               )}

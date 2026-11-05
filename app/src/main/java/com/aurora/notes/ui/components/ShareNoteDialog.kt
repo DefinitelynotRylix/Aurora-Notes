@@ -69,12 +69,6 @@ fun ShareNoteDialog(
         }
     }
 
-    val previewBitmaps = remember(plainNotes) {
-        plainNotes.flatMap { it.images }.mapNotNull { img ->
-            PrivateStorageManager.loadDecryptedNoteImageBitmap(img.uri)?.asImageBitmap()
-        }
-    }
-
     val fullLengthNoteBitmap = remember(plainNotes, selectedFormat) {
         if (selectedFormat == ShareNoteFormat.NOTE_IMAGE) {
             runCatching {
@@ -202,7 +196,7 @@ fun ShareNoteDialog(
                                 )
                             )
                             Text(
-                                text = "Markdown with images or full-length Gallery image",
+                                text = "Text-only Markdown (.md) or full-length Gallery image",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
@@ -266,7 +260,7 @@ fun ShareNoteDialog(
                                     )
                                     Text(
                                         text = if (format == ShareNoteFormat.MARKDOWN) {
-                                            "Full Markdown + images"
+                                            "Note text only (no images)"
                                         } else {
                                             "Full-length Gallery image"
                                         },
@@ -352,34 +346,13 @@ fun ShareNoteDialog(
                                 .clip(RoundedCornerShape(10.dp))
                         )
                     } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = formattedPreview,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
-                            )
-                            if (previewBitmaps.isNotEmpty()) {
-                                Text(
-                                    text = "EMBEDDED MARKDOWN IMAGES (${previewBitmaps.size})",
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = AuroraRoyalViolet
-                                )
-                                previewBitmaps.forEach { bmp ->
-                                    Image(
-                                        bitmap = bmp,
-                                        contentDescription = "Embedded Markdown image preview",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(110.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                    )
-                                }
-                            }
-                        }
+                        Text(
+                            text = formattedPreview,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
+                        )
                     }
                 }
 
@@ -470,7 +443,7 @@ fun ShareNoteDialog(
                             text = if (plainNotes.size > 1) {
                                 "Share ${plainNotes.size} Separate .MD Files"
                             } else {
-                                "Share Markdown with Images (.MD)"
+                                "Share Note Markdown (.MD)"
                             },
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,

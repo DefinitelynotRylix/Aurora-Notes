@@ -80,8 +80,15 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Live body content snapshot for real-time word and letter counter on top of note editor
-  const [bodyContentSnapshot, setBodyContentSnapshot] = useState<string>(note.content || '');
+  // Live body text snapshot for real-time word and letter counter (strips <img> base64 payloads for 0ms performance)
+  const [bodyContentSnapshot, setBodyContentSnapshot] = useState<string>(() =>
+    (note.content || '').replace(/<img\b[^>]*>/gi, ' ')
+  );
+  const syncBodyTextSnapshot = useCallback((el?: HTMLElement | null) => {
+    const target = el ?? editorRef.current;
+    if (!target) return;
+    setBodyContentSnapshot(target.innerText || target.textContent || '');
+  }, []);
   const wordLetterStats = React.useMemo(
     () => computeWordAndLetterCounts(title, bodyContentSnapshot),
     [title, bodyContentSnapshot]
@@ -197,7 +204,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   useEffect(() => {
     if (editorRef.current) {
       editorRef.current.innerHTML = note.content || '';
-      setBodyContentSnapshot(editorRef.current.innerHTML || '');
+      syncBodyTextSnapshot(editorRef.current);
       linkifyDomContainer(editorRef.current);
 
       const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
@@ -780,7 +787,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         selection.removeAllRanges();
         selection.addRange(newRange);
         markNoteDirty();
-        setBodyContentSnapshot(root.innerHTML || '');
+        syncBodyTextSnapshot(root);
         return;
       }
     }
@@ -809,7 +816,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         selection.removeAllRanges();
         selection.addRange(newRange);
         markNoteDirty();
-        setBodyContentSnapshot(root.innerHTML || '');
+        syncBodyTextSnapshot(root);
         return;
       }
 
@@ -839,7 +846,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       selection.removeAllRanges();
       selection.addRange(newRange);
       markNoteDirty();
-      setBodyContentSnapshot(root.innerHTML || '');
+      syncBodyTextSnapshot(root);
       return;
     }
 
@@ -867,7 +874,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     selection.addRange(newRange);
 
     markNoteDirty();
-    setBodyContentSnapshot(root.innerHTML || '');
+    syncBodyTextSnapshot(root);
   };
 
   /**
@@ -964,9 +971,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     setIsCurrentLineChecklist(nextHasCheckbox);
     setIsBulletModeActive(nextHasBullet);
     markNoteDirty();
-    if (editorRef.current) {
-      setBodyContentSnapshot(editorRef.current.innerHTML || '');
-    }
+    syncBodyTextSnapshot();
     return replacement;
   };
 
@@ -1197,7 +1202,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     placeCaretInEditableTarget(targetEditable, true);
 
     markNoteDirty();
-    setBodyContentSnapshot(root.innerHTML || '');
+    syncBodyTextSnapshot(root);
     requestAnimationFrame(ensureCaretVisible);
   };
 
@@ -1237,9 +1242,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         top: Math.max(56, imgRect.top + 8),
         left: Math.min(window.innerWidth - 156, imgRect.right + 8),
       });
-      if (editorRef.current) {
-        setBodyContentSnapshot(editorRef.current.innerHTML || '');
-      }
+      syncBodyTextSnapshot();
     });
   };
 
@@ -1275,7 +1278,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
     markNoteDirty();
     setActiveImagePopover(null);
-    setBodyContentSnapshot(root.innerHTML || '');
+    syncBodyTextSnapshot(root);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -1418,7 +1421,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         setIsCurrentLineChecklist(continueCheckbox);
         setIsBulletModeActive(continueBullet);
         markNoteDirty();
-        setBodyContentSnapshot(root.innerHTML || '');
+        syncBodyTextSnapshot(root);
         requestAnimationFrame(ensureCaretVisible);
         return;
       }
@@ -1488,9 +1491,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           const nextChecked = !wasChecked;
           setCheckboxVisualAndDomState(checkboxEl, nextChecked);
           markNoteDirty();
-          if (editorRef.current) {
-            setBodyContentSnapshot(editorRef.current.innerHTML || '');
-          }
+          syncBodyTextSnapshot();
         }
         return;
       }
@@ -1593,7 +1594,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         opacity: 0,
       }}
       transition={{
-        duration: 0.42,
+        duration: 0.24,
         ease: [0.22, 1, 0.36, 1],
       }}
       onPointerDown={handleEdgePointerDown}
@@ -1801,7 +1802,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
                     linkifyDomContainer(editorRef.current);
                   }
                   if (editorRef.current) {
-                    setBodyContentSnapshot(editorRef.current.innerHTML || '');
+                    syncBodyTextSnapshot(editorRef.current);
                   }
                   requestAnimationFrame(ensureCaretVisible);
                 }
@@ -1836,7 +1837,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
                         }
                       }
                     }
-                    setBodyContentSnapshot(editorRef.current.innerHTML || '');
+                    syncBodyTextSnapshot(editorRef.current);
                   }
                   requestAnimationFrame(ensureCaretVisible);
                 }

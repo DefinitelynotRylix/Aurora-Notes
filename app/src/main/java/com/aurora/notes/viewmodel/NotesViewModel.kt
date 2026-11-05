@@ -30,7 +30,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_BIOMETRIC_LOCK = "key_biometric_lock_enabled"
         private const val KEY_WELCOME_SEEN = "key_welcome_tour_seen_v1"
         private const val KEY_WHATS_NEW_SEEN_VERSION = "key_whats_new_seen_version_v1"
-        const val CURRENT_MAJOR_UPDATE_ID = "1.3.37"
+        const val CURRENT_MAJOR_UPDATE_ID = "1.3.38"
         private const val KEY_USER_TAGS = "key_user_created_tags_v1"
         private const val KEY_THEME_MODE = "key_theme_mode_v1"
         private const val KEY_HAPTICS_ENABLED = "key_haptics_enabled_v1"
@@ -353,35 +353,78 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         val sourceList = if (isArchive) allArchivedNotes.value else allActiveNotes.value
         val byId = sourceList.associateBy { it.id }
 
-        // Pinned notes cannot be reordered when pin is active; only reorder unpinned notes
+        // Pinned notes reorder among pinned notes; unpinned notes reorder among unpinned notes
+        val pinnedOrderedIds = orderedIds.filter { id ->
+            val note = byId[id]
+            note != null && note.isPinned
+        }
         val unpinnedOrderedIds = orderedIds.filter { id ->
             val note = byId[id]
             note != null && !note.isPinned
         }
-        if (unpinnedOrderedIds.isEmpty()) return
 
+        val visiblePinnedSet = pinnedOrderedIds.toSet()
         val visibleUnpinnedSet = unpinnedOrderedIds.toSet()
-        val reorderedQueue = ArrayDeque(
-            unpinnedOrderedIds.mapNotNull { id -> byId[id] }
-        )
+
+        val pinnedQueue = ArrayDeque(pinnedOrderedIds.mapNotNull { byId[it] })
+        val unpinnedQueue = ArrayDeque(unpinnedOrderedIds.mapNotNull { byId[it] })
 
         val finalOrdered = sourceList.map { note ->
-            if (!note.isPinned && note.id in visibleUnpinnedSet && reorderedQueue.isNotEmpty()) {
-                reorderedQueue.removeFirst()
+            if (note.isPinned && note.id in visiblePinnedSet && pinnedQueue.isNotEmpty()) {
+                pinnedQueue.removeFirst()
+            } else if (!note.isPinned && note.id in visibleUnpinnedSet && unpinnedQueue.isNotEmpty()) {
+                unpinnedQueue.removeFirst()
             } else {
                 note
             }
         }.mapIndexed { globalIdx, note ->
-            if (note.isPinned) {
-                note
-            } else {
-                note.copy(sortOrder = globalIdx + 1)
-            }
+            note.copy(sortOrder = globalIdx + 1)
         }
 
         viewModelScope.launch(Dispatchers.IO) {
             repository.reorderNotes(finalOrdered)
             _storageStats.value = repository.getStorageStats()
+        }
+    }
+
+    fun tagNotesBatch(noteIds: List<String>, tagsToApply: List<String>, isArchive: Boolean = false) {
+        val cleanTags = tagsToApply
+            .map { it.trim().removePrefix("#").trim() }
+            .filter { it.isNotBlank() && !it.equals("All", ignoreCase = true) }
+            .distinctBy { it.lowercase() }
+        if (noteIds.isEmpty() || cleanTags.isEmpty()) return
+
+        // Register all applied tags in userTags
+        val currentTags = _userTags.value.toMutableList()
+        var tagsChanged = false
+        cleanTags.forEach { tag ->
+            if (currentTags.none { it.equals(tag, ignoreCase = true) }) {
+                currentTags.add(tag)
+                tagsChanged = true
+            }
+        }
+        if (tagsChanged) {
+            persistUserTags(currentTags)
+        }
+
+        val sourceList = if (isArchive) allArchivedNotes.value else allActiveNotes.value
+        val idSet = noteIds.toSet()
+        val updatedNotes = sourceList.filter { it.id in idSet }.map { note ->
+            val combinedTags = (note.tags + cleanTags)
+                .map { it.trim().removePrefix("#").trim() }
+                .filter { it.isNotBlank() }
+                .distinctBy { it.lowercase() }
+            note.copy(
+                tags = combinedTags,
+                category = combinedTags.firstOrNull() ?: note.category
+            )
+        }
+
+        if (updatedNotes.isNotEmpty()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                repository.saveNotesBatch(updatedNotes)
+                _storageStats.value = repository.getStorageStats()
+            }
         }
     }
 

@@ -22,9 +22,11 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Unarchive
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +44,8 @@ import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.util.LinkHelper
 import com.aurora.notes.util.PrivateStorageManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -65,6 +69,9 @@ fun NoteCard(
     onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnLongClick by rememberUpdatedState(onLongClick)
+
     val formattedDate = remember(note.updatedAt) {
         SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date(note.updatedAt))
     }
@@ -94,13 +101,13 @@ fun NoteCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .then(
-                if (onLongClick != null) {
+                if (currentOnLongClick != null) {
                     Modifier.combinedClickable(
-                        onClick = { onClick() },
-                        onLongClick = { onLongClick.invoke() }
+                        onClick = { currentOnClick() },
+                        onLongClick = { currentOnLongClick?.invoke() }
                     )
                 } else {
-                    Modifier.clickable { onClick() }
+                    Modifier.clickable { currentOnClick() }
                 }
             ),
         shape = RoundedCornerShape(16.dp),
@@ -266,24 +273,34 @@ fun NoteCard(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Note Image Preview Window (Clicking the image preview simply opens the Note Editor, never the image editor)
+            // Note Image Preview Window (Clicking the image preview opens the Note Editor)
             if (note.images.isNotEmpty()) {
                 val firstImg = note.images.first()
-                val previewBitmap = remember(firstImg.uri) {
-                    PrivateStorageManager.loadDecryptedNoteImageBitmap(firstImg.uri)?.asImageBitmap()
+                var previewBitmap by remember(firstImg.uri) {
+                    mutableStateOf(PrivateStorageManager.getCachedNoteImageBitmap(firstImg.uri)?.asImageBitmap())
+                }
+                LaunchedEffect(firstImg.uri) {
+                    if (previewBitmap == null) {
+                        previewBitmap = withContext(Dispatchers.IO) {
+                            PrivateStorageManager.loadDecryptedNoteImageDisplayBitmap(
+                                rawPath = firstImg.uri,
+                                maxDimensionPx = 720
+                            )?.asImageBitmap()
+                        }
+                    }
                 }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(96.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.background)
-                        .clickable { onClick() },
+                        .background(MaterialTheme.colorScheme.background),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (previewBitmap != null) {
+                    val bmp = previewBitmap
+                    if (bmp != null) {
                         Image(
-                            bitmap = previewBitmap,
+                            bitmap = bmp,
                             contentDescription = "Note image preview",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()

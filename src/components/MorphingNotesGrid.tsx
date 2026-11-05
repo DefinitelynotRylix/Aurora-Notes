@@ -37,7 +37,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
   children,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const [progress, setProgress] = useState<number>(() => (isGridView ? 0 : 1));
   const progressRef = useRef<number>(isGridView ? 0 : 1);
@@ -54,11 +54,11 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
     () => new Set<string>(lockedItemIds ?? []),
     [lockedItemIds]
   );
-  const heldLockedIdRef = useRef<string | null>(null);
 
   // Live slot permutation order during drag-to-reorder
   const [liveOrderIds, setLiveOrderIds] = useState<string[]>(resolvedIds);
   const liveOrderRef = useRef<string[]>(resolvedIds);
+  const initialOrderRef = useRef<string[]>(resolvedIds);
 
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const draggedIdRef = useRef<string | null>(null);
@@ -93,7 +93,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
   const cardBoundsRef = useRef<Record<string, RectBox>>({});
   const suppressNextClickRef = useRef<boolean>(false);
 
-  // Sync liveOrderIds when not actively dragging
+  // Sync liveOrderIds when resolvedIds prop updates from parent
   useEffect(() => {
     if (!draggedIdRef.current) {
       liveOrderRef.current = resolvedIds;
@@ -117,7 +117,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
       setMeasureTick((t) => t + 1);
     });
     ro.observe(el);
-    itemRefs.current.forEach((childEl) => {
+    Object.values(itemRefs.current).forEach((childEl) => {
       if (childEl) ro.observe(childEl);
     });
 
@@ -200,32 +200,47 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
 
     const finalX = dragStateRef.current.startX + dragStateRef.current.deltaX;
     const finalY = dragStateRef.current.startY + dragStateRef.current.deltaY;
-    animPosRef.current[activeId] = { x: finalX, y: finalY };
 
     const didMove = dragStateRef.current.moved;
     const finalOrder = [...liveOrderRef.current];
+    const orderChanged =
+      !cancelled &&
+      didMove &&
+      finalOrder.length === resolvedIds.length &&
+      finalOrder.some((id, idx) => id !== resolvedIds[idx]);
 
     draggedIdRef.current = null;
     setDraggedId(null);
-    droppingIdRef.current = activeId;
-    setDroppingId(activeId);
 
-    window.setTimeout(() => {
-      if (droppingIdRef.current === activeId) {
-        droppingIdRef.current = null;
-        setDroppingId(null);
-      }
-    }, 240);
-
-    if (!cancelled && didMove && onReorderNotes) {
-      const orderChanged =
-        finalOrder.length === resolvedIds.length &&
-        finalOrder.some((id, idx) => id !== resolvedIds[idx]);
-      if (orderChanged) {
+    if (orderChanged) {
+      // Snap all cards directly to their new target slot positions so there is zero jump-back
+      const slots = slotBoundsRef.current;
+      finalOrder.forEach((id, slotIdx) => {
+        const box = slots[slotIdx];
+        if (box) {
+          animPosRef.current[id] = { x: box.left, y: box.top };
+        }
+      });
+      droppingIdRef.current = null;
+      setDroppingId(null);
+      if (onReorderNotes) {
         onReorderNotes(finalOrder);
       }
-    } else if (!cancelled && !didMove && onReleaseHoldWithoutDrag) {
-      onReleaseHoldWithoutDrag(activeId);
+    } else {
+      animPosRef.current[activeId] = { x: finalX, y: finalY };
+      droppingIdRef.current = activeId;
+      setDroppingId(activeId);
+
+      window.setTimeout(() => {
+        if (droppingIdRef.current === activeId) {
+          droppingIdRef.current = null;
+          setDroppingId(null);
+        }
+      }, 220);
+
+      if (!cancelled && !didMove && onReleaseHoldWithoutDrag) {
+        onReleaseHoldWithoutDrag(activeId);
+      }
     }
 
     dragStateRef.current.moved = false;
@@ -242,17 +257,20 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
           isGridView ? 'grid-cols-2' : 'grid-cols-1'
         }`}
       >
-        {items.map((child, idx) => (
-          <div
-            key={(child as React.ReactElement)?.key ?? idx}
-            ref={(el) => {
-              itemRefs.current[idx] = el;
-            }}
-            className="w-full"
-          >
-            {child}
-          </div>
-        ))}
+        {items.map((child, idx) => {
+          const id = resolvedIds[idx];
+          return (
+            <div
+              key={id}
+              ref={(el) => {
+                itemRefs.current[id] = el;
+              }}
+              className="w-full"
+            >
+              {child}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -263,10 +281,6 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
   const gridItemWidth = Math.max(1, (containerWidth - gap * (cols - 1)) / cols);
   const colItemWidth = containerWidth;
   const currentItemWidth = gridItemWidth + (colItemWidth - gridItemWidth) * p;
-
-  if (itemRefs.current.length > items.length) {
-    itemRefs.current.length = items.length;
-  }
 
   const idToOrigIdx: Record<string, number> = {};
   resolvedIds.forEach((id, idx) => {
@@ -280,8 +294,9 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
       : resolvedIds;
 
   const itemHeightsByOrigIdx = items.map((_, idx) => {
-    const el = itemRefs.current[idx];
-    return el ? el.offsetHeight : 148;
+    const id = resolvedIds[idx];
+    const el = itemRefs.current[id];
+    return el && el.offsetHeight > 0 ? el.offsetHeight : 148;
   });
 
   // 1. Compute 2-column Masonry Grid coordinates per slot in effectiveOrderIds
@@ -393,16 +408,15 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
         const currentOrder = [...liveOrderRef.current];
         const currentSlotIdx = currentOrder.indexOf(activeId);
         if (currentSlotIdx >= 0) {
-          let bestSlotIdx = -1;
-          let bestDist = Number.MAX_VALUE;
+          const isDraggedPinned = lockedIdSet.has(activeId);
+          let bestSameGroupSlotIdx = -1;
+          let bestSameGroupDist = Number.MAX_VALUE;
+          let hoveredOppositeSlotIdx = -1;
           const slots = slotBoundsRef.current;
 
           for (let s = 0; s < slots.length; s++) {
-            if (s === currentSlotIdx) continue;
-            // Never allow swapping into a pinned (locked) note's slot
             const occupantId = currentOrder[s];
-            if (occupantId && lockedIdSet.has(occupantId)) continue;
-
+            const isSlotPinned = occupantId ? lockedIdSet.has(occupantId) : false;
             const rect = slots[s];
             if (!rect) continue;
             const padX = rect.width * 0.08;
@@ -413,17 +427,52 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
               centerY >= rect.top - padY &&
               centerY <= rect.bottom + padY
             ) {
-              const dist = Math.hypot(centerX - rect.cx, centerY - rect.cy);
-              if (dist < bestDist) {
-                bestDist = dist;
-                bestSlotIdx = s;
+              if (isSlotPinned === isDraggedPinned) {
+                if (s !== currentSlotIdx) {
+                  const dist = Math.hypot(centerX - rect.cx, centerY - rect.cy);
+                  if (dist < bestSameGroupDist) {
+                    bestSameGroupDist = dist;
+                    bestSameGroupSlotIdx = s;
+                  }
+                }
+              } else {
+                hoveredOppositeSlotIdx = s;
               }
             }
           }
 
-          if (bestSlotIdx >= 0 && bestSlotIdx !== currentSlotIdx) {
+          // Also check if dragged vertically across the boundary between pinned and unpinned sections
+          let maxPinnedBottom = -Number.MAX_VALUE;
+          let minUnpinnedTop = Number.MAX_VALUE;
+          for (let s = 0; s < slots.length; s++) {
+            const occId = currentOrder[s];
+            const rect = slots[s];
+            if (!occId || !rect) continue;
+            if (lockedIdSet.has(occId)) {
+              if (rect.bottom > maxPinnedBottom) maxPinnedBottom = rect.bottom;
+            } else {
+              if (rect.top < minUnpinnedTop) minUnpinnedTop = rect.top;
+            }
+          }
+
+          const crossedIntoOppositeGroup =
+            hoveredOppositeSlotIdx >= 0 ||
+            (isDraggedPinned && minUnpinnedTop < Number.MAX_VALUE && centerY > minUnpinnedTop) ||
+            (!isDraggedPinned && maxPinnedBottom > -Number.MAX_VALUE && centerY < maxPinnedBottom);
+
+          if (crossedIntoOppositeGroup) {
+            // Attempting to move pinned into unpinned or unpinned into pinned -> revert to original order
+            const initialOrder = initialOrderRef.current;
+            const differs =
+              initialOrder.length === currentOrder.length &&
+              currentOrder.some((id, idx) => id !== initialOrder[idx]);
+            if (differs) {
+              liveOrderRef.current = [...initialOrder];
+              setLiveOrderIds([...initialOrder]);
+            }
+          } else if (bestSameGroupSlotIdx >= 0 && bestSameGroupSlotIdx !== currentSlotIdx) {
             currentOrder.splice(currentSlotIdx, 1);
-            currentOrder.splice(bestSlotIdx, 0, activeId);
+            currentOrder.splice(bestSameGroupSlotIdx, 0, activeId);
             liveOrderRef.current = currentOrder;
             setLiveOrderIds(currentOrder);
             if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
@@ -437,15 +486,6 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
         }
       }}
       onPointerUp={() => {
-        if (heldLockedIdRef.current) {
-          const lockedId = heldLockedIdRef.current;
-          heldLockedIdRef.current = null;
-          cancelPendingHold();
-          if (onReleaseHoldWithoutDrag) {
-            onReleaseHoldWithoutDrag(lockedId);
-          }
-          return;
-        }
         if (draggedIdRef.current) {
           finishActiveDrag(false);
         } else {
@@ -453,7 +493,6 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
         }
       }}
       onPointerCancel={() => {
-        heldLockedIdRef.current = null;
         if (draggedIdRef.current) {
           finishActiveDrag(true);
         } else {
@@ -526,14 +565,14 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
           scale = 1 + 0.03 * settleFactor;
           rotateDeg = Math.sin(wobblePhase * 1.2) * 0.7 * settleFactor;
           zIndex = 15;
-        } else if (draggedId && !lockedIdSet.has(id)) {
+        } else if (draggedId) {
+          const isSameGroup = lockedIdSet.has(id) === lockedIdSet.has(draggedId);
           const cardCx = drawX + currentItemWidth * 0.5;
           const cardCy = drawY + itemHeightsByOrigIdx[origIdx] * 0.5;
           const distToDragged = Math.hypot(dragCenterX - cardCx, dragCenterY - cardCy);
-          const hoverProximity = Math.max(
-            0,
-            Math.min(1, 1 - distToDragged / (currentItemWidth * 1.15))
-          );
+          const hoverProximity = isSameGroup
+            ? Math.max(0, Math.min(1, 1 - distToDragged / (currentItemWidth * 1.15)))
+            : 0;
           const glideDist = Math.hypot(targetBox.left - drawX, targetBox.top - drawY);
           const glideFactor = Math.min(1, glideDist / 40);
           const wobbleIntensity = Math.max(hoverProximity * 0.85, glideFactor * 1.0);
@@ -544,9 +583,9 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
 
         return (
           <div
-            key={(child as React.ReactElement)?.key ?? origIdx}
+            key={id}
             ref={(el) => {
-              itemRefs.current[origIdx] = el;
+              itemRefs.current[id] = el;
             }}
             onPointerDown={(e) => {
               if (!onHoldNote && !onReorderNotes) return;
@@ -555,7 +594,6 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
               if (targetEl && targetEl.closest('button, a, input')) return;
 
               cancelPendingHold();
-              heldLockedIdRef.current = null;
               const downClientX = e.clientX;
               const downClientY = e.clientY;
               const pointerId = e.pointerId;
@@ -583,12 +621,6 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
                   onHoldNote(id);
                 }
 
-                // Pinned notes cannot be reordered when pin is active
-                if (lockedIdSet.has(id)) {
-                  heldLockedIdRef.current = id;
-                  return;
-                }
-
                 const currentBox = cardBoundsRef.current[id] ?? targetBox;
                 dragStateRef.current = {
                   startX: currentBox.left,
@@ -597,6 +629,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
                   deltaY: 0,
                   moved: false,
                 };
+                initialOrderRef.current = [...resolvedIds];
                 liveOrderRef.current = [...resolvedIds];
                 setLiveOrderIds([...resolvedIds]);
                 draggedIdRef.current = id;

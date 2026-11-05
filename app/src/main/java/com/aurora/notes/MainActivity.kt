@@ -345,13 +345,13 @@ fun AuroraApp(
                 editorRevealProgress.snapTo(0f)
                 editorRevealProgress.animateTo(
                     targetValue = 1f,
-                    animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
                 )
             } else if (displayedEditorNote != null && !isClosingEditor) {
                 isClosingEditor = true
                 editorRevealProgress.animateTo(
                     targetValue = 0f,
-                    animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing)
                 )
                 displayedEditorNote = null
                 editorBackProgress = 0f
@@ -366,7 +366,7 @@ fun AuroraApp(
             coroutineScope.launch {
                 editorRevealProgress.animateTo(
                     targetValue = 0f,
-                    animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing)
                 )
                 displayedEditorNote = null
                 editorBackProgress = 0f
@@ -540,6 +540,7 @@ fun AuroraApp(
                                 onAddNote = { viewModel.openNewNote() },
                                 onSaveNoteDetails = { updatedNote -> viewModel.saveNote(updatedNote) },
                                 onReorderNotes = { orderedIds -> viewModel.reorderNotes(orderedIds, isArchive = false) },
+                                onTagNotesBatch = { ids, tags -> viewModel.tagNotesBatch(ids, tags, isArchive = false) },
                                 onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
                                 onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
                                 isArchiveTab = false,
@@ -581,6 +582,7 @@ fun AuroraApp(
                                 },
                                 onAddNote = { viewModel.openNewNote() },
                                 onReorderNotes = { orderedIds -> viewModel.reorderNotes(orderedIds, isArchive = true) },
+                                onTagNotesBatch = { ids, tags -> viewModel.tagNotesBatch(ids, tags, isArchive = true) },
                                 onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
                                 onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
                                 isArchiveTab = true,
@@ -962,28 +964,28 @@ private fun WhatsNewDialog(
     val features = remember {
         listOf(
             WhatsNewFeatureItem(
-                title = "Drag-to-Reorder Notes & Hold Action Navbar",
-                badge = "NEW FEATURE",
-                description = "Hold down any note to elevate it with a subtle wobbly physics effect and drag it over other notes to reorder in both Masonry and Single-Column views, or use the pop-up Selection Action Navbar (Share, Archive, Edit, Delete).",
+                title = "Pinned & Unpinned Drag-to-Reorder",
+                badge = "REORDERING",
+                description = "Hold and drag notes with a subtle wobbly physics effect and instant drop-in locking. Reorder pinned notes among pinned notes and unpinned among unpinned notes in both Masonry and Single-Column views.",
                 icon = Icons.Default.Edit
             ),
             WhatsNewFeatureItem(
-                title = "Gallery Note Image Export & Decrypted Markdown",
-                badge = "EXPORT & MEDIA",
-                description = "Insert lossless images in dedicated vertical blocks, save any note as a full-length visual image directly into your Android Gallery, or export decrypted Markdown (.md) notes with companion .png image files.",
-                icon = Icons.Default.Image
-            ),
-            WhatsNewFeatureItem(
-                title = "Persistent Lists, Checkboxes & Checkmark Save",
-                badge = "EDITOR",
-                description = "Bullet lists and checkboxes stay active across unlimited Enter presses without cutting off, coexist cleanly on the same line, and pair with compact H2/H1 buttons and the top-right Checkmark quick-save indicator.",
+                title = "Hold Selection Navbar & Batch Tagging",
+                badge = "MULTI-SELECT",
+                description = "Holding a note slides out the bottom navigation bar for the Selection Action Navbar. Selecting multiple notes replaces Share & Edit with a Tag button to group selected notes under a new or existing tag.",
                 icon = Icons.Default.CheckCircle
             ),
             WhatsNewFeatureItem(
-                title = "AES-256-GCM Cryptography & Codebase Optimization",
-                badge = "SECURITY",
-                description = "Every note and attached image in your Room SQLite database and private storage is encrypted at rest with AndroidKeyStore AES-256-GCM cryptography, automatic orphaned file cleanup, and streamlined rendering.",
-                icon = Icons.Default.Lock
+                title = "Text-Only Markdown (.MD) & Gallery PNG Export",
+                badge = "EXPORT & MEDIA",
+                description = "Export notes as clean text-only Markdown (.md) files without images (each selected note saved in its own .md file), or save full-length visual note cards with images (.png) directly to your Android Gallery.",
+                icon = Icons.Default.Image
+            ),
+            WhatsNewFeatureItem(
+                title = "Instant Image Notes & Clickable Previews",
+                badge = "PERFORMANCE",
+                description = "In-memory bitmap caching and subsampled decoding make opening notes with images instantaneous, while tapping any note card's preview image opens the Note Editor right away.",
+                icon = Icons.Default.AutoAwesome
             )
         )
     }

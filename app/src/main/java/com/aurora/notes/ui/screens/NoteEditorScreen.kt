@@ -91,6 +91,8 @@ import com.aurora.notes.util.PrivateStorageManager
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -2240,8 +2242,20 @@ fun NoteEditorScreen(
                             if (segIdx < noteImages.size) {
                                 val imgItem = noteImages[segIdx]
                                 val isMenuOpen = activeImageMenuId == imgItem.id
-                                val bitmap = remember(imgItem.uri) {
-                                    PrivateStorageManager.loadDecryptedNoteImageBitmap(imgItem.uri)?.asImageBitmap()
+                                var bitmap by remember(imgItem.uri) {
+                                    mutableStateOf(
+                                        PrivateStorageManager.getCachedNoteImageBitmap(imgItem.uri)?.asImageBitmap()
+                                    )
+                                }
+                                LaunchedEffect(imgItem.uri) {
+                                    if (bitmap == null) {
+                                        bitmap = withContext(Dispatchers.IO) {
+                                            PrivateStorageManager.loadDecryptedNoteImageDisplayBitmap(
+                                                rawPath = imgItem.uri,
+                                                maxDimensionPx = 1280
+                                            )?.asImageBitmap()
+                                        }
+                                    }
                                 }
 
                                 Row(
@@ -2276,9 +2290,10 @@ fun NoteEditorScreen(
                                                 activeImageMenuId = if (isMenuOpen) null else imgItem.id
                                             }
                                     ) {
-                                        if (bitmap != null) {
+                                        val loadedBmp = bitmap
+                                        if (loadedBmp != null) {
                                             Image(
-                                                bitmap = bitmap,
+                                                bitmap = loadedBmp,
                                                 contentDescription = "Inserted note image",
                                                 contentScale = ContentScale.Fit,
                                                 modifier = Modifier.fillMaxWidth()

@@ -159,6 +159,9 @@ export default function App() {
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
   const [notesToShare, setNotesToShare] = useState<Note[]>([]);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const [showBatchTagModal, setShowBatchTagModal] = useState(false);
+  const [batchTagInput, setBatchTagInput] = useState('');
+  const [batchSelectedTags, setBatchSelectedTags] = useState<string[]>([]);
 
   // Edit Note Details Modal state (opened when long-pressing notes in the main menu)
   const [editingDetailsNote, setEditingDetailsNote] = useState<Note | null>(null);
@@ -638,34 +641,110 @@ export default function App() {
     setSelectedNoteIds([]);
     const byId = new Map<string, Note>(notes.map((n) => [n.id, n]));
 
-    // Pinned notes cannot be reordered when pin is active; only reorder unpinned notes
+    // Pinned notes reorder among pinned notes; unpinned notes reorder among unpinned notes
+    const pinnedOrderedIds = orderedVisibleIds.filter((id) => {
+      const note = byId.get(id);
+      return Boolean(note && note.isPinned);
+    });
     const unpinnedOrderedIds = orderedVisibleIds.filter((id) => {
       const note = byId.get(id);
-      return note && !note.isPinned;
+      return Boolean(note && !note.isPinned);
     });
-    if (unpinnedOrderedIds.length === 0) return;
 
+    const visiblePinnedSet = new Set(pinnedOrderedIds);
     const visibleUnpinnedSet = new Set(unpinnedOrderedIds);
-    const reorderedVisible: Note[] = [];
+
+    const pinnedQueue: Note[] = [];
+    pinnedOrderedIds.forEach((id) => {
+      const existing = byId.get(id);
+      if (existing && existing.isPinned) pinnedQueue.push(existing);
+    });
+
+    const unpinnedQueue: Note[] = [];
     unpinnedOrderedIds.forEach((id) => {
       const existing = byId.get(id);
-      if (existing && !existing.isPinned) {
-        reorderedVisible.push(existing);
-      }
+      if (existing && !existing.isPinned) unpinnedQueue.push(existing);
     });
 
-    let queueIdx = 0;
+    let pinnedIdx = 0;
+    let unpinnedIdx = 0;
     const updated = notes.map((n, idx) => {
-      const replaced =
-        !n.isPinned && visibleUnpinnedSet.has(n.id) && queueIdx < reorderedVisible.length
-          ? reorderedVisible[queueIdx++]
-          : n;
+      let replaced = n;
+      if (n.isPinned && visiblePinnedSet.has(n.id) && pinnedIdx < pinnedQueue.length) {
+        replaced = pinnedQueue[pinnedIdx++];
+      } else if (!n.isPinned && visibleUnpinnedSet.has(n.id) && unpinnedIdx < unpinnedQueue.length) {
+        replaced = unpinnedQueue[unpinnedIdx++];
+      }
       return {
         ...replaced,
-        sortOrder: replaced.isPinned ? 0 : idx + 1,
+        sortOrder: idx + 1,
       };
     });
     persistNotes(updated);
+  };
+
+  const handleOpenBatchTagModal = () => {
+    const selectedNotes = currentTabNotes.filter((n) => selectedNoteIds.includes(n.id));
+    if (selectedNotes.length === 0) return;
+    const firstTags = selectedNotes[0].tags || [];
+    const commonTags = firstTags.filter((candidate) =>
+      selectedNotes.every((n) =>
+        (n.tags || []).some((t) => t.toLowerCase() === candidate.toLowerCase())
+      )
+    );
+    setBatchSelectedTags(commonTags);
+    setBatchTagInput('');
+    setShowBatchTagModal(true);
+  };
+
+  const handleAddBatchTagInput = (e?: React.FormEvent | React.MouseEvent | React.KeyboardEvent) => {
+    if (e) e.preventDefault();
+    const clean = batchTagInput.trim().replace(/^#/, '').trim();
+    if (!clean || clean.toLowerCase() === 'all') return;
+    handleAddCategory(clean);
+    setBatchSelectedTags((prev) =>
+      prev.some((t) => t.toLowerCase() === clean.toLowerCase()) ? prev : [...prev, clean]
+    );
+    setBatchTagInput('');
+  };
+
+  const handleApplyBatchTags = () => {
+    const pendingTyped = batchTagInput.trim().replace(/^#/, '').trim();
+    let finalTags = [...batchSelectedTags];
+    if (pendingTyped && pendingTyped.toLowerCase() !== 'all') {
+      handleAddCategory(pendingTyped);
+      if (!finalTags.some((t) => t.toLowerCase() === pendingTyped.toLowerCase())) {
+        finalTags.push(pendingTyped);
+      }
+    }
+    if (finalTags.length === 0 || selectedNoteIds.length === 0) {
+      setShowBatchTagModal(false);
+      setBatchTagInput('');
+      return;
+    }
+
+    const idSet = new Set(selectedNoteIds);
+    const now = Date.now();
+    const updated = notes.map((n) => {
+      if (!idSet.has(n.id)) return n;
+      const existingTags = n.tags || [];
+      const merged = [...existingTags];
+      finalTags.forEach((tag) => {
+        if (!merged.some((t) => t.toLowerCase() === tag.toLowerCase())) {
+          merged.push(tag);
+        }
+      });
+      return {
+        ...n,
+        tags: merged,
+        category: merged[0] || n.category || '',
+        updatedAt: now,
+      };
+    });
+    persistNotes(updated);
+    setShowBatchTagModal(false);
+    setBatchTagInput('');
+    setSelectedNoteIds([]);
   };
 
   // Restore Note from Trash
@@ -1116,6 +1195,143 @@ export default function App() {
         </div>
       )}
 
+      {/* Batch Tag Together Modal (Opened when selecting multiple notes and tapping Tag) */}
+      {showBatchTagModal && selectedNoteIds.length > 0 && (
+        <div
+          data-testid="batch-tag-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in"
+          onClick={() => {
+            setShowBatchTagModal(false);
+            setBatchTagInput('');
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] shadow-2xl p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
+                <Tag className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
+                <span>Tag {selectedNoteIds.length} Selected Notes</span>
+              </h3>
+              <button
+                type="button"
+                aria-label="Close Tag Selected Notes"
+                onClick={() => {
+                  setShowBatchTagModal(false);
+                  setBatchTagInput('');
+                }}
+                className="p-1 rounded-lg text-[#797487] hover:text-[#1E1A24] dark:text-[#A39BAC] dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#484455] dark:text-[#A39BAC] leading-relaxed">
+              Create a new tag or choose from already existing tags to group the selected notes together.
+            </p>
+
+            {/* Small textbox to create a new tag for the selected notes */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                data-testid="batch-tag-input"
+                placeholder="Create new tag..."
+                value={batchTagInput}
+                onChange={(e) => setBatchTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddBatchTagInput(e);
+                  }
+                }}
+                className="flex-1 text-xs px-3 py-2 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none focus:border-[#5925DC]"
+              />
+              <button
+                type="button"
+                data-testid="batch-tag-add-btn"
+                onClick={handleAddBatchTagInput}
+                className="px-3 py-2 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-xs font-semibold flex items-center gap-1 border border-[#EADBFC] dark:border-[#322742] cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add</span>
+              </button>
+            </div>
+
+            {/* Existing Tags List */}
+            {(() => {
+              const allTags = Array.from(
+                new Set([
+                  ...customCategories,
+                  ...notes.flatMap((n) => n.tags || []),
+                  ...batchSelectedTags,
+                ])
+              ).filter((t) => t.trim() && t.toLowerCase() !== 'all');
+
+              if (allTags.length === 0) return null;
+
+              return (
+                <div>
+                  <label className="block text-[10px] font-bold tracking-wider uppercase text-[#797487] dark:text-[#A39BAC] mb-2">
+                    Existing Tags
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+                    {allTags.map((tag) => {
+                      const isPicked = batchSelectedTags.some(
+                        (t) => t.toLowerCase() === tag.toLowerCase()
+                      );
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => {
+                            setBatchSelectedTags((prev) =>
+                              isPicked
+                                ? prev.filter((t) => t.toLowerCase() !== tag.toLowerCase())
+                                : [...prev, tag]
+                            );
+                          }}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1 ${
+                            isPicked
+                              ? 'bg-[#5925DC] dark:bg-[#9D5AF5] text-white border-[#5925DC] dark:border-[#9D5AF5] shadow-xs'
+                              : 'bg-[#FAF8FB] dark:bg-[#120E17] text-[#5925DC] dark:text-[#C296FD] border-[#EADBFC] dark:border-[#322742] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E]'
+                          }`}
+                        >
+                          <span>#{tag}</span>
+                          {isPicked && <Check className="w-3 h-3 stroke-[2.5]" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBatchTagModal(false);
+                  setBatchTagInput('');
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-[#484455] dark:text-[#A39BAC] border border-[#EADBFC] dark:border-[#322742] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="batch-tag-apply-btn"
+                onClick={handleApplyBatchTags}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#5925DC] to-[#9B51E0] shadow-xs flex items-center gap-1.5 active:scale-95 cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Apply Tags</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit Note Details Modal (Opened via Long-Press on Notes in the Main Menu) */}
       {editingDetailsNote && (
         <div
@@ -1315,6 +1531,7 @@ export default function App() {
             setNotesToShare(selected);
           }
         }}
+        onTagSelected={handleOpenBatchTagModal}
         onArchiveOrRestoreSelected={() => {
           if (activeTab === 'archive') {
             handleUnarchiveNotesBatch(selectedNoteIds);

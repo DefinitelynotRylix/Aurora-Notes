@@ -52,6 +52,30 @@ object PrivateStorageManager {
 
     private val gson = GsonBuilder().setPrettyPrinting().create()
 
+    // In-memory LRU cache of decrypted display Bitmaps keyed by file path so opening a note
+    // with an image inside is instantaneous (0ms main-thread work)
+    private val displayBitmapCache = object : android.util.LruCache<String, Bitmap>(32) {
+        override fun sizeOf(key: String, value: Bitmap): Int = 1
+    }
+    private val fullBitmapCache = object : android.util.LruCache<String, Bitmap>(12) {
+        override fun sizeOf(key: String, value: Bitmap): Int = 1
+    }
+
+    private fun normalizeImageCacheKey(rawPath: String): String {
+        if (rawPath.isBlank()) return ""
+        return decryptText(rawPath).trim()
+    }
+
+    fun getCachedNoteImageBitmap(rawPath: String): Bitmap? {
+        val key = normalizeImageCacheKey(rawPath)
+        if (key.isEmpty()) return null
+        return synchronized(displayBitmapCache) {
+            displayBitmapCache.get(key)
+        } ?: synchronized(fullBitmapCache) {
+            fullBitmapCache.get(key)
+        }
+    }
+
     @Synchronized
     private fun getOrCreateSecretKey(): SecretKey {
         val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply {
@@ -276,7 +300,15 @@ object PrivateStorageManager {
             val encryptedBytes = encryptBytes(rawBytes)
             val destFile = File(targetDir, "img_${UUID.randomUUID()}.enc")
             destFile.writeBytes(encryptedBytes)
-            destFile.absolutePath
+            val absPath = destFile.absolutePath
+
+            // Pre-warm display cache immediately so displaying or reopening this note is 0ms
+            decodeDisplayBitmapFromBytes(rawBytes, maxDimensionPx = 1280)?.let { bmp ->
+                synchronized(displayBitmapCache) {
+                    displayBitmapCache.put(absPath, bmp)
+                }
+            }
+            absPath
         } catch (e: Exception) {
             LocalLogger.error(
                 "IMAGE",
@@ -314,16 +346,79 @@ object PrivateStorageManager {
         }
     }
 
+    private fun decodeDisplayBitmapFromBytes(plainBytes: ByteArray, maxDimensionPx: Int = 1280): Bitmap? {
+        if (plainBytes.isEmpty()) return null
+        return try {
+            val boundsOpts = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeByteArray(plainBytes, 0, plainBytes.size, boundsOpts)
+            val rawW = boundsOpts.outWidth
+            val rawH = boundsOpts.outHeight
+            var sampleSize = 1
+            if (maxDimensionPx > 0 && rawW > 0 && rawH > 0) {
+                while ((rawW / sampleSize) > maxDimensionPx * 2 || (rawH / sampleSize) > maxDimensionPx * 2) {
+                    sampleSize *= 2
+                }
+            }
+            val decodeOpts = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inScaled = false
+            }
+            BitmapFactory.decodeByteArray(plainBytes, 0, plainBytes.size, decodeOpts)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Fast display-optimized Bitmap loader backed by an in-memory `LruCache` so NoteCards
+     * and NoteEditorScreen load images in 0ms when cached and never decode huge multi-megapixel
+     * bitmaps repeatedly on the main thread.
+     */
+    fun loadDecryptedNoteImageDisplayBitmap(rawPath: String, maxDimensionPx: Int = 1280): Bitmap? {
+        val key = normalizeImageCacheKey(rawPath)
+        if (key.isEmpty()) return null
+        synchronized(displayBitmapCache) {
+            displayBitmapCache.get(key)
+        }?.let { return it }
+
+        val plainBytes = loadDecryptedNoteImageBytes(key) ?: return null
+        val decoded = decodeDisplayBitmapFromBytes(plainBytes, maxDimensionPx) ?: return null
+        synchronized(displayBitmapCache) {
+            displayBitmapCache.put(key, decoded)
+        }
+        return decoded
+    }
+
     /**
      * Decodes a lossless `Bitmap` in memory from an AES-256-GCM encrypted note image file.
+     * Used for lossless exports and gallery rendering; also caches the decoded bitmap.
      */
     fun loadDecryptedNoteImageBitmap(rawPath: String): Bitmap? {
-        val plainBytes = loadDecryptedNoteImageBytes(rawPath) ?: return null
+        val key = normalizeImageCacheKey(rawPath)
+        if (key.isEmpty()) return null
+        synchronized(fullBitmapCache) {
+            fullBitmapCache.get(key)
+        }?.let { return it }
+
+        val plainBytes = loadDecryptedNoteImageBytes(key) ?: return null
         return try {
             val opts = BitmapFactory.Options().apply {
                 inScaled = false
             }
-            BitmapFactory.decodeByteArray(plainBytes, 0, plainBytes.size, opts)
+            val bmp = BitmapFactory.decodeByteArray(plainBytes, 0, plainBytes.size, opts)
+            if (bmp != null) {
+                synchronized(fullBitmapCache) {
+                    fullBitmapCache.put(key, bmp)
+                }
+                synchronized(displayBitmapCache) {
+                    if (displayBitmapCache.get(key) == null) {
+                        displayBitmapCache.put(key, bmp)
+                    }
+                }
+            }
+            bmp
         } catch (_: Exception) {
             null
         }
@@ -511,7 +606,7 @@ object PrivateStorageManager {
                                 if (isTemp) tempRemoved++ else orphanedRemoved++
                                 bytesFreed += len
                             }
-                        } else {
+                        } else if (!imgFile.name.endsWith(".enc")) {
                             try {
                                 val raw = imgFile.readBytes()
                                 if (!isEncryptedBinary(raw)) {

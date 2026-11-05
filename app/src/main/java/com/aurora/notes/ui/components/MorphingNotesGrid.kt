@@ -83,8 +83,8 @@ fun MorphingNotesGrid(
 
     // Live slot permutation order during drag-to-reorder
     val liveOrderIds = remember { mutableStateListOf<String>() }
+    val initialOrderOnDragStart = remember { mutableStateListOf<String>() }
     var draggedNoteId by remember { mutableStateOf<String?>(null) }
-    var heldLockedNoteId by remember { mutableStateOf<String?>(null) }
     var droppingNoteId by remember { mutableStateOf<String?>(null) }
     var dragMoved by remember { mutableStateOf(false) }
 
@@ -102,8 +102,8 @@ fun MorphingNotesGrid(
     var isAnyCardGliding by remember { mutableStateOf(false) }
     var wobbleTimeMs by remember { mutableLongStateOf(0L) }
 
-    // Sync liveOrderIds with itemIds when not actively dragging
-    LaunchedEffect(itemIds, draggedNoteId) {
+    // Sync liveOrderIds ONLY when itemIds changes from upstream (never overwrite with stale itemIds on drag end!)
+    LaunchedEffect(itemIds) {
         if (draggedNoteId == null) {
             if (liveOrderIds.toList() != itemIds) {
                 liveOrderIds.clear()
@@ -119,7 +119,7 @@ fun MorphingNotesGrid(
 
     val dragElevation by animateFloatAsState(
         targetValue = if (draggedNoteId != null) 1f else 0f,
-        animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
         label = "drag_elevation_progress"
     )
 
@@ -147,23 +147,13 @@ fun MorphingNotesGrid(
                     val hitId = hitEntry?.key ?: return@detectDragGesturesAfterLongPress
                     val hitRect = hitEntry.value
 
-                    // Pinned notes cannot be reordered when pin is active,
-                    // but holding them still opens the Selection Action Navbar
-                    if (hitId in currentLockedItemIds) {
-                        heldLockedNoteId = hitId
-                        draggedNoteId = null
-                        dragMoved = false
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        currentOnHoldNote?.invoke(hitId)
-                        return@detectDragGesturesAfterLongPress
-                    }
-
-                    if (liveOrderIds.toList() != currentItemIds) {
+                    if (liveOrderIds.size != currentItemIds.size || liveOrderIds.toSet() != currentItemIds.toSet()) {
                         liveOrderIds.clear()
                         liveOrderIds.addAll(currentItemIds)
                     }
+                    initialOrderOnDragStart.clear()
+                    initialOrderOnDragStart.addAll(liveOrderIds)
 
-                    heldLockedNoteId = null
                     draggedNoteId = hitId
                     droppingNoteId = null
                     dragMoved = false
@@ -176,10 +166,6 @@ fun MorphingNotesGrid(
                     currentOnHoldNote?.invoke(hitId)
                 },
                 onDrag = { change, dragAmount ->
-                    if (heldLockedNoteId != null) {
-                        change.consume()
-                        return@detectDragGesturesAfterLongPress
-                    }
                     val activeId = draggedNoteId ?: return@detectDragGesturesAfterLongPress
                     change.consume()
                     dragDeltaX += dragAmount.x
@@ -195,16 +181,12 @@ fun MorphingNotesGrid(
                     val centerX = dragStartX + dragDeltaX + cardW * 0.5f
                     val centerY = dragStartY + dragDeltaY + cardH * 0.5f
 
+                    val isDraggedPinned = activeId in currentLockedItemIds
                     val currentSlotIdx = liveOrderIds.indexOf(activeId)
                     if (currentSlotIdx >= 0) {
                         var bestSlotIdx = -1
                         var bestDist = Float.MAX_VALUE
                         for (slotIdx in 0 until liveOrderIds.size) {
-                            if (slotIdx == currentSlotIdx) continue
-                            // Never allow swapping into a pinned (locked) note's slot
-                            val occupantId = liveOrderIds[slotIdx]
-                            if (occupantId in currentLockedItemIds) continue
-
                             val rect = slotBoundsMap[slotIdx] ?: continue
                             val expandedRect = Rect(
                                 left = rect.left - rect.width * 0.08f,
@@ -221,7 +203,41 @@ fun MorphingNotesGrid(
                             }
                         }
 
-                        if (bestSlotIdx >= 0 && bestSlotIdx != currentSlotIdx) {
+                        // Check if dragged into the opposite group's zone (pinned vs unpinned)
+                        var crossedIntoOppositeGroup = false
+                        if (bestSlotIdx >= 0) {
+                            val occupantId = liveOrderIds[bestSlotIdx]
+                            val isOccupantPinned = occupantId in currentLockedItemIds
+                            if (isOccupantPinned != isDraggedPinned) {
+                                crossedIntoOppositeGroup = true
+                            }
+                        } else if (currentLockedItemIds.isNotEmpty() && currentLockedItemIds.size < liveOrderIds.size) {
+                            var maxPinnedBottom = Float.MIN_VALUE
+                            var minUnpinnedTop = Float.MAX_VALUE
+                            for (slotIdx in 0 until liveOrderIds.size) {
+                                val r = slotBoundsMap[slotIdx] ?: continue
+                                val occPin = liveOrderIds[slotIdx] in currentLockedItemIds
+                                if (occPin) {
+                                    if (r.bottom > maxPinnedBottom) maxPinnedBottom = r.bottom
+                                } else {
+                                    if (r.top < minUnpinnedTop) minUnpinnedTop = r.top
+                                }
+                            }
+                            if (isDraggedPinned && minUnpinnedTop < Float.MAX_VALUE && centerY > minUnpinnedTop) {
+                                crossedIntoOppositeGroup = true
+                            } else if (!isDraggedPinned && maxPinnedBottom > Float.MIN_VALUE && centerY < maxPinnedBottom) {
+                                crossedIntoOppositeGroup = true
+                            }
+                        }
+
+                        if (crossedIntoOppositeGroup) {
+                            // Trying to move pinned into unpinned or unpinned into pinned -> revert to original order
+                            if (liveOrderIds.toList() != initialOrderOnDragStart.toList()) {
+                                liveOrderIds.clear()
+                                liveOrderIds.addAll(initialOrderOnDragStart)
+                                isAnyCardGliding = true
+                            }
+                        } else if (bestSlotIdx >= 0 && bestSlotIdx != currentSlotIdx) {
                             liveOrderIds.removeAt(currentSlotIdx)
                             liveOrderIds.add(bestSlotIdx, activeId)
                             isAnyCardGliding = true
@@ -230,27 +246,36 @@ fun MorphingNotesGrid(
                     }
                 },
                 onDragEnd = {
-                    val lockedId = heldLockedNoteId
-                    if (lockedId != null) {
-                        heldLockedNoteId = null
-                        currentOnReleaseWithoutDrag?.invoke(lockedId)
-                        return@detectDragGesturesAfterLongPress
-                    }
-
                     val finishedId = draggedNoteId
                     if (finishedId != null) {
-                        animXMap[finishedId] = dragStartX + dragDeltaX
-                        animYMap[finishedId] = dragStartY + dragDeltaY
-                        droppingNoteId = finishedId
-                        isAnyCardGliding = true
-                        draggedNoteId = null
-
                         val finalOrder = liveOrderIds.toList()
-                        if (dragMoved && finalOrder.size == currentItemIds.size && finalOrder != currentItemIds) {
+                        val initialOrder = initialOrderOnDragStart.toList()
+                        val didReorder = dragMoved && finalOrder.size == initialOrder.size && finalOrder != initialOrder
+
+                        draggedNoteId = null
+                        if (didReorder) {
+                            // Instant move into the new locked slot without jumping back to the original slot
+                            for (slotIdx in finalOrder.indices) {
+                                val id = finalOrder[slotIdx]
+                                val targetRect = slotBoundsMap[slotIdx]
+                                if (targetRect != null) {
+                                    animXMap[id] = targetRect.left
+                                    animYMap[id] = targetRect.top
+                                }
+                            }
+                            droppingNoteId = null
+                            isAnyCardGliding = false
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             currentOnReorderNotes?.invoke(finalOrder)
-                        } else if (!dragMoved) {
-                            currentOnReleaseWithoutDrag?.invoke(finishedId)
+                        } else {
+                            // Returned to original slot (or was just a hold without reorder)
+                            animXMap[finishedId] = dragStartX + dragDeltaX
+                            animYMap[finishedId] = dragStartY + dragDeltaY
+                            droppingNoteId = finishedId
+                            isAnyCardGliding = true
+                            if (!dragMoved) {
+                                currentOnReleaseWithoutDrag?.invoke(finishedId)
+                            }
                         }
                     }
                     dragMoved = false
@@ -258,9 +283,12 @@ fun MorphingNotesGrid(
                     dragDeltaY = 0f
                 },
                 onDragCancel = {
-                    heldLockedNoteId = null
                     val cancelledId = draggedNoteId
                     if (cancelledId != null) {
+                        if (initialOrderOnDragStart.isNotEmpty() && liveOrderIds.toList() != initialOrderOnDragStart.toList()) {
+                            liveOrderIds.clear()
+                            liveOrderIds.addAll(initialOrderOnDragStart)
+                        }
                         animXMap[cancelledId] = dragStartX + dragDeltaX
                         animYMap[cancelledId] = dragStartY + dragDeltaY
                         droppingNoteId = cancelledId
@@ -517,12 +545,14 @@ fun MorphingNotesGrid(
                             scaleY = scale
                             rotationZ = wobbleDeg
                         }
-                    } else if ((activeDragId != null || stillGliding) && id !in currentLockedItemIds) {
-                        // Neighbor unpinned notes: react with a subtle sympathetic wobble when hovered near or gliding to a new slot
+                    } else if (activeDragId != null || stillGliding) {
+                        // Neighbor notes in the same group react with a subtle sympathetic wobble when hovered near or gliding to a new slot
+                        val isSameGroupAsDragged = activeDragId != null &&
+                            ((id in currentLockedItemIds) == (activeDragId in currentLockedItemIds))
                         val cardCenterX = drawX + currentItemWidth * 0.5f
                         val cardCenterY = drawY + itemH * 0.5f
                         val distToDragged = hypot(dragCenterX - cardCenterX, dragCenterY - cardCenterY)
-                        val hoverProximity = if (activeDragId != null) {
+                        val hoverProximity = if (isSameGroupAsDragged) {
                             (1f - (distToDragged / (currentItemWidth * 1.15f))).coerceIn(0f, 1f)
                         } else {
                             0f

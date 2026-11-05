@@ -425,6 +425,7 @@ export function computeWordAndLetterCounts(
   bodyTextOrHtml: string
 ): { words: number; letters: number } {
   const cleanBody = (bodyTextOrHtml || '')
+    .replace(/<img\b[^>]*>/gi, ' ')
     .replace(/<[^>]*>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/\u200B/g, '')

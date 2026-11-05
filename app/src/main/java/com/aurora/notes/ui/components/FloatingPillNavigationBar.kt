@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -64,6 +65,7 @@ data class SelectionActionBarState(
     val selectedCount: Int = 0,
     val isArchiveTab: Boolean = false,
     val onShareSelected: () -> Unit = {},
+    val onTagSelected: () -> Unit = {},
     val onArchiveOrRestoreSelected: () -> Unit = {},
     val onEditSelected: () -> Unit = {},
     val onDeleteSelected: () -> Unit = {},
@@ -244,14 +246,19 @@ fun FloatingSelectionActionBar(
                     }
                 }
 
-                // Share Button
+                // Share Button (when 1 note is selected) or Tag Together Button (when multiple notes are selected)
+                val showShareButton = effectiveCount == 1
                 SelectionPillActionItem(
-                    label = "Share",
-                    icon = Icons.Default.Share,
+                    label = if (showShareButton) "Share" else "Tag",
+                    icon = if (showShareButton) Icons.Default.Share else Icons.Default.Tag,
                     tint = itemColor,
                     onClick = {
                         triggerNavbarHaptic(view, context, isHapticsEnabled)
-                        state.onShareSelected()
+                        if (showShareButton) {
+                            state.onShareSelected()
+                        } else {
+                            state.onTagSelected()
+                        }
                     },
                     modifier = Modifier.weight(1f)
                 )

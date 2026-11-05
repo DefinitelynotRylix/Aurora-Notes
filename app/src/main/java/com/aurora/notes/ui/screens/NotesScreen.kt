@@ -60,6 +60,7 @@ fun NotesScreen(
     onAddNote: () -> Unit = {},
     onSaveNoteDetails: (Note) -> Unit = {},
     onReorderNotes: (List<String>) -> Unit = {},
+    onTagNotesBatch: (List<String>, List<String>) -> Unit = { _, _ -> },
     onCreateTag: (String) -> Unit = {},
     onDeleteTag: ((String) -> Unit)? = null,
     isArchiveTab: Boolean = false,
@@ -67,6 +68,22 @@ fun NotesScreen(
     onSelectionBarStateChange: (SelectionActionBarState) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    // Optimistic reorder state so reordered notes stay in their new position immediately without jumping back
+    var optimisticOrderedIds by remember { mutableStateOf<List<String>?>(null) }
+    LaunchedEffect(notes) {
+        optimisticOrderedIds = null
+    }
+    val displayNotes = remember(notes, optimisticOrderedIds) {
+        val order = optimisticOrderedIds
+        if (order == null) {
+            notes
+        } else {
+            val byId = notes.associateBy { it.id }
+            val ordered = order.mapNotNull { byId[it] }
+            val remaining = notes.filter { it.id !in order.toSet() }
+            ordered + remaining
+        }
+    }
     // Combine persisted user-created tags + any tags present on notes
     val createdTags = remember(userTags, notes) {
         val fromNotes = notes.flatMap { it.tags }
@@ -88,6 +105,11 @@ fun NotesScreen(
 
     // Share dialog state
     var notesToShare by remember { mutableStateOf<List<Note>>(emptyList()) }
+
+    // Batch Tag Together dialog state (when multiple notes are selected)
+    var showBatchTagDialog by remember { mutableStateOf(false) }
+    var batchTagInput by remember { mutableStateOf("") }
+    val batchSelectedTags = remember { mutableStateListOf<String>() }
 
     // Edit Note Details dialog state (opened from long-press selection bar)
     var editingDetailsNote by remember { mutableStateOf<Note?>(null) }
@@ -133,6 +155,19 @@ fun NotesScreen(
                             notesToShare = selectedNotes
                         }
                     },
+                    onTagSelected = {
+                        batchTagInput = ""
+                        batchSelectedTags.clear()
+                        // Pre-populate tags that are already shared across all selected notes
+                        val selectedNotes = currentNotes.filter { it.id in selectedNoteIds }
+                        if (selectedNotes.isNotEmpty()) {
+                            val common = selectedNotes.first().tags.filter { candidate ->
+                                selectedNotes.all { n -> n.tags.any { it.equals(candidate, ignoreCase = true) } }
+                            }
+                            batchSelectedTags.addAll(common)
+                        }
+                        showBatchTagDialog = true
+                    },
                     onArchiveOrRestoreSelected = {
                         val ids = selectedNoteIds.toList()
                         selectedNoteIds.clear()
@@ -167,6 +202,147 @@ fun NotesScreen(
         ShareNoteDialog(
             notes = notesToShare,
             onDismiss = { notesToShare = emptyList() }
+        )
+    }
+
+    if (showBatchTagDialog && selectedNoteIds.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = {
+                showBatchTagDialog = false
+                batchTagInput = ""
+            },
+            title = {
+                Text(
+                    text = "Tag ${selectedNoteIds.size} Selected Notes",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Create a new tag or choose from existing tags to group the selected notes together.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = batchTagInput,
+                            onValueChange = { batchTagInput = it },
+                            placeholder = { Text("Create new tag...", fontSize = 12.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = {
+                                val clean = batchTagInput.trim().removePrefix("#").trim()
+                                if (clean.isNotBlank() && !clean.equals("All", ignoreCase = true)) {
+                                    if (batchSelectedTags.none { it.equals(clean, ignoreCase = true) }) {
+                                        batchSelectedTags.add(clean)
+                                    }
+                                    onCreateTag(clean)
+                                    batchTagInput = ""
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("Add", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    val allAvailableTags = remember(createdTags, batchSelectedTags.size) {
+                        (createdTags + batchSelectedTags)
+                            .map { it.trim().removePrefix("#").trim() }
+                            .filter { it.isNotBlank() }
+                            .distinctBy { it.lowercase() }
+                    }
+
+                    if (allAvailableTags.isNotEmpty()) {
+                        Text(
+                            text = "Existing Tags",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            allAvailableTags.forEach { tag ->
+                                val isSelected = batchSelectedTags.any { it.equals(tag, ignoreCase = true) }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isSelected) AuroraRoyalViolet else AuroraRoyalViolet.copy(alpha = 0.12f),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isSelected) AuroraRoyalViolet else AuroraRoyalViolet.copy(alpha = 0.4f)
+                                    ),
+                                    modifier = Modifier.clickable {
+                                        if (isSelected) {
+                                            batchSelectedTags.removeAll { it.equals(tag, ignoreCase = true) }
+                                        } else {
+                                            batchSelectedTags.add(tag)
+                                        }
+                                    }
+                                ) {
+                                    Text(
+                                        text = "#$tag",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isSelected) Color.White else AuroraRoyalViolet,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val pendingTyped = batchTagInput.trim().removePrefix("#").trim()
+                        if (pendingTyped.isNotBlank() && !pendingTyped.equals("All", ignoreCase = true)) {
+                            if (batchSelectedTags.none { it.equals(pendingTyped, ignoreCase = true) }) {
+                                batchSelectedTags.add(pendingTyped)
+                            }
+                            onCreateTag(pendingTyped)
+                        }
+                        val tagsToApply = batchSelectedTags.toList()
+                        val targetIds = selectedNoteIds.toList()
+                        showBatchTagDialog = false
+                        batchTagInput = ""
+                        if (tagsToApply.isNotEmpty() && targetIds.isNotEmpty()) {
+                            onTagNotesBatch(targetIds, tagsToApply)
+                            selectedNoteIds.clear()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
+                ) {
+                    Text("Apply Tags", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showBatchTagDialog = false
+                        batchTagInput = ""
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
@@ -639,8 +815,8 @@ fun NotesScreen(
                 }
             }
         } else {
-            val noteIds = remember(notes) { notes.map { it.id } }
-            val pinnedNoteIds = remember(notes) { notes.filter { it.isPinned }.map { it.id }.toSet() }
+            val noteIds = remember(displayNotes) { displayNotes.map { it.id } }
+            val pinnedNoteIds = remember(displayNotes) { displayNotes.filter { it.isPinned }.map { it.id }.toSet() }
             MorphingNotesGrid(
                 isGridView = isGridView,
                 horizontalSpacing = 10.dp,
@@ -665,13 +841,14 @@ fun NotesScreen(
                 onReorderNotes = { newOrderIds ->
                     heldNoteWasAlreadySelected = false
                     selectedNoteIds.clear()
+                    optimisticOrderedIds = newOrderIds
                     onReorderNotes(newOrderIds)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                notes.forEach { note ->
+                displayNotes.forEach { note ->
                     key(note.id) {
                         val isNoteSelected = note.id in selectedNoteIds
                         NoteCard(

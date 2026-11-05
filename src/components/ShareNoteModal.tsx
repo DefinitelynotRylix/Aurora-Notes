@@ -164,12 +164,6 @@ export function formatSingleNote(
 ): string {
   const note = decryptNoteFields(rawNote);
   const title = (note.title || '').trim() || 'Untitled Note';
-  const cleanTitleSlug =
-    title
-      .replace(/[^a-zA-Z0-9._\- ]/g, '')
-      .trim()
-      .replace(/\s+/g, '_')
-      .slice(0, 36) || 'Aurora_Note';
   const updatedStr = new Date(note.updatedAt || Date.now()).toLocaleString();
   const tagsList = (note.tags || []).map((t) => t.trim().replace(/^#/, '')).filter(Boolean);
   const { blocks } = parseNoteHtmlToBlocks(note.content, note.images);
@@ -179,22 +173,19 @@ export function formatSingleNote(
   if (tagsList.length > 0) metaParts.push(`**Tags:** ${tagsList.map((t) => `#${t}`).join(' ')}`);
   metaParts.push(`**Updated:** ${updatedStr}`);
 
-  let imgCounter = 0;
-  const bodyLines = blocks.map((blk) => {
-    if (blk.type === 'image' && blk.imageSrc) {
-      imgCounter++;
-      const targetUri = `${cleanTitleSlug}_image_${imgCounter}.png`;
-      return `\n![Note Image ${imgCounter}](${targetUri})\n`;
-    }
-    const text = blk.text || '';
-    if (blk.hasCheckbox) {
-      return `- [${blk.checked ? 'x' : ' '}] ${text}`;
-    }
-    if (blk.hasBullet) {
-      return `- ${text}`;
-    }
-    return text;
-  });
+  // Markdown (.md) files do not export images — only note text, bullets, and checkboxes
+  const bodyLines = blocks
+    .filter((blk) => blk.type === 'line')
+    .map((blk) => {
+      const text = blk.text || '';
+      if (blk.hasCheckbox) {
+        return `- [${blk.checked ? 'x' : ' '}] ${text}`;
+      }
+      if (blk.hasBullet) {
+        return `- ${text}`;
+      }
+      return text;
+    });
 
   const cleanBody = bodyLines.join('\n').trim();
 
@@ -583,18 +574,6 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
   const formattedExportMarkdown = useMemo(() => formatNotesForShare(notes, true), [notes]);
   const suggestedFileName = useMemo(() => getSuggestedFileName(notes, format), [notes, format]);
 
-  const embeddedMarkdownImages = useMemo(() => {
-    const urls: string[] = [];
-    notes.forEach((raw) => {
-      const plain = decryptNoteFields(raw);
-      const { imageUrls } = parseNoteHtmlToBlocks(plain.content, plain.images);
-      imageUrls.forEach((u) => {
-        if (u && !urls.includes(u)) urls.push(u);
-      });
-    });
-    return urls;
-  }, [notes]);
-
   useEffect(() => {
     let active = true;
     renderNotesToFullLengthPngDataUrl(notes).then((dataUrl) => {
@@ -672,9 +651,8 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
     }
 
     const mimeType = 'text/markdown';
-    let totalImagesExported = 0;
 
-    // Export each selected note into its own separate .md file instead of merging them together
+    // Export each selected note into its own separate .md file (note text only, no images exported)
     notes.forEach((rawNote, noteIdx) => {
       const plain = decryptNoteFields(rawNote);
       const singleMdContent = formatSingleNote(plain, false);
@@ -689,28 +667,6 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-
-      // Also export decrypted companion .png image files referenced in this note's Markdown file
-      const cleanTitleSlug =
-        (plain.title || 'Untitled Note')
-          .trim()
-          .replace(/[^a-zA-Z0-9._\- ]/g, '')
-          .trim()
-          .replace(/\s+/g, '_')
-          .slice(0, 36) || 'Aurora_Note';
-
-      const { imageUrls } = parseNoteHtmlToBlocks(plain.content, plain.images);
-      imageUrls.forEach((decryptedImgDataUrl, imgIdx) => {
-        if (decryptedImgDataUrl && decryptedImgDataUrl.startsWith('data:image/')) {
-          const imgLink = document.createElement('a');
-          imgLink.href = decryptedImgDataUrl;
-          imgLink.download = `${cleanTitleSlug}_image_${imgIdx + 1}.png`;
-          document.body.appendChild(imgLink);
-          imgLink.click();
-          imgLink.remove();
-          totalImagesExported++;
-        }
-      });
     });
 
     logger.security(
@@ -719,16 +675,10 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
     );
     if (notes.length > 1) {
       setStatusMessage(
-        totalImagesExported > 0
-          ? `Saved ${notes.length} separate .md files (${individualMdFileNames.join(', ')}) + ${totalImagesExported} decrypted image(s)!`
-          : `Saved ${notes.length} separate .md files (${individualMdFileNames.join(', ')})!`
+        `Saved ${notes.length} separate .md files (${individualMdFileNames.join(', ')})!`
       );
     } else {
-      setStatusMessage(
-        totalImagesExported > 0
-          ? `Saved ${individualMdFileNames[0]} + ${totalImagesExported} decrypted image(s)!`
-          : `Saved ${individualMdFileNames[0]}!`
-      );
+      setStatusMessage(`Saved ${individualMdFileNames[0]}!`);
     }
   };
 
@@ -752,7 +702,7 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
                 {notes.length === 1 ? 'Share & Export Note' : `Share ${notes.length} Selected Notes`}
               </h3>
               <p className="text-[11px] text-[#797487] dark:text-[#A39BAC]">
-                Markdown with images or full-length Gallery image
+                Text-only Markdown (.md) or full-length Gallery image
               </p>
             </div>
           </div>
@@ -783,7 +733,7 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
             >
               <div>
                 <div className="text-xs font-bold">Markdown (.md)</div>
-                <div className="text-[10px] opacity-75">Full Markdown + images</div>
+                <div className="text-[10px] opacity-75">Note text only (no images)</div>
               </div>
               {format === 'md' && <Check className="w-4 h-4 shrink-0" />}
             </button>
@@ -836,28 +786,9 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
                 </div>
               )
             ) : (
-              <>
-                <pre className="text-[11px] font-mono text-[#484455] dark:text-[#A39BAC] whitespace-pre-wrap">
-                  {formattedPreview}
-                </pre>
-                {embeddedMarkdownImages.length > 0 && (
-                  <div className="pt-2 border-t border-[#EADBFC] dark:border-[#322742] space-y-1.5">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-[#5925DC] dark:text-[#C296FD]">
-                      Embedded Markdown Images ({embeddedMarkdownImages.length})
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {embeddedMarkdownImages.map((imgUrl, idx) => (
-                        <img
-                          key={idx}
-                          src={imgUrl}
-                          alt={`Embedded Markdown image ${idx + 1}`}
-                          className="w-full h-24 object-cover rounded-lg border border-[#EADBFC] dark:border-[#322742]"
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
+              <pre className="text-[11px] font-mono text-[#484455] dark:text-[#A39BAC] whitespace-pre-wrap">
+                {formattedPreview}
+              </pre>
             )}
           </div>
         </div>
@@ -900,7 +831,7 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
               <span>
                 {notes.length > 1
                   ? `Share ${notes.length} Separate .MD Files`
-                  : 'Share Markdown with Images (.MD)'}
+                  : 'Share Note Markdown (.MD)'}
               </span>
             </button>
 
