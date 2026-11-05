@@ -331,6 +331,13 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     ? Math.min(items.length - 1, Math.max(0, Math.round(dragTabPos)))
     : targetIndex;
 
+  const lastActiveCountRef = useRef<number>(1);
+  if (selectedCount > 0) {
+    lastActiveCountRef.current = selectedCount;
+  }
+  const effectiveSelectedCount = selectedCount > 0 ? selectedCount : lastActiveCountRef.current;
+  const showEditButton = !isArchiveTab && effectiveSelectedCount === 1;
+
   return (
     <div
       data-selection-active={isSelectionMode ? 'true' : 'false'}
@@ -445,13 +452,17 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
           aria-label="Note Selection Actions"
           aria-hidden={!isSelectionMode}
           data-testid="selection-action-navbar"
-          className={`absolute inset-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          className={`absolute inset-0 flex justify-center transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
             isSelectionMode
               ? 'translate-y-0 opacity-100 pointer-events-auto'
               : 'translate-y-28 opacity-0 pointer-events-none'
           }`}
         >
-          <div className="glass-floating rounded-full p-1.5 flex items-center justify-between gap-1 shadow-[0_16px_36px_-4px_rgba(89,37,220,0.32)] dark:shadow-[0_16px_36px_-4px_rgba(0,0,0,0.8)] border border-[#5925DC]/45 dark:border-[#9D5AF5]/45 bg-white/95 dark:bg-[#140E21]/95 backdrop-blur-2xl overflow-hidden">
+          <div
+            className={`glass-floating w-full rounded-full p-1.5 flex items-center justify-between gap-1 shadow-[0_16px_36px_-4px_rgba(89,37,220,0.32)] dark:shadow-[0_16px_36px_-4px_rgba(0,0,0,0.8)] border border-[#5925DC]/45 dark:border-[#9D5AF5]/45 bg-white/95 dark:bg-[#140E21]/95 backdrop-blur-2xl overflow-hidden transition-[max-width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              showEditButton ? 'max-w-[396px]' : 'max-w-[316px]'
+            }`}
+          >
             {/* Clear / Exit Hold Selection Mode Button */}
             <button
               type="button"
@@ -464,7 +475,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
               className="px-2.5 py-2 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-[11px] font-bold flex items-center gap-1 shrink-0 hover:bg-[#EADBFC] dark:hover:bg-[#3A2854] active:scale-95 transition-all cursor-pointer"
             >
               <X className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>{selectedCount}</span>
+              <span>{effectiveSelectedCount}</span>
             </button>
 
             <div className="flex items-center justify-around flex-1 min-w-0">
@@ -507,8 +518,8 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
                 )}
               </button>
 
-              {/* Edit Button (Opens Edit Note Details) */}
-              {!isArchiveTab && (
+              {/* Edit Button (Visible only when 1 note is selected; disappears when multiple notes are selected, and expands the bar when returning to 1 note) */}
+              {showEditButton && (
                 <button
                   type="button"
                   aria-label="Edit Note Details"
@@ -517,7 +528,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
                     triggerWebHaptic(isHapticsEnabled);
                     onEditSelected?.();
                   }}
-                  className="flex-1 py-2.5 px-1.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-bold text-[#2B194D] dark:text-[#D8CFE8] hover:bg-[#F4EBFF]/70 dark:hover:bg-[#2B1E3E]/70 hover:text-[#5925DC] dark:hover:text-[#C296FD] active:scale-95 transition-all cursor-pointer"
+                  className="flex-1 py-2.5 px-1.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-bold text-[#2B194D] dark:text-[#D8CFE8] hover:bg-[#F4EBFF]/70 dark:hover:bg-[#2B1E3E]/70 hover:text-[#5925DC] dark:hover:text-[#C296FD] active:scale-95 transition-all cursor-pointer animate-fade-in"
                 >
                   <Edit3 className="w-3.5 h-3.5 shrink-0" />
                   <span className="truncate">Edit</span>

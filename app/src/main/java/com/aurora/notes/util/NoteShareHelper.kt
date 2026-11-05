@@ -13,6 +13,7 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.text.Layout
 import android.text.StaticLayout
@@ -658,21 +659,50 @@ object NoteShareHelper {
         }
     }
 
+    fun sanitizeNoteTitleForFileName(rawTitle: String): String {
+        return rawTitle
+            .trim()
+            .ifBlank { "Untitled_Note" }
+            .replace(Regex("[^a-zA-Z0-9._\\- ]"), "")
+            .trim()
+            .replace(Regex("\\s+"), "_")
+            .take(48)
+            .ifBlank { "Aurora_Note" }
+    }
+
+    /**
+     * Generates a unique file name (e.g., `My_Note.md`) for every note in [notes]
+     * so multiple selected notes are saved as separate `.md` files without colliding.
+     */
+    fun buildUniqueNoteFileNames(notes: List<Note>, format: ShareNoteFormat): List<String> {
+        val plainNotes = notes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+        val usedNamesLower = mutableSetOf<String>()
+        return plainNotes.map { note ->
+            val base = sanitizeNoteTitleForFileName(note.title)
+            var candidate = "$base.${format.extension}"
+            var counter = 2
+            while (!usedNamesLower.add(candidate.lowercase(Locale.US))) {
+                candidate = "${base}_$counter.${format.extension}"
+                counter++
+            }
+            candidate
+        }
+    }
+
     fun buildSuggestedFileName(notes: List<Note>, format: ShareNoteFormat): String {
         val plainNotes = notes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
-        val baseName = if (plainNotes.size == 1) {
-            val rawTitle = plainNotes.first().title.trim().ifBlank { "Untitled_Note" }
-            rawTitle
-                .replace(Regex("[^a-zA-Z0-9._\\- ]"), "")
-                .trim()
-                .replace(Regex("\\s+"), "_")
-                .take(48)
-                .ifBlank { "Aurora_Note" }
+        if (plainNotes.isEmpty()) return "Aurora_Note.${format.extension}"
+        if (plainNotes.size == 1) {
+            val baseName = sanitizeNoteTitleForFileName(plainNotes.first().title)
+            return "$baseName.${format.extension}"
+        }
+        return if (format == ShareNoteFormat.MARKDOWN) {
+            val names = buildUniqueNoteFileNames(plainNotes, format)
+            "${plainNotes.size} separate .md files (${names.joinToString(", ")})"
         } else {
             val dateStr = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
-            "Aurora_Notes_${plainNotes.size}_$dateStr"
+            "Aurora_Notes_${plainNotes.size}_$dateStr.${format.extension}"
         }
-        return "$baseName.${format.extension}"
     }
 
     fun preparePendingSafSave(notes: List<Note>, format: ShareNoteFormat, suggestedFileName: String) {
@@ -744,22 +774,27 @@ object NoteShareHelper {
                 chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(chooser)
             } else {
-                val formattedMarkdown = formatNotes(plainNotes, format, embedBase64Images = false)
-                val sharedDir = File(context.cacheDir, "shared_notes").apply { mkdirs() }
-                val mdFile = File(sharedDir, fileName)
-                mdFile.writeText(formattedMarkdown, Charsets.UTF_8)
-
+                val sharedDir = File(context.cacheDir, "shared_notes").apply {
+                    mkdirs()
+                    listFiles()?.forEach { it.delete() }
+                }
+                val individualNames = buildUniqueNoteFileNames(plainNotes, ShareNoteFormat.MARKDOWN)
                 val streamUris = ArrayList<Uri>()
-                streamUris.add(
-                    FileProvider.getUriForFile(
-                        context,
-                        "${context.packageName}.fileprovider",
-                        mdFile
-                    )
-                )
 
-                // Also decrypt and attach any note images as clean .png files so exported Markdown images are never encrypted
-                for (note in plainNotes) {
+                // Create a separate .md file for each selected note instead of merging them together
+                plainNotes.forEachIndexed { index, note ->
+                    val singleMdContent = formatSingleNote(note, format, embedBase64Images = false)
+                    val mdFile = File(sharedDir, individualNames[index])
+                    mdFile.writeText(singleMdContent, Charsets.UTF_8)
+                    streamUris.add(
+                        FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            mdFile
+                        )
+                    )
+
+                    // Also decrypt and attach any note images as clean .png files
                     val title = note.title.trim().ifBlank { "Untitled Note" }
                     note.images.forEachIndexed { idx, imgItem ->
                         val bmp = PrivateStorageManager.loadDecryptedNoteImageBitmap(imgItem.uri)
@@ -782,29 +817,105 @@ object NoteShareHelper {
 
                 val sendIntent = if (streamUris.size > 1) {
                     Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                        type = "*/*"
+                        type = if (plainNotes.any { it.images.isNotEmpty() }) "*/*" else format.mimeType
                         putExtra(Intent.EXTRA_SUBJECT, subject)
-                        putExtra(Intent.EXTRA_TEXT, formattedMarkdown)
                         putParcelableArrayListExtra(Intent.EXTRA_STREAM, streamUris)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                 } else {
+                    val singleText = formatSingleNote(plainNotes.first(), format, embedBase64Images = false)
                     Intent(Intent.ACTION_SEND).apply {
                         type = format.mimeType
                         putExtra(Intent.EXTRA_SUBJECT, subject)
-                        putExtra(Intent.EXTRA_TEXT, formattedMarkdown)
+                        putExtra(Intent.EXTRA_TEXT, singleText)
                         putExtra(Intent.EXTRA_STREAM, streamUris.first())
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                 }
-                val chooser = Intent.createChooser(sendIntent, "Share ${format.label}")
+                val chooser = Intent.createChooser(
+                    sendIntent,
+                    if (plainNotes.size > 1) "Share ${plainNotes.size} Markdown (.md) Files" else "Share ${format.label}"
+                )
                 chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(chooser)
             }
-            LocalLogger.security("SHARE", "Shared ${plainNotes.size} note(s) in ${format.name} format")
+            LocalLogger.security("SHARE", "Shared ${plainNotes.size} separate note file(s) in ${format.name} format")
         } catch (e: Exception) {
             LocalLogger.error("SHARE", "Failed to share note(s): ${e.localizedMessage}")
             Toast.makeText(context, "Unable to open share sheet: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Writes each selected note as its own separate `.md` file inside the folder chosen via
+     * Android's `OpenDocumentTree` picker (`treeUri`).
+     */
+    fun writeSeparateMarkdownNotesToFolderUri(
+        context: Context,
+        treeUri: Uri,
+        notes: List<Note>
+    ): Int {
+        if (notes.isEmpty()) return 0
+        return try {
+            val plainNotes = notes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+            val individualNames = buildUniqueNoteFileNames(plainNotes, ShareNoteFormat.MARKDOWN)
+            val resolver = context.contentResolver
+            val treeDocId = DocumentsContract.getTreeDocumentId(treeUri)
+            val parentDocumentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId)
+            var savedCount = 0
+
+            plainNotes.forEachIndexed { index, note ->
+                val fileName = individualNames[index]
+                val singleMd = formatSingleNote(note, ShareNoteFormat.MARKDOWN, embedBase64Images = false)
+                val docUri = DocumentsContract.createDocument(
+                    resolver,
+                    parentDocumentUri,
+                    ShareNoteFormat.MARKDOWN.mimeType,
+                    fileName
+                )
+                if (docUri != null) {
+                    resolver.openOutputStream(docUri, "wt")?.use { out ->
+                        out.write(singleMd.toByteArray(Charsets.UTF_8))
+                        out.flush()
+                    } ?: resolver.openOutputStream(docUri)?.use { out ->
+                        out.write(singleMd.toByteArray(Charsets.UTF_8))
+                        out.flush()
+                    }
+                    savedCount++
+                }
+
+                // Also write decrypted companion .png images for this note into the same chosen folder
+                val title = note.title.trim().ifBlank { "Untitled Note" }
+                note.images.forEachIndexed { imgIdx, imgItem ->
+                    val bmp = PrivateStorageManager.loadDecryptedNoteImageBitmap(imgItem.uri)
+                    if (bmp != null) {
+                        val imgName = buildDecryptedImageFileName(title, imgIdx + 1)
+                        runCatching {
+                            val imgDocUri = DocumentsContract.createDocument(
+                                resolver,
+                                parentDocumentUri,
+                                "image/png",
+                                imgName
+                            )
+                            if (imgDocUri != null) {
+                                resolver.openOutputStream(imgDocUri)?.use { out ->
+                                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                                    out.flush()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (plainNotes.any { it.images.isNotEmpty() }) {
+                exportDecryptedNoteImagesToGallery(context, plainNotes)
+            }
+            LocalLogger.security("SHARE", "Saved $savedCount separate .md file(s) to chosen folder")
+            savedCount
+        } catch (e: Exception) {
+            LocalLogger.error("SHARE", "Failed saving separate .md files to folder: ${e.localizedMessage}")
+            0
         }
     }
 
@@ -829,12 +940,12 @@ object NoteShareHelper {
                     outputStream.flush()
                 } ?: return false
             } else {
-                val content = formatNotes(plainNotes, format, embedBase64Images = false)
+                val singleContent = formatSingleNote(plainNotes.first(), format, embedBase64Images = false)
                 context.contentResolver.openOutputStream(uri, "wt")?.use { outputStream ->
-                    outputStream.write(content.toByteArray(Charsets.UTF_8))
+                    outputStream.write(singleContent.toByteArray(Charsets.UTF_8))
                     outputStream.flush()
                 } ?: context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                    outputStream.write(content.toByteArray(Charsets.UTF_8))
+                    outputStream.write(singleContent.toByteArray(Charsets.UTF_8))
                     outputStream.flush()
                 } ?: return false
                 // Also export decrypted companion .png images to Pictures/AuroraNotes so images referenced in .md are decrypted and viewable
@@ -842,7 +953,7 @@ object NoteShareHelper {
                     exportDecryptedNoteImagesToGallery(context, plainNotes)
                 }
             }
-            LocalLogger.security("SHARE", "Saved ${plainNotes.size} note(s) as .${format.extension} to chosen folder")
+            LocalLogger.security("SHARE", "Saved note as .${format.extension} to chosen folder")
             true
         } catch (e: Exception) {
             LocalLogger.error("SHARE", "Failed saving note to chosen folder: ${e.localizedMessage}")

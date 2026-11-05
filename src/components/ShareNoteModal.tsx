@@ -234,17 +234,42 @@ export function formatNotesForShare(
   );
 }
 
+export function sanitizeTitleForFileName(rawTitle: string): string {
+  const raw = (rawTitle || 'Untitled_Note').trim();
+  return (
+    raw
+      .replace(/[^a-zA-Z0-9._\- ]/g, '')
+      .trim()
+      .replace(/\s+/g, '_')
+      .slice(0, 48) || 'Aurora_Note'
+  );
+}
+
+export function getUniqueNoteFileNames(notes: Note[], format: ShareFormat): string[] {
+  const usedLower = new Set<string>();
+  return notes.map((rawNote) => {
+    const plain = decryptNoteFields(rawNote);
+    const base = sanitizeTitleForFileName(plain.title);
+    let candidate = `${base}.${format}`;
+    let counter = 2;
+    while (usedLower.has(candidate.toLowerCase())) {
+      candidate = `${base}_${counter}.${format}`;
+      counter++;
+    }
+    usedLower.add(candidate.toLowerCase());
+    return candidate;
+  });
+}
+
 export function getSuggestedFileName(notes: Note[], format: ShareFormat): string {
   if (notes.length === 1) {
     const plain = decryptNoteFields(notes[0]);
-    const raw = (plain.title || 'Untitled_Note').trim();
-    const clean =
-      raw
-        .replace(/[^a-zA-Z0-9._\- ]/g, '')
-        .trim()
-        .replace(/\s+/g, '_')
-        .slice(0, 48) || 'Aurora_Note';
+    const clean = sanitizeTitleForFileName(plain.title);
     return `${clean}.${format}`;
+  }
+  if (format === 'md') {
+    const names = getUniqueNoteFileNames(notes, 'md');
+    return `${notes.length} separate .md files (${names.join(', ')})`;
   }
   const datePart = new Date().toISOString().slice(0, 10);
   return `Aurora_Notes_${notes.length}_${datePart}.${format}`;
@@ -542,7 +567,19 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [fullLengthImageDataUrl, setFullLengthImageDataUrl] = useState<string>('');
 
-  const formattedPreview = useMemo(() => formatNotesForShare(notes, false), [notes]);
+  const individualMdFileNames = useMemo(() => getUniqueNoteFileNames(notes, 'md'), [notes]);
+
+  const formattedPreview = useMemo(() => {
+    if (notes.length <= 1) return formatNotesForShare(notes, false);
+    return notes
+      .map(
+        (n, idx) =>
+          `=== File ${idx + 1}: ${individualMdFileNames[idx]} ===\n` +
+          formatSingleNote(n, false).trimEnd()
+      )
+      .join('\n\n');
+  }, [notes, individualMdFileNames]);
+
   const formattedExportMarkdown = useMemo(() => formatNotesForShare(notes, true), [notes]);
   const suggestedFileName = useMemo(() => getSuggestedFileName(notes, format), [notes, format]);
 
@@ -587,11 +624,31 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
 
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
-        await navigator.share({
-          title,
-          text: format === 'md' ? formattedExportMarkdown : title,
-        });
-        logger.security('SHARE', `Shared ${notes.length} note(s) to apps & contacts (.${format})`);
+        if (format === 'md') {
+          const mdFiles = notes.map((note, idx) => {
+            const singleMd = formatSingleNote(note, false);
+            return new File([singleMd], individualMdFileNames[idx], {
+              type: 'text/markdown;charset=utf-8',
+            });
+          });
+          if (typeof navigator.canShare === 'function' && navigator.canShare({ files: mdFiles })) {
+            await navigator.share({
+              title,
+              files: mdFiles,
+            });
+          } else {
+            await navigator.share({
+              title,
+              text: formattedExportMarkdown,
+            });
+          }
+        } else {
+          await navigator.share({
+            title,
+            text: title,
+          });
+        }
+        logger.security('SHARE', `Shared ${notes.length} separate note(s) to apps & contacts (.${format})`);
         onClose();
         return;
       } catch (err) {
@@ -604,13 +661,8 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
       return;
     }
 
-    try {
-      await navigator.clipboard?.writeText(formattedExportMarkdown);
-      setStatusMessage(`Copied ${suggestedFileName} Markdown content to clipboard!`);
-      logger.security('SHARE', `Copied ${notes.length} note(s) as .${format} to clipboard`);
-    } catch {
-      setStatusMessage('Could not access system share sheet in this preview.');
-    }
+    // Download each selected note as its own separate .md file
+    handleSaveToFolderPicker();
   };
 
   const handleSaveToFolderPicker = async () => {
@@ -620,35 +672,64 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
     }
 
     const mimeType = 'text/markdown';
-    const blob = new Blob([formattedExportMarkdown], { type: `${mimeType};charset=utf-8` });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = suggestedFileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    let totalImagesExported = 0;
 
-    // Also export decrypted companion .png image files referenced in the Markdown file
-    const baseSlug = suggestedFileName.replace(/\.md$/i, '') || 'Aurora_Note';
-    embeddedMarkdownImages.forEach((decryptedImgDataUrl, idx) => {
-      if (decryptedImgDataUrl && decryptedImgDataUrl.startsWith('data:image/')) {
-        const imgLink = document.createElement('a');
-        imgLink.href = decryptedImgDataUrl;
-        imgLink.download = `${baseSlug}_image_${idx + 1}.png`;
-        document.body.appendChild(imgLink);
-        imgLink.click();
-        imgLink.remove();
-      }
+    // Export each selected note into its own separate .md file instead of merging them together
+    notes.forEach((rawNote, noteIdx) => {
+      const plain = decryptNoteFields(rawNote);
+      const singleMdContent = formatSingleNote(plain, false);
+      const mdFileName = individualMdFileNames[noteIdx];
+
+      const blob = new Blob([singleMdContent], { type: `${mimeType};charset=utf-8` });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = mdFileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      // Also export decrypted companion .png image files referenced in this note's Markdown file
+      const cleanTitleSlug =
+        (plain.title || 'Untitled Note')
+          .trim()
+          .replace(/[^a-zA-Z0-9._\- ]/g, '')
+          .trim()
+          .replace(/\s+/g, '_')
+          .slice(0, 36) || 'Aurora_Note';
+
+      const { imageUrls } = parseNoteHtmlToBlocks(plain.content, plain.images);
+      imageUrls.forEach((decryptedImgDataUrl, imgIdx) => {
+        if (decryptedImgDataUrl && decryptedImgDataUrl.startsWith('data:image/')) {
+          const imgLink = document.createElement('a');
+          imgLink.href = decryptedImgDataUrl;
+          imgLink.download = `${cleanTitleSlug}_image_${imgIdx + 1}.png`;
+          document.body.appendChild(imgLink);
+          imgLink.click();
+          imgLink.remove();
+          totalImagesExported++;
+        }
+      });
     });
 
-    logger.security('SHARE', `Downloaded ${suggestedFileName}`);
-    setStatusMessage(
-      embeddedMarkdownImages.length > 0
-        ? `Saved ${suggestedFileName} + ${embeddedMarkdownImages.length} decrypted image(s)!`
-        : `Saved ${suggestedFileName}!`
+    logger.security(
+      'SHARE',
+      `Downloaded ${notes.length} separate .md file(s): ${individualMdFileNames.join(', ')}`
     );
+    if (notes.length > 1) {
+      setStatusMessage(
+        totalImagesExported > 0
+          ? `Saved ${notes.length} separate .md files (${individualMdFileNames.join(', ')}) + ${totalImagesExported} decrypted image(s)!`
+          : `Saved ${notes.length} separate .md files (${individualMdFileNames.join(', ')})!`
+      );
+    } else {
+      setStatusMessage(
+        totalImagesExported > 0
+          ? `Saved ${individualMdFileNames[0]} + ${totalImagesExported} decrypted image(s)!`
+          : `Saved ${individualMdFileNames[0]}!`
+      );
+    }
   };
 
   return (
@@ -816,7 +897,11 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
               className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-bold shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
             >
               <Share2 className="w-4 h-4" />
-              <span>Share Markdown with Images (.MD)</span>
+              <span>
+                {notes.length > 1
+                  ? `Share ${notes.length} Separate .MD Files`
+                  : 'Share Markdown with Images (.MD)'}
+              </span>
             </button>
 
             <div className="grid grid-cols-2 gap-2">
@@ -826,7 +911,7 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
                 className="py-2.5 px-3 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742] text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
               >
                 <FolderOpen className="w-3.5 h-3.5" />
-                <span>Save to Folder</span>
+                <span>{notes.length > 1 ? `Save ${notes.length} .MD Files` : 'Save to Folder'}</span>
               </button>
 
               <button

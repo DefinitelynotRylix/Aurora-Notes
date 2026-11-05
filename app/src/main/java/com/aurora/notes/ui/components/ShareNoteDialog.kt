@@ -54,8 +54,19 @@ fun ShareNoteDialog(
         notes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
     }
 
-    val formattedPreview = remember(plainNotes, selectedFormat) {
-        NoteShareHelper.formatNotes(plainNotes, selectedFormat, embedBase64Images = false)
+    val individualMdFileNames = remember(plainNotes) {
+        NoteShareHelper.buildUniqueNoteFileNames(plainNotes, ShareNoteFormat.MARKDOWN)
+    }
+
+    val formattedPreview = remember(plainNotes, selectedFormat, individualMdFileNames) {
+        if (plainNotes.size <= 1) {
+            NoteShareHelper.formatNotes(plainNotes, selectedFormat, embedBase64Images = false)
+        } else {
+            plainNotes.mapIndexed { idx, note ->
+                "=== File ${idx + 1}: ${individualMdFileNames[idx]} ===\n" +
+                    NoteShareHelper.formatSingleNote(note, selectedFormat, embedBase64Images = false).trimEnd()
+            }.joinToString("\n\n")
+        }
     }
 
     val previewBitmaps = remember(plainNotes) {
@@ -78,7 +89,7 @@ fun ShareNoteDialog(
         NoteShareHelper.buildSuggestedFileName(plainNotes, selectedFormat)
     }
 
-    // Android Storage Access Framework launcher allowing user to pick any preferred folder & filename
+    // Single-file picker for 1 note (or combined PNG)
     val createDocLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument(selectedFormat.mimeType)
     ) { targetUri ->
@@ -106,9 +117,40 @@ fun ShareNoteDialog(
         }
     }
 
+    // Folder picker when saving multiple selected notes as separate .md files
+    val openFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri ->
+        if (treeUri != null) {
+            val savedCount = NoteShareHelper.writeSeparateMarkdownNotesToFolderUri(
+                context = context,
+                treeUri = treeUri,
+                notes = plainNotes
+            )
+            if (savedCount > 0) {
+                Toast.makeText(
+                    context,
+                    "Saved $savedCount separate .md files to your chosen folder!",
+                    Toast.LENGTH_LONG
+                ).show()
+                onDismiss()
+            } else {
+                Toast.makeText(
+                    context,
+                    "Could not write .md files to selected folder.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
     fun launchAndroidFolderFilePicker() {
         try {
-            createDocLauncher.launch(suggestedFileName)
+            if (selectedFormat == ShareNoteFormat.MARKDOWN && plainNotes.size > 1) {
+                openFolderLauncher.launch(null)
+            } else {
+                createDocLauncher.launch(suggestedFileName)
+            }
         } catch (e: Exception) {
             Toast.makeText(
                 context,
@@ -425,7 +467,11 @@ fun ShareNoteDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Share Markdown with Images (.MD)",
+                            text = if (plainNotes.size > 1) {
+                                "Share ${plainNotes.size} Separate .MD Files"
+                            } else {
+                                "Share Markdown with Images (.MD)"
+                            },
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -449,7 +495,11 @@ fun ShareNoteDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Save Markdown to Folder (Android File Picker)",
+                            text = if (plainNotes.size > 1) {
+                                "Save ${plainNotes.size} .MD Files to Folder (File Picker)"
+                            } else {
+                                "Save Markdown to Folder (Android File Picker)"
+                            },
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface

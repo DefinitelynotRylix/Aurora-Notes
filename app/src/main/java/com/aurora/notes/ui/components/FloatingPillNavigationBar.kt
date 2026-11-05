@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.View
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -149,6 +150,32 @@ fun FloatingSelectionActionBar(
     val pillSurfaceColor = if (isDarkTheme) Color(0xFF1B1524) else Color(0xFFFFFFFF)
     val itemColor = if (isDarkTheme) Color(0xFFD8CFE8) else Color(0xFF2B194D)
 
+    // Keep track of the last active count so the bar doesn't change width mid-exit when count drops to 0
+    var lastActiveCount by remember { mutableIntStateOf(1) }
+    if (state.selectedCount > 0) {
+        lastActiveCount = state.selectedCount
+    }
+    val effectiveCount = if (state.selectedCount > 0) state.selectedCount else lastActiveCount
+    val showEditButton = !state.isArchiveTab && effectiveCount == 1
+
+    val barMaxWidth by animateDpAsState(
+        targetValue = if (showEditButton) 396.dp else 320.dp,
+        animationSpec = spring(
+            dampingRatio = 0.78f,
+            stiffness = 500f
+        ),
+        label = "selection_bar_max_width"
+    )
+
+    val editButtonProgress by animateFloatAsState(
+        targetValue = if (showEditButton) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = 0.8f,
+            stiffness = 520f
+        ),
+        label = "selection_bar_edit_btn_progress"
+    )
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -173,7 +200,7 @@ fun FloatingSelectionActionBar(
                 )
             ),
             modifier = Modifier
-                .widthIn(max = 396.dp)
+                .widthIn(max = barMaxWidth)
                 .fillMaxWidth()
                 .height(62.dp)
                 .clip(RoundedCornerShape(100.dp))
@@ -209,7 +236,7 @@ fun FloatingSelectionActionBar(
                         )
                         Spacer(modifier = Modifier.width(3.dp))
                         Text(
-                            text = state.selectedCount.toString(),
+                            text = effectiveCount.toString(),
                             color = AuroraRoyalViolet,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -241,17 +268,26 @@ fun FloatingSelectionActionBar(
                     modifier = Modifier.weight(1f)
                 )
 
-                // Edit Button (opens Edit Note Details)
-                if (!state.isArchiveTab) {
+                // Edit Button (visible only when a single note is selected; disappears when multiple notes are selected, and expands the bar when returning to 1 note)
+                if (editButtonProgress > 0.01f) {
                     SelectionPillActionItem(
                         label = "Edit",
                         icon = Icons.Default.Edit,
                         tint = itemColor,
                         onClick = {
-                            triggerNavbarHaptic(view, context, isHapticsEnabled)
-                            state.onEditSelected()
+                            if (showEditButton) {
+                                triggerNavbarHaptic(view, context, isHapticsEnabled)
+                                state.onEditSelected()
+                            }
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(editButtonProgress.coerceAtLeast(0.01f))
+                            .graphicsLayer {
+                                alpha = editButtonProgress.coerceIn(0f, 1f)
+                                val s = 0.8f + 0.2f * editButtonProgress.coerceIn(0f, 1f)
+                                scaleX = s
+                                scaleY = s
+                            }
                     )
                 }
 
