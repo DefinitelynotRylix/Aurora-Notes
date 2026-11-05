@@ -9,7 +9,7 @@ import {
   X
 } from 'lucide-react';
 
-export const CURRENT_WHATS_NEW_VERSION = '1.3.34';
+export const CURRENT_WHATS_NEW_VERSION = '1.3.35';
 
 interface WhatsNewModalProps {
   isOpen: boolean;
@@ -24,32 +24,32 @@ export const WhatsNewModal: React.FC<WhatsNewModalProps> = ({
 
   const highlights = [
     {
-      icon: <ImageIcon className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'Insert Lossless Images & Note Card Previews',
+      icon: <Edit3 className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
+      title: 'Instant Menu Animation & Hold-Note Action Navbar',
       badge: 'NEW FEATURE',
       description:
-        'Tap the Gallery icon in the editor bar to insert lossless images in dedicated vertical blocks. Tap any image in the editor to resize it larger downward or delete it, and see image previews right on your note cards.',
+        'Menu switching across Notes, Archive, Trash, and Settings is now 100% instant with zero wait delay. Hold down any note to slide the navigation bar under the screen and pop up the new Selection Action Navbar with Share, Archive, Edit, and Delete.',
+    },
+    {
+      icon: <ImageIcon className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
+      title: 'Gallery Note Image Export & Decrypted Markdown',
+      badge: 'EXPORT & MEDIA',
+      description:
+        'Insert lossless images in dedicated vertical blocks, save any note as a full-length visual image directly into your Android Gallery, or export decrypted Markdown (.md) notes with companion .png image files.',
     },
     {
       icon: <ListChecks className="w-5 h-5 text-[#8B3DFF] dark:text-[#C296FD]" />,
-      title: 'Persistent Bullet Lists, Checkboxes & Compact H2/H1',
+      title: 'Persistent Lists, Checkboxes & Checkmark Save',
       badge: 'EDITOR',
       description:
-        'Bullet lists and checkboxes now stay active across new lines when pressing Enter until toggled off, coexist cleanly on the same line without pushing text underneath, and pair with compact H2 and H1 buttons.',
-    },
-    {
-      icon: <Edit3 className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'In-Place Checkmark Save & Long-Press Edit Note Details',
-      badge: 'WORKFLOW',
-      description:
-        'Tap the top-right Checkmark icon to save your note and close the keyboard while staying in the editor. Long-press any note in the main menu to open Edit Note Details for titles, tags, and pinning.',
+        'Bullet lists and checkboxes stay active across unlimited Enter presses without cutting off, coexist cleanly on the same line, and pair with compact H2/H1 buttons and the top-right Checkmark quick-save indicator.',
     },
     {
       icon: <Lock className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
-      title: 'AES-256-GCM Cryptography & Auto-Cleanup',
+      title: 'AES-256-GCM Cryptography & Codebase Optimization',
       badge: 'SECURITY',
       description:
-        'Every note and attached image in the Room SQLite database and private storage is encrypted at rest with AndroidKeyStore AES-256-GCM cryptography and automatic orphaned file cleanup.',
+        'Every note and attached image in your Room SQLite database and private storage is encrypted at rest with AndroidKeyStore AES-256-GCM cryptography, automatic orphaned file cleanup, and streamlined rendering.',
     },
   ];
 

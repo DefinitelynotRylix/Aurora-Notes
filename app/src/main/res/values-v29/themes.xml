@@ -1,7 +1,7 @@
 <resources>
     <style name="Theme.AuroraNotes" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">@color/iris_background_light</item>
-        <item name="android:navigationBarColor">@color/iris_background_light</item>
+        <item name="android:statusBarColor">@color/aurora_background_light</item>
+        <item name="android:navigationBarColor">@color/aurora_background_light</item>
         <item name="android:forceDarkAllowed">false</item>
     </style>
 </resources>

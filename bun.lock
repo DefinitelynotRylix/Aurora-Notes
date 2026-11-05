@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "iris-vault",
+      "name": "aurora-notes",
       "dependencies": {
         "lucide-react": "^0.546.0",
         "motion": "^12.43.0",

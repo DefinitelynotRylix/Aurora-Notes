@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
@@ -15,9 +16,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +33,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -38,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aurora.notes.ui.theme.AuroraAmethyst
+import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.ui.theme.LocalAuroraDarkTheme
 import com.aurora.notes.util.HapticHelper
@@ -51,8 +58,255 @@ data class NavTabItem(
     val badge: Int = 0
 )
 
+data class SelectionActionBarState(
+    val isVisible: Boolean = false,
+    val selectedCount: Int = 0,
+    val isArchiveTab: Boolean = false,
+    val onShareSelected: () -> Unit = {},
+    val onArchiveOrRestoreSelected: () -> Unit = {},
+    val onEditSelected: () -> Unit = {},
+    val onDeleteSelected: () -> Unit = {},
+    val onClearSelection: () -> Unit = {}
+)
+
 fun triggerNavbarHaptic(view: View, context: Context, enabled: Boolean = true) {
     HapticHelper.triggerHaptic(view = view, context = context, enabled = enabled, durationMs = 30L)
+}
+
+/**
+ * Animated bottom pill bar container that swaps between the standard 4-tab FloatingPillNavigationBar
+ * and the FloatingSelectionActionBar when holding down a note.
+ * When selection mode activates, the original navbar hides down under the screen and the new
+ * selection navbar pops up from under the screen to take its place.
+ */
+@Composable
+fun AnimatedBottomPillBar(
+    selectedTab: Int,
+    onTabSelected: (Int) -> Unit,
+    archivedCount: Int = 0,
+    trashCount: Int = 0,
+    isHapticsEnabled: Boolean = true,
+    selectionState: SelectionActionBarState = SelectionActionBarState(),
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val slideDistancePx = with(density) { 104.dp.toPx() }
+
+    // 0f = normal navigation bar visible; 1f = selection action bar visible
+    val selectionProgress by animateFloatAsState(
+        targetValue = if (selectionState.isVisible) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = 0.78f,
+            stiffness = 520f
+        ),
+        label = "bottom_bar_selection_swap"
+    )
+
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        if (selectionProgress < 0.999f) {
+            FloatingPillNavigationBar(
+                selectedTab = selectedTab,
+                onTabSelected = onTabSelected,
+                archivedCount = archivedCount,
+                trashCount = trashCount,
+                isHapticsEnabled = isHapticsEnabled,
+                modifier = Modifier.graphicsLayer {
+                    translationY = selectionProgress * slideDistancePx
+                    alpha = (1f - selectionProgress * 1.35f).coerceIn(0f, 1f)
+                }
+            )
+        }
+
+        if (selectionProgress > 0.001f) {
+            FloatingSelectionActionBar(
+                state = selectionState,
+                isHapticsEnabled = isHapticsEnabled,
+                modifier = Modifier.graphicsLayer {
+                    translationY = (1f - selectionProgress) * slideDistancePx
+                    alpha = ((selectionProgress - 0.15f) / 0.85f).coerceIn(0f, 1f)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun FloatingSelectionActionBar(
+    state: SelectionActionBarState,
+    isHapticsEnabled: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    val view = LocalView.current
+    val context = LocalContext.current
+    val isDarkTheme = LocalAuroraDarkTheme.current
+    val pillSurfaceColor = if (isDarkTheme) Color(0xFF1B1524) else Color(0xFFFFFFFF)
+    val itemColor = if (isDarkTheme) Color(0xFFD8CFE8) else Color(0xFF2B194D)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(100.dp),
+            color = pillSurfaceColor,
+            contentColor = itemColor,
+            tonalElevation = 0.dp,
+            shadowElevation = 12.dp,
+            border = BorderStroke(
+                width = 1.5.dp,
+                brush = Brush.horizontalGradient(
+                    listOf(
+                        AuroraRoyalViolet.copy(alpha = 0.65f),
+                        AuroraAmethyst.copy(alpha = 0.85f),
+                        AuroraRoyalViolet.copy(alpha = 0.65f)
+                    )
+                )
+            ),
+            modifier = Modifier
+                .widthIn(max = 396.dp)
+                .fillMaxWidth()
+                .height(62.dp)
+                .clip(RoundedCornerShape(100.dp))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 6.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Close / Exit Hold Selection Mode pill button on the left
+                Surface(
+                    shape = CircleShape,
+                    color = AuroraRoyalViolet.copy(alpha = 0.14f),
+                    modifier = Modifier
+                        .height(44.dp)
+                        .clip(CircleShape)
+                        .clickable {
+                            triggerNavbarHaptic(view, context, isHapticsEnabled)
+                            state.onClearSelection()
+                        }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Exit Selection",
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = state.selectedCount.toString(),
+                            color = AuroraRoyalViolet,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Share Button
+                SelectionPillActionItem(
+                    label = "Share",
+                    icon = Icons.Default.Share,
+                    tint = itemColor,
+                    onClick = {
+                        triggerNavbarHaptic(view, context, isHapticsEnabled)
+                        state.onShareSelected()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Archive (or Restore when in Archive tab) Button
+                SelectionPillActionItem(
+                    label = if (state.isArchiveTab) "Restore" else "Archive",
+                    icon = if (state.isArchiveTab) Icons.Default.Unarchive else Icons.Default.Archive,
+                    tint = itemColor,
+                    onClick = {
+                        triggerNavbarHaptic(view, context, isHapticsEnabled)
+                        state.onArchiveOrRestoreSelected()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Edit Button (opens Edit Note Details)
+                if (!state.isArchiveTab) {
+                    SelectionPillActionItem(
+                        label = "Edit",
+                        icon = Icons.Default.Edit,
+                        tint = itemColor,
+                        onClick = {
+                            triggerNavbarHaptic(view, context, isHapticsEnabled)
+                            state.onEditSelected()
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // Delete Button
+                SelectionPillActionItem(
+                    label = "Delete",
+                    icon = Icons.Default.Delete,
+                    tint = AuroraDangerRed,
+                    onClick = {
+                        triggerNavbarHaptic(view, context, isHapticsEnabled)
+                        state.onDeleteSelected()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectionPillActionItem(
+    label: String,
+    icon: ImageVector,
+    tint: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(100.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 3.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = tint,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+            Text(
+                text = label,
+                color = tint,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    color = tint,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+    }
 }
 
 @Composable
@@ -70,18 +324,18 @@ fun FloatingPillNavigationBar(
     val currentOnTabSelected by rememberUpdatedState(onTabSelected)
     val currentHapticsEnabled by rememberUpdatedState(isHapticsEnabled)
 
-    val items = listOf(
-        NavTabItem(0, "Notes", Icons.Default.Description),
-        NavTabItem(1, "Archive", Icons.Default.Archive, badge = archivedCount),
-        NavTabItem(2, "Trash", Icons.Default.Delete, badge = trashCount),
-        NavTabItem(3, "Settings", Icons.Default.Settings)
-    )
+    val items = remember(archivedCount, trashCount) {
+        listOf(
+            NavTabItem(0, "Notes", Icons.Default.Description),
+            NavTabItem(1, "Archive", Icons.Default.Archive, badge = archivedCount),
+            NavTabItem(2, "Trash", Icons.Default.Delete, badge = trashCount),
+            NavTabItem(3, "Settings", Icons.Default.Settings)
+        )
+    }
 
     // Hold-and-slide state for dragging the purple pill across the menus
     var isHoldingPill by remember { mutableStateOf(false) }
     var dragTabPos by remember { mutableFloatStateOf(selectedTab.toFloat()) }
-    var lastTabSwitchTime by remember { mutableLongStateOf(0L) }
-    val tabSwitchCooldownMs = 480L
 
     LaunchedEffect(selectedTab) {
         if (!isHoldingPill) {
@@ -91,14 +345,12 @@ fun FloatingPillNavigationBar(
 
     val targetPillPos = if (isHoldingPill) dragTabPos else selectedTab.toFloat()
 
-    // Single stretching pill animation with arrival overshoot:
-    // dropTabPos leads briskly and overshoots the destination slot slightly before settling;
-    // bodyTabPos follows right behind with gentle elastic rebound into place.
+    // Single stretching pill animation with arrival overshoot and zero wait time
     val dropTabPos by animateFloatAsState(
         targetValue = targetPillPos,
         animationSpec = spring(
-            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.58f,
-            stiffness = if (isHoldingPill) 420f else 210f
+            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.62f,
+            stiffness = if (isHoldingPill) 520f else 360f
         ),
         label = "pill_lead_pos"
     )
@@ -106,8 +358,8 @@ fun FloatingPillNavigationBar(
     val bodyTabPos by animateFloatAsState(
         targetValue = targetPillPos,
         animationSpec = spring(
-            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.64f,
-            stiffness = if (isHoldingPill) 260f else 135f
+            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.68f,
+            stiffness = if (isHoldingPill) 340f else 240f
         ),
         label = "pill_trail_pos"
     )
@@ -158,7 +410,7 @@ fun FloatingPillNavigationBar(
                     .clip(RoundedCornerShape(100.dp))
                     .pointerInput(items.size, selectedTab) {
                         val touchSlopPx = viewConfiguration.touchSlop
-                        val holdTimeoutMs = 165L
+                        val holdTimeoutMs = 150L
 
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
@@ -168,19 +420,16 @@ fun FloatingPillNavigationBar(
                             var currentX = startX
                             val initialTappedTab = (startX / tabWidthPx).toInt().coerceIn(0, items.size - 1)
 
-                            val now = android.os.SystemClock.uptimeMillis()
-                            val isCooldownActive = (now - lastTabSwitchTime) < tabSwitchCooldownMs
-
-                            // Haptic feedback on push (initial touch down) only when not spamming and targeting a new tab
-                            if (!isCooldownActive && initialTappedTab != selectedTab) {
+                            // Instant tab switch on touch down with zero wait response
+                            if (initialTappedTab != selectedTab) {
                                 triggerNavbarHaptic(view, context, currentHapticsEnabled)
+                                currentOnTabSelected(initialTappedTab)
                             }
 
                             var holdModeActive = false
                             var pointerReleased = false
 
-                            // Phase 1: Wait up to holdTimeoutMs to see if the user releases (tap),
-                            // slides horizontally, or holds still on the pill/button.
+                            // Optional hold/drag phase if the user keeps holding or slides across the pill
                             val preHoldResult = withTimeoutOrNull(holdTimeoutMs) {
                                 while (true) {
                                     val event = awaitPointerEvent(PointerEventPass.Main)
@@ -199,7 +448,6 @@ fun FloatingPillNavigationBar(
                                 }
                             }
 
-                            // If the timer expired while the finger is still pressed down, enter hold mode
                             if (preHoldResult == null && !pointerReleased) {
                                 holdModeActive = true
                             }
@@ -209,7 +457,6 @@ fun FloatingPillNavigationBar(
                                 dragTabPos = ((currentX / tabWidthPx) - 0.5f)
                                     .coerceIn(0f, (items.size - 1).toFloat())
 
-                                // Phase 2: Slide the purple pill through the menus with NO haptic feedback
                                 while (true) {
                                     val event = awaitPointerEvent(PointerEventPass.Main)
                                     val change = event.changes.firstOrNull { it.id == down.id }
@@ -223,23 +470,14 @@ fun FloatingPillNavigationBar(
                                         .coerceIn(0f, (items.size - 1).toFloat())
                                 }
 
-                                // User let go of the hold phase: land on the selected page with cooldown guard
                                 val landedTab = dragTabPos.roundToInt().coerceIn(0, items.size - 1)
                                 isHoldingPill = false
-                                val finishTime = android.os.SystemClock.uptimeMillis()
-                                if (landedTab != selectedTab && (finishTime - lastTabSwitchTime >= tabSwitchCooldownMs)) {
-                                    lastTabSwitchTime = finishTime
+                                if (landedTab != initialTappedTab) {
                                     currentOnTabSelected(landedTab)
                                     triggerNavbarHaptic(view, context, currentHapticsEnabled)
                                 }
                             } else {
-                                // Normal quick tap: switch to the tapped page with cooldown guard
                                 isHoldingPill = false
-                                val tapTime = android.os.SystemClock.uptimeMillis()
-                                if (initialTappedTab != selectedTab && (tapTime - lastTabSwitchTime >= tabSwitchCooldownMs)) {
-                                    lastTabSwitchTime = tapTime
-                                    currentOnTabSelected(initialTappedTab)
-                                }
                             }
                         }
                     }
@@ -278,7 +516,7 @@ fun FloatingPillNavigationBar(
                                 )
                             )
 
-                            // Main Neon Purple Fluid Drop + Connected Pill Fill (clean gradient without inner streak line)
+                            // Main Neon Purple Fluid Drop + Connected Pill Fill
                             drawPath(
                                 path = fluidPaths.mainMetaballPath,
                                 brush = Brush.horizontalGradient(
@@ -318,7 +556,7 @@ fun FloatingPillNavigationBar(
 
                         val contentColor by animateColorAsState(
                             targetValue = if (isSelected) Color.White else unselectedItemColor,
-                            animationSpec = tween(durationMillis = 220),
+                            animationSpec = tween(durationMillis = 160),
                             label = "tab_content_color"
                         )
 
@@ -326,7 +564,7 @@ fun FloatingPillNavigationBar(
                             targetValue = if (isSelected) 1.08f else 1.0f,
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessLow
+                                stiffness = Spring.StiffnessMediumLow
                             ),
                             label = "tab_icon_scale"
                         )

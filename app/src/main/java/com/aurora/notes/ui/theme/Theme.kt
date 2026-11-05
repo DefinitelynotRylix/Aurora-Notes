@@ -96,11 +96,3 @@ fun AuroraTheme(
         )
     }
 }
-
-@Composable
-fun IrisTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
-) {
-    AuroraTheme(darkTheme = darkTheme, content = content)
-}

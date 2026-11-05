@@ -19,19 +19,3 @@ val AuroraTextPrimaryDark = Color(0xFFF7EEFC)
 val AuroraTextSecondaryDark = Color(0xFFA39BAC)
 
 val AuroraDangerRed = Color(0xFFE11D48)
-
-// Aliases for compatibility
-val IrisRoyalViolet = AuroraRoyalViolet
-val IrisAmethyst = AuroraAmethyst
-val IrisLightPurple = AuroraLightPurple
-val IrisBorderLight = AuroraBorderLight
-val IrisBackgroundLight = AuroraBackgroundLight
-val IrisSurfaceLight = AuroraSurfaceLight
-val IrisTextPrimaryLight = AuroraTextPrimaryLight
-val IrisTextSecondaryLight = AuroraTextSecondaryLight
-val IrisBackgroundDark = AuroraBackgroundDark
-val IrisSurfaceDark = AuroraSurfaceDark
-val IrisBorderDark = AuroraBorderDark
-val IrisTextPrimaryDark = AuroraTextPrimaryDark
-val IrisTextSecondaryDark = AuroraTextSecondaryDark
-val IrisDangerRed = AuroraDangerRed

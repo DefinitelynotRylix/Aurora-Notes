@@ -46,6 +46,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private val NOTE_CARD_IMAGE_MARKER_REGEX = Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]")
+private val NOTE_CARD_HTML_TAG_REGEX = Regex("<[^>]*>")
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NoteCard(
@@ -62,14 +65,17 @@ fun NoteCard(
     onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val dateFormat = SimpleDateFormat("MMM d, h:mm a", Locale.US)
-    val formattedDate = dateFormat.format(Date(note.updatedAt))
+    val formattedDate = remember(note.updatedAt) {
+        SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date(note.updatedAt))
+    }
 
-    val plainTextPreview = note.content
-        .replace(Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]"), "")
-        .replace(Regex("<[^>]*>"), "")
-        .replace("&nbsp;", " ")
-        .trim()
+    val plainTextPreview = remember(note.content) {
+        note.content
+            .replace(NOTE_CARD_IMAGE_MARKER_REGEX, "")
+            .replace(NOTE_CARD_HTML_TAG_REGEX, "")
+            .replace("&nbsp;", " ")
+            .trim()
+    }
 
     val cardBorder = if (isSelected) {
         BorderStroke(2.dp, AuroraRoyalViolet)

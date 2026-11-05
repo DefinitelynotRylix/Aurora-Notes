@@ -94,7 +94,7 @@ class LocalLogger {
     };
 
     // Mirror log entry directly to browser console as well
-    const consoleTag = `[IRIS DIAGNOSTICS] [${level}] [${category.toUpperCase()}] ${message}`;
+    const consoleTag = `[AURORA DIAGNOSTICS] [${level}] [${category.toUpperCase()}] ${message}`;
     if (level === 'ERROR') {
       console.error(consoleTag, details || '');
     } else if (level === 'WARN') {
@@ -167,12 +167,12 @@ class LocalLogger {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     
     downloadAnchor.setAttribute('href', dataUrl);
-    downloadAnchor.setAttribute('download', `iris-notes-log-${timestamp}.txt`);
+    downloadAnchor.setAttribute('download', `aurora-notes-log-${timestamp}.txt`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
 
-    this.security('LOGGER', `Diagnostic log exported as text file (iris-notes-log-${timestamp}.txt)`);
+    this.security('LOGGER', `Diagnostic log exported as text file (aurora-notes-log-${timestamp}.txt)`);
   }
 
   public setupGlobalErrorListeners() {

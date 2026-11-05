@@ -21,7 +21,7 @@ import {
   decryptStoragePayload,
   cleanupOrphanedPrivateStorageEntries,
 } from './utils/editorRules';
-import { FileText, Plus, Fingerprint, Smartphone, Share2, Trash2, X, CheckSquare, Archive, ArchiveRestore, Edit3, Tag, Pin, Check } from 'lucide-react';
+import { FileText, Plus, Fingerprint, Smartphone, X, Archive, Tag, Pin, Check } from 'lucide-react';
 
 const STORAGE_NOTES_KEY = 'aurora_local_notes_v1';
 const STORAGE_CATEGORIES_KEY = 'aurora_custom_categories_v1';
@@ -81,12 +81,8 @@ export default function App() {
     settings: 3,
   };
 
-  const lastTabSwitchRef = useRef<number>(0);
   const handleSelectNavTab = (nextTab: ActiveTab) => {
     if (nextTab === activeTab) return;
-    const now = performance.now();
-    if (now - lastTabSwitchRef.current < 480) return;
-    lastTabSwitchRef.current = now;
     setSlideDirection(TAB_ORDER[nextTab] >= TAB_ORDER[activeTab] ? 1 : -1);
     setSelectedNoteIds([]);
     setActiveTab(nextTab);
@@ -797,7 +793,7 @@ export default function App() {
           </div>
           <div>
             <h2 className="text-xl font-bold text-[#1E1A24] dark:text-[#F7EEFC]">
-              Iris Locked
+              Aurora Notes Locked
             </h2>
             <p className="text-xs text-[#797487] dark:text-[#A39BAC] mt-1">
               Verify with Android native fingerprint, face, or device PIN
@@ -834,15 +830,15 @@ export default function App() {
         noteCount={activeNotes.length}
       />
 
-      {/* Main Workspace: Notes / Pinned / Trash / Settings with Directional Page Slide */}
+      {/* Main Workspace: Notes / Archive / Trash / Settings with Instant Spring Page Slide */}
       <main className="max-w-6xl w-full mx-auto px-3 sm:px-6 pt-4 flex-1 overflow-x-hidden">
-        <AnimatePresence mode="wait" custom={slideDirection} initial={false}>
+        <AnimatePresence mode="popLayout" custom={slideDirection} initial={false}>
           <motion.div
             key={activeTab}
             custom={slideDirection}
             variants={{
               enter: (dir: number) => ({
-                x: dir > 0 ? 48 : -48,
+                x: dir > 0 ? 56 : -56,
                 opacity: 0,
               }),
               center: {
@@ -850,14 +846,19 @@ export default function App() {
                 opacity: 1,
               },
               exit: (dir: number) => ({
-                x: dir > 0 ? -48 : 48,
+                x: dir > 0 ? -56 : 56,
                 opacity: 0,
               }),
             }}
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            transition={{
+              type: 'spring',
+              stiffness: 520,
+              damping: 38,
+              mass: 0.7,
+            }}
           >
             {activeTab === 'settings' ? (
               <SettingsPage
@@ -899,104 +900,6 @@ export default function App() {
               />
             ) : (
               <>
-                {/* Multi-Selection Action Bar (when user holds down on one or multiple notes) */}
-                {selectedNoteIds.length > 0 && (
-                  <div className="mb-3 p-3 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border-2 border-[#5925DC] dark:border-[#9D5AF5] flex items-center justify-between gap-2 shadow-sm animate-fade-in">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedNoteIds([])}
-                        className="w-8 h-8 rounded-xl bg-white/80 dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] flex items-center justify-center cursor-pointer"
-                        title="Clear selection"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs sm:text-sm font-bold text-[#5925DC] dark:text-[#C296FD]">
-                        {selectedNoteIds.length} selected
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (selectedNoteIds.length === currentTabNotes.length) {
-                            setSelectedNoteIds([]);
-                          } else {
-                            setSelectedNoteIds(currentTabNotes.map((n) => n.id));
-                          }
-                        }}
-                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] text-xs font-semibold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 cursor-pointer"
-                      >
-                        <CheckSquare className="w-3.5 h-3.5" />
-                        <span>
-                          {selectedNoteIds.length === currentTabNotes.length ? 'None' : 'All'}
-                        </span>
-                      </button>
-
-                      {activeTab === 'archive' ? (
-                        <button
-                          type="button"
-                          onClick={() => handleUnarchiveNotesBatch(selectedNoteIds)}
-                          className="px-3 py-1.5 rounded-xl bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
-                        >
-                          <ArchiveRestore className="w-3.5 h-3.5" />
-                          <span>Restore ({selectedNoteIds.length})</span>
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            data-testid="edit-note-details-btn"
-                            onClick={() => {
-                              const target = currentTabNotes.find((n) => selectedNoteIds.includes(n.id));
-                              if (target) {
-                                openEditNoteDetailsModal(target);
-                              }
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] text-xs font-bold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 shadow-xs cursor-pointer"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                            <span>Edit Note Details</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleArchiveNotesBatch(selectedNoteIds)}
-                            className="px-3 py-1.5 rounded-xl bg-[#5925DC] dark:bg-[#9D5AF5] text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
-                          >
-                            <Archive className="w-3.5 h-3.5" />
-                            <span>Archive ({selectedNoteIds.length})</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const selected = currentTabNotes.filter((n) => selectedNoteIds.includes(n.id));
-                              if (selected.length > 0) {
-                                setNotesToShare(selected);
-                              }
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#1B1524] text-[#5925DC] dark:text-[#C296FD] text-xs font-bold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 shadow-xs cursor-pointer"
-                          >
-                            <Share2 className="w-3.5 h-3.5" />
-                            <span>Share</span>
-                          </button>
-                        </>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => setShowBatchDeleteConfirm(true)}
-                        className="px-3 py-1.5 rounded-xl bg-rose-600 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Delete ({selectedNoteIds.length})</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 {/* Category Filter Bar */}
                 <div className="mb-2.5">
                   <CategoryFilterBar
@@ -1291,8 +1194,8 @@ export default function App() {
         />
       )}
 
-      {/* Floating Circular UI Element in the Down Right Corner (only on active Notes tab) */}
-      {activeTab === 'notes' && (
+      {/* Floating Circular UI Element in the Down Right Corner (only on active Notes tab when not holding/selecting a note) */}
+      {activeTab === 'notes' && selectedNoteIds.length === 0 && (
         <motion.button
           ref={fabButtonRef}
           type="button"
@@ -1306,13 +1209,36 @@ export default function App() {
         </motion.button>
       )}
 
-      {/* Liquid Navigation Bar */}
+      {/* Liquid Navigation Bar & Selection Action Navbar */}
       <LiquidNavbar
         activeTab={activeTab}
         onChangeTab={handleSelectNavTab}
         archivedCount={archivedNotes.length}
         trashCount={trashedNotes.length}
         isHapticsEnabled={isHapticsEnabled}
+        selectedCount={selectedNoteIds.length}
+        isArchiveTab={activeTab === 'archive'}
+        onShareSelected={() => {
+          const selected = currentTabNotes.filter((n) => selectedNoteIds.includes(n.id));
+          if (selected.length > 0) {
+            setNotesToShare(selected);
+          }
+        }}
+        onArchiveOrRestoreSelected={() => {
+          if (activeTab === 'archive') {
+            handleUnarchiveNotesBatch(selectedNoteIds);
+          } else {
+            handleArchiveNotesBatch(selectedNoteIds);
+          }
+        }}
+        onEditSelected={() => {
+          const target = currentTabNotes.find((n) => selectedNoteIds.includes(n.id));
+          if (target) {
+            openEditNoteDetailsModal(target);
+          }
+        }}
+        onDeleteSelected={() => setShowBatchDeleteConfirm(true)}
+        onClearSelection={() => setSelectedNoteIds([])}
       />
 
       {/* Note Editor Modal with Circular Reveal & Predictive Back */}

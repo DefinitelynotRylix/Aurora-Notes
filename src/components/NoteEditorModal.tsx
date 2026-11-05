@@ -2,17 +2,13 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { Note, ChecklistItem, NoteImage } from '../types';
 import {
-  Pin,
   Check,
   CheckSquare,
-  Tag,
   Folder,
   Bold,
   Italic,
   List,
   ArrowLeft,
-  X,
-  Plus,
   Share2,
   ArchiveRestore,
   Trash2,
@@ -52,11 +48,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 }) => {
   const isReadOnly = Boolean(note.isArchived);
   const [title, setTitle] = useState(note.title);
-  const [category, setCategory] = useState(note.category || 'General');
-  const [isPinned, setIsPinned] = useState(note.isPinned);
-  const [tags, setTags] = useState<string[]>(note.tags || []);
-  const [newTagInput, setNewTagInput] = useState('');
-  const [showDoneModal, setShowDoneModal] = useState(false);
+  const category = note.category || 'General';
   const [showShareModal, setShowShareModal] = useState(false);
 
   // Active Formatting Modes ('small' | 'medium' | 'large', Bold, Italic)
@@ -151,8 +143,6 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       container.scrollTop -= delta;
     }
   };
-
-  const allCategoryOptions = Array.from(new Set(['General', ...customCategories, note.category].filter(Boolean)));
 
   const setCheckboxVisualAndDomState = useCallback(
     (checkbox: HTMLInputElement, checked: boolean, textDiv?: HTMLElement | null) => {
@@ -270,10 +260,8 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       title: title.trim() || 'Untitled Note',
       content: rawHtml,
       category,
-      isPinned,
       checklist: extractedChecklist.length > 0 ? extractedChecklist : note.checklist || [],
       images: extractedImages,
-      tags,
       updatedAt: Date.now(),
     };
   };
@@ -1527,7 +1515,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
   // Interactive Predictive Back Edge-Swipe Handlers
   const handleEdgePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (showDoneModal || showShareModal) return;
+    if (showShareModal) return;
     const edgeThreshold = 28;
     const vw = typeof window !== 'undefined' ? window.innerWidth : 400;
     if (e.clientX <= edgeThreshold) {
@@ -1566,20 +1554,6 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     } else {
       setPredictiveBackProgress(0);
     }
-  };
-
-  const handleAddTag = (e: React.KeyboardEvent | React.MouseEvent) => {
-    const clean = newTagInput.trim().replace(/^#/, '');
-    if (clean && !tags.includes(clean)) {
-      setTags([...tags, clean]);
-      setNewTagInput('');
-      markNoteDirty();
-    }
-  };
-
-  const handleRemoveTag = (tagToRemove: string) => {
-    setTags(tags.filter((t) => t !== tagToRemove));
-    markNoteDirty();
   };
 
   const originX =

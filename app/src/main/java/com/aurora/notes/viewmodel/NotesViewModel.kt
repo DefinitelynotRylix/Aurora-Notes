@@ -30,11 +30,12 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_BIOMETRIC_LOCK = "key_biometric_lock_enabled"
         private const val KEY_WELCOME_SEEN = "key_welcome_tour_seen_v1"
         private const val KEY_WHATS_NEW_SEEN_VERSION = "key_whats_new_seen_version_v1"
-        const val CURRENT_MAJOR_UPDATE_ID = "1.3.34"
+        const val CURRENT_MAJOR_UPDATE_ID = "1.3.35"
         private const val KEY_USER_TAGS = "key_user_created_tags_v1"
         private const val KEY_THEME_MODE = "key_theme_mode_v1"
         private const val KEY_HAPTICS_ENABLED = "key_haptics_enabled_v1"
         private const val KEY_DB_ENCRYPTION_ENABLED = "key_room_db_encryption_enabled_v1"
+        private val HTML_TAG_REGEX = Regex("<[^>]*>")
     }
 
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -157,12 +158,6 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun refreshStorageStatsAsync() {
-        viewModelScope.launch(Dispatchers.IO) {
-            _storageStats.value = repository.getStorageStats()
-        }
-    }
-
     private fun loadSavedTags(): List<String> {
         val json = prefs.getString(KEY_USER_TAGS, null) ?: return emptyList()
         return try {
@@ -177,54 +172,6 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         _userTags.value = tags
         prefs.edit().putString(KEY_USER_TAGS, gson.toJson(tags)).apply()
     }
-
-    val filteredActiveNotes: StateFlow<List<Note>> = combine(
-        allActiveNotes,
-        _searchQuery,
-        _selectedCategory
-    ) { notes, query, category ->
-        var list = notes
-        if (category != "All") {
-            list = list.filter { note ->
-                note.tags.any { it.equals(category, ignoreCase = true) } ||
-                    note.category.equals(category, ignoreCase = true)
-            }
-        }
-        if (query.isNotBlank()) {
-            val q = query.trim().lowercase()
-            list = list.filter { note ->
-                note.title.lowercase().contains(q) ||
-                    note.content.lowercase().contains(q) ||
-                    note.tags.any { it.lowercase().contains(q) } ||
-                    note.checklist.any { it.text.lowercase().contains(q) }
-            }
-        }
-        list
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val filteredArchivedNotes: StateFlow<List<Note>> = combine(
-        allArchivedNotes,
-        _searchQuery,
-        _selectedCategory
-    ) { notes, query, category ->
-        var list = notes
-        if (category != "All") {
-            list = list.filter { note ->
-                note.tags.any { it.equals(category, ignoreCase = true) } ||
-                    note.category.equals(category, ignoreCase = true)
-            }
-        }
-        if (query.isNotBlank()) {
-            val q = query.trim().lowercase()
-            list = list.filter { note ->
-                note.title.lowercase().contains(q) ||
-                    note.content.lowercase().contains(q) ||
-                    note.tags.any { it.lowercase().contains(q) } ||
-                    note.checklist.any { it.text.lowercase().contains(q) }
-            }
-        }
-        list
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val filteredTrashedNotes: StateFlow<List<Note>> = combine(
         allTrashedNotes,
@@ -251,14 +198,8 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         _selectedCategory.value = category
     }
 
-    private var lastTabSwitchTime = 0L
-    private val tabSwitchCooldownMs = 480L
-
     fun setSelectedTab(tab: Int) {
         if (tab == _selectedTab.value) return
-        val now = android.os.SystemClock.uptimeMillis()
-        if (now - lastTabSwitchTime < tabSwitchCooldownMs) return
-        lastTabSwitchTime = now
         _selectedTab.value = tab
     }
 
@@ -332,7 +273,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         if (note.isArchived) return
         val cleanTitle = note.title.trim()
         val cleanContent = note.content
-            .replace(Regex("<[^>]*>"), "")
+            .replace(HTML_TAG_REGEX, "")
             .replace("[ ]", "")
             .replace("[x]", "")
             .trim()

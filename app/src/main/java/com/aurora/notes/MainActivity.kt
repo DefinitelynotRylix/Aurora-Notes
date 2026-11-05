@@ -9,16 +9,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -29,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -37,7 +32,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.*
@@ -48,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
@@ -66,9 +61,11 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.aurora.notes.model.Note
-import com.aurora.notes.ui.components.FloatingPillNavigationBar
+import com.aurora.notes.ui.components.AnimatedBottomPillBar
+import com.aurora.notes.ui.components.SelectionActionBarState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import com.aurora.notes.ui.screens.NoteEditorScreen
@@ -318,6 +315,15 @@ fun AuroraApp(
         val editorRevealProgress = remember { Animatable(if (activeEditingNote != null) 1f else 0f) }
         var isClosingEditor by remember { mutableStateOf(false) }
 
+        // Bottom selection action navbar state when holding down a note
+        var selectionBarState by remember { mutableStateOf(SelectionActionBarState()) }
+
+        LaunchedEffect(selectedTab) {
+            if (selectedTab != 0 && selectedTab != 1) {
+                selectionBarState = SelectionActionBarState()
+            }
+        }
+
         // Coordinates of the circular + FloatingActionButton in root space
         var fabCenterX by remember { mutableFloatStateOf(0f) }
         var fabCenterY by remember { mutableFloatStateOf(0f) }
@@ -367,7 +373,7 @@ fun AuroraApp(
         }
 
         // Predictive Back for non-Notes tabs (Archive, Trash, Settings -> smoothly returns to Notes tab)
-        PredictiveBackHandler(enabled = displayedEditorNote == null && selectedTab != 0) { progress ->
+        PredictiveBackHandler(enabled = displayedEditorNote == null && selectedTab != 0 && !selectionBarState.isVisible) { progress ->
             try {
                 progress.collect { backEvent ->
                     tabBackProgress = backEvent.progress
@@ -391,10 +397,20 @@ fun AuroraApp(
             }
         }
 
+        // Instant, interruptible, zero-loading-time spring slide across the 4 menus
+        val animatedTabPos by animateFloatAsState(
+            targetValue = selectedTab.toFloat(),
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = 680f
+            ),
+            label = "instant_menu_slide"
+        )
+
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
                 floatingActionButton = {
-                    if (selectedTab == 0) {
+                    if (selectedTab == 0 && !selectionBarState.isVisible) {
                         FloatingActionButton(
                             onClick = { viewModel.openNewNote() },
                             containerColor = AuroraRoyalViolet,
@@ -412,45 +428,42 @@ fun AuroraApp(
                     }
                 },
                 bottomBar = {
-                    FloatingPillNavigationBar(
+                    AnimatedBottomPillBar(
                         selectedTab = selectedTab,
                         onTabSelected = { viewModel.setSelectedTab(it) },
                         archivedCount = archivedCount,
                         trashCount = trashCount,
-                        isHapticsEnabled = isHapticsEnabled
+                        isHapticsEnabled = isHapticsEnabled,
+                        selectionState = selectionBarState
                     )
                 }
             ) { paddingValues ->
-                AnimatedContent(
-                    targetState = selectedTab,
-                    transitionSpec = {
-                        val direction = if (targetState >= initialState) 1 else -1
-                        (slideInHorizontally(
-                            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
-                            initialOffsetX = { fullWidth -> direction * fullWidth }
-                        ) + fadeIn(
-                            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
-                        )).togetherWith(
-                            slideOutHorizontally(
-                                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                                targetOffsetX = { fullWidth -> -direction * fullWidth }
-                            ) + fadeOut(
-                                animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
-                            )
-                        ).using(SizeTransform(clip = false))
-                    },
-                    modifier = Modifier.graphicsLayer {
-                        if (tabBackProgress > 0f) {
-                            val s = 1f - (tabBackProgress * 0.08f)
-                            scaleX = s
-                            scaleY = s
-                            alpha = (1f - tabBackProgress * 0.25f).coerceIn(0.6f, 1f)
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .graphicsLayer {
+                            if (tabBackProgress > 0f) {
+                                val s = 1f - (tabBackProgress * 0.08f)
+                                scaleX = s
+                                scaleY = s
+                                alpha = (1f - tabBackProgress * 0.25f).coerceIn(0.6f, 1f)
+                            }
                         }
-                    },
-                    label = "tab_content_transition"
-                ) { targetTab ->
-                    when (targetTab) {
-                        0 -> {
+                ) {
+                    val widthPx = with(LocalDensity.current) { maxWidth.toPx().coerceAtLeast(1f) }
+
+                    // Tab 0: Notes (kept warm so switching back is 0ms instant)
+                    val offset0 = 0f - animatedTabPos
+                    if (abs(offset0) < 1.05f || selectedTab == 0) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = offset0 * widthPx
+                                    alpha = (1f - abs(offset0) * 0.35f).coerceIn(0f, 1f)
+                                }
+                        ) {
                             NotesScreen(
                                 notes = allFilteredNotes,
                                 userTags = userTags,
@@ -473,10 +486,25 @@ fun AuroraApp(
                                 onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
                                 onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
                                 isArchiveTab = false,
-                                modifier = Modifier.padding(paddingValues)
+                                isActiveTab = selectedTab == 0,
+                                onSelectionBarStateChange = { state ->
+                                    if (selectedTab == 0) selectionBarState = state
+                                }
                             )
                         }
-                        1 -> {
+                    }
+
+                    // Tab 1: Archive
+                    val offset1 = 1f - animatedTabPos
+                    if (abs(offset1) < 1.05f || selectedTab == 1) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = offset1 * widthPx
+                                    alpha = (1f - abs(offset1) * 0.35f).coerceIn(0f, 1f)
+                                }
+                        ) {
                             NotesScreen(
                                 notes = archivedFilteredNotes,
                                 userTags = userTags,
@@ -499,10 +527,25 @@ fun AuroraApp(
                                 onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
                                 onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
                                 isArchiveTab = true,
-                                modifier = Modifier.padding(paddingValues)
+                                isActiveTab = selectedTab == 1,
+                                onSelectionBarStateChange = { state ->
+                                    if (selectedTab == 1) selectionBarState = state
+                                }
                             )
                         }
-                        2 -> {
+                    }
+
+                    // Tab 2: Trash
+                    val offset2 = 2f - animatedTabPos
+                    if (abs(offset2) < 1.05f || selectedTab == 2) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = offset2 * widthPx
+                                    alpha = (1f - abs(offset2) * 0.35f).coerceIn(0f, 1f)
+                                }
+                        ) {
                             TrashScreen(
                                 trashedNotes = filteredTrashedNotes,
                                 searchQuery = searchQuery,
@@ -511,11 +554,22 @@ fun AuroraApp(
                                 onToggleGridView = { viewModel.toggleGridView() },
                                 onRestoreNote = { viewModel.restoreFromTrash(it) },
                                 onDeletePermanently = { viewModel.deletePermanently(it) },
-                                onEmptyTrash = { viewModel.emptyTrash() },
-                                modifier = Modifier.padding(paddingValues)
+                                onEmptyTrash = { viewModel.emptyTrash() }
                             )
                         }
-                        3 -> {
+                    }
+
+                    // Tab 3: Settings
+                    val offset3 = 3f - animatedTabPos
+                    if (abs(offset3) < 1.05f || selectedTab == 3) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = offset3 * widthPx
+                                    alpha = (1f - abs(offset3) * 0.35f).coerceIn(0f, 1f)
+                                }
+                        ) {
                             SettingsScreen(
                                 themeMode = themeMode,
                                 onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
@@ -542,8 +596,7 @@ fun AuroraApp(
                                 onOpenWhatsNew = { viewModel.reopenWhatsNew() },
                                 onClearLogs = { viewModel.clearDiagnosticLogs() },
                                 onExportLogs = { viewModel.exportDiagnosticLogs() },
-                                onTriggerBiometricAuth = onTriggerBiometricAuth,
-                                modifier = Modifier.padding(paddingValues)
+                                onTriggerBiometricAuth = onTriggerBiometricAuth
                             )
                         }
                     }
@@ -854,27 +907,27 @@ private fun WhatsNewDialog(
     val features = remember {
         listOf(
             WhatsNewFeatureItem(
-                title = "Insert Lossless Images & Note Previews",
+                title = "Instant Menu Animation & Hold-Note Action Navbar",
                 badge = "NEW FEATURE",
-                description = "Tap the Gallery icon in the editor bar to insert lossless images in dedicated vertical blocks. Tap any image in the editor to resize it larger downward or delete it, and preview attached images right on your note cards.",
-                icon = Icons.Default.Image
-            ),
-            WhatsNewFeatureItem(
-                title = "Persistent Lists, Checkboxes & Compact H2/H1",
-                badge = "EDITOR",
-                description = "Bullet lists and checkboxes now stay active across new lines when pressing Enter until toggled off, coexist cleanly on the same line, and pair with compact H2 and H1 heading buttons.",
-                icon = Icons.Default.CheckCircle
-            ),
-            WhatsNewFeatureItem(
-                title = "Checkmark Save & Long-Press Edit Details",
-                badge = "WORKFLOW",
-                description = "Tap the top-right Checkmark icon to save your note and close the keyboard while staying in the editor. Long-press any note in the main menu to open Edit Note Details for titles, tags, and pinning.",
+                description = "Menu switching across Notes, Archive, Trash, and Settings is now 100% instant with zero wait delay. Hold down any note to slide the navigation bar under the screen and pop up the new Selection Action Navbar with Share, Archive, Edit, and Delete.",
                 icon = Icons.Default.Edit
             ),
             WhatsNewFeatureItem(
-                title = "AES-256-GCM Cryptography & Auto-Cleanup",
+                title = "Gallery Note Image Export & Decrypted Markdown",
+                badge = "EXPORT & MEDIA",
+                description = "Insert lossless images in dedicated vertical blocks, save any note as a full-length visual image directly into your Android Gallery, or export decrypted Markdown (.md) notes with companion .png image files.",
+                icon = Icons.Default.Image
+            ),
+            WhatsNewFeatureItem(
+                title = "Persistent Lists, Checkboxes & Checkmark Save",
+                badge = "EDITOR",
+                description = "Bullet lists and checkboxes stay active across unlimited Enter presses without cutting off, coexist cleanly on the same line, and pair with compact H2/H1 buttons and the top-right Checkmark quick-save indicator.",
+                icon = Icons.Default.CheckCircle
+            ),
+            WhatsNewFeatureItem(
+                title = "AES-256-GCM Cryptography & Codebase Optimization",
                 badge = "SECURITY",
-                description = "Every note and attached image in the Room SQLite database and private storage is encrypted at rest with AndroidKeyStore AES-256-GCM cryptography and automatic orphaned file cleanup.",
+                description = "Every note and attached image in your Room SQLite database and private storage is encrypted at rest with AndroidKeyStore AES-256-GCM cryptography, automatic orphaned file cleanup, and streamlined rendering.",
                 icon = Icons.Default.Lock
             )
         )

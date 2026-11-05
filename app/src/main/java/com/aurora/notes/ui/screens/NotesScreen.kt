@@ -18,16 +18,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.automirrored.filled.ViewList
-import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.aurora.notes.model.Note
 import com.aurora.notes.ui.components.MorphingNotesGrid
 import com.aurora.notes.ui.components.NoteCard
+import com.aurora.notes.ui.components.SelectionActionBarState
 import com.aurora.notes.ui.components.ShareNoteDialog
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
@@ -67,6 +62,8 @@ fun NotesScreen(
     onCreateTag: (String) -> Unit = {},
     onDeleteTag: ((String) -> Unit)? = null,
     isArchiveTab: Boolean = false,
+    isActiveTab: Boolean = true,
+    onSelectionBarStateChange: (SelectionActionBarState) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // Combine persisted user-created tags + any tags present on notes
@@ -106,13 +103,61 @@ fun NotesScreen(
         detailsIsPinned = target.isPinned
     }
 
+    // Clear selection when leaving this tab
+    LaunchedEffect(isActiveTab) {
+        if (!isActiveTab && selectedNoteIds.isNotEmpty()) {
+            selectedNoteIds.clear()
+        }
+    }
+
     // Prune any selected IDs that are no longer in the visible notes list
     LaunchedEffect(notes) {
         val currentIds = notes.map { it.id }.toSet()
         selectedNoteIds.removeAll { it !in currentIds }
     }
 
-    BackHandler(enabled = isSelectionMode) {
+    // Report bottom selection action bar state whenever selection changes on the active tab
+    val currentNotes by rememberUpdatedState(notes)
+    LaunchedEffect(isActiveTab, isSelectionMode, selectedNoteIds.size, isArchiveTab) {
+        if (isActiveTab) {
+            onSelectionBarStateChange(
+                SelectionActionBarState(
+                    isVisible = isSelectionMode,
+                    selectedCount = selectedNoteIds.size,
+                    isArchiveTab = isArchiveTab,
+                    onShareSelected = {
+                        val selectedNotes = currentNotes.filter { it.id in selectedNoteIds }
+                        if (selectedNotes.isNotEmpty()) {
+                            notesToShare = selectedNotes
+                        }
+                    },
+                    onArchiveOrRestoreSelected = {
+                        val ids = selectedNoteIds.toList()
+                        selectedNoteIds.clear()
+                        if (isArchiveTab) {
+                            onUnarchiveNotesBatch(ids)
+                        } else {
+                            onArchiveNotesBatch(ids)
+                        }
+                    },
+                    onEditSelected = {
+                        val target = currentNotes.firstOrNull { it.id in selectedNoteIds }
+                        if (target != null) {
+                            openEditNoteDetailsDialog(target)
+                        }
+                    },
+                    onDeleteSelected = {
+                        showBatchDeleteConfirm = true
+                    },
+                    onClearSelection = {
+                        selectedNoteIds.clear()
+                    }
+                )
+            )
+        }
+    }
+
+    BackHandler(enabled = isActiveTab && isSelectionMode) {
         selectedNoteIds.clear()
     }
 
@@ -411,195 +456,6 @@ fun NotesScreen(
         )
 
         Spacer(modifier = Modifier.height(10.dp))
-
-        // Multi-Select Action Bar (when user holds down on notes to select one or multiple)
-        if (isSelectionMode) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = AuroraRoyalViolet.copy(alpha = 0.14f),
-                border = BorderStroke(1.5.dp, AuroraRoyalViolet),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 10.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = { selectedNoteIds.clear() },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Cancel Selection",
-                                tint = AuroraRoyalViolet,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "${selectedNoteIds.size} selected",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = AuroraRoyalViolet
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        // Select All / Deselect All
-                        TextButton(
-                            onClick = {
-                                if (selectedNoteIds.size == notes.size) {
-                                    selectedNoteIds.clear()
-                                } else {
-                                    selectedNoteIds.clear()
-                                    selectedNoteIds.addAll(notes.map { it.id })
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SelectAll,
-                                contentDescription = "Select All",
-                                tint = AuroraRoyalViolet,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (selectedNoteIds.size == notes.size) "None" else "All",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AuroraRoyalViolet
-                            )
-                        }
-
-                        if (isArchiveTab) {
-                            // Restore (Unarchive) Selected Notes
-                            FilledTonalButton(
-                                onClick = {
-                                    val idsToRestore = selectedNoteIds.toList()
-                                    selectedNoteIds.clear()
-                                    onUnarchiveNotesBatch(idsToRestore)
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = AuroraRoyalViolet,
-                                    contentColor = Color.White
-                                ),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Unarchive,
-                                    contentDescription = "Restore Selected",
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Restore", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        } else {
-                            // Edit Note Details (Opened when long-pressing notes in the main menu)
-                            FilledTonalButton(
-                                onClick = {
-                                    val target = notes.firstOrNull { it.id in selectedNoteIds }
-                                    if (target != null) {
-                                        openEditNoteDetailsDialog(target)
-                                    }
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = AuroraRoyalViolet,
-                                    contentColor = Color.White
-                                ),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Edit Note Details",
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Edit Note Details", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            // Archive Selected Notes (1 or multiple)
-                            FilledTonalButton(
-                                onClick = {
-                                    val idsToArchive = selectedNoteIds.toList()
-                                    selectedNoteIds.clear()
-                                    onArchiveNotesBatch(idsToArchive)
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = AuroraRoyalViolet,
-                                    contentColor = Color.White
-                                ),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Archive,
-                                    contentDescription = "Archive Selected",
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Archive", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            // Share Selected
-                            FilledTonalButton(
-                                onClick = {
-                                    val selectedNotes = notes.filter { it.id in selectedNoteIds }
-                                    if (selectedNotes.isNotEmpty()) {
-                                        notesToShare = selectedNotes
-                                    }
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = AuroraRoyalViolet.copy(alpha = 0.85f),
-                                    contentColor = Color.White
-                                ),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Share,
-                                    contentDescription = "Share Selected",
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Share", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        // Delete Selected
-                        Button(
-                            onClick = { showBatchDeleteConfirm = true },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete Selected",
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Delete", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                    }
-                }
-            }
-        }
 
         // Search Bar & Grid/List Toggle
         Row(
