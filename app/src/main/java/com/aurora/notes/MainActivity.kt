@@ -420,7 +420,7 @@ fun AuroraApp(
                 tabSlideProgress.animateTo(
                     targetValue = 1f,
                     animationSpec = tween(
-                        durationMillis = 270,
+                        durationMillis = 210,
                         easing = FastOutSlowInEasing
                     )
                 )
@@ -539,6 +539,7 @@ fun AuroraApp(
                                 },
                                 onAddNote = { viewModel.openNewNote() },
                                 onSaveNoteDetails = { updatedNote -> viewModel.saveNote(updatedNote) },
+                                onReorderNotes = { orderedIds -> viewModel.reorderNotes(orderedIds, isArchive = false) },
                                 onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
                                 onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
                                 isArchiveTab = false,
@@ -579,6 +580,7 @@ fun AuroraApp(
                                     viewModel.toggleChecklistItem(noteId, itemId)
                                 },
                                 onAddNote = { viewModel.openNewNote() },
+                                onReorderNotes = { orderedIds -> viewModel.reorderNotes(orderedIds, isArchive = true) },
                                 onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
                                 onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
                                 isArchiveTab = true,
@@ -960,9 +962,9 @@ private fun WhatsNewDialog(
     val features = remember {
         listOf(
             WhatsNewFeatureItem(
-                title = "Smooth Menu Animation & Hold-Note Action Navbar",
+                title = "Drag-to-Reorder Notes & Hold Action Navbar",
                 badge = "NEW FEATURE",
-                description = "Pre-warmed menus with protective button wait timing let you jump between Notes, Archive, Trash, and Settings with zero lag. Hold down any note to slide the navigation bar under the screen and pop up the Selection Action Navbar (Share, Archive, Edit, Delete).",
+                description = "Hold down any note to elevate it with a subtle wobbly physics effect and drag it over other notes to reorder in both Masonry and Single-Column views, or use the pop-up Selection Action Navbar (Share, Archive, Edit, Delete).",
                 icon = Icons.Default.Edit
             ),
             WhatsNewFeatureItem(

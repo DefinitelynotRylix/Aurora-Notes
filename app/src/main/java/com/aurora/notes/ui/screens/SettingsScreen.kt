@@ -72,7 +72,6 @@ import java.util.Locale
 private data class ThemeOptionItem(
     val id: String,
     val label: String,
-    val description: String,
     val icon: ImageVector
 )
 
@@ -127,9 +126,9 @@ fun SettingsScreen(
 
     val themeOptions = remember {
         listOf(
-            ThemeOptionItem("system", "System", "Match phone theme", Icons.Default.BrightnessAuto),
-            ThemeOptionItem("light", "Light", "Warm mauve canvas", Icons.Default.LightMode),
-            ThemeOptionItem("dark", "Dark", "Obsidian amethyst", Icons.Default.DarkMode)
+            ThemeOptionItem("system", "System Default", Icons.Default.BrightnessAuto),
+            ThemeOptionItem("light", "Light Mode", Icons.Default.LightMode),
+            ThemeOptionItem("dark", "Dark Mode", Icons.Default.DarkMode)
         )
     }
 
@@ -282,7 +281,7 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                 )
                 Text(
-                    text = "Manage app appearance & theme, self-updates, biometric security, custom category pins, and local data.",
+                    text = "Manage app appearance & theme, self-updates, haptic feedback and biometric security.",
                     style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
                     modifier = Modifier.padding(top = 2.dp)
                 )
@@ -317,11 +316,17 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(
+                            text = "GITHUB RELEASE UPDATER",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AuroraRoyalViolet
+                        )
+                        Text(
                             text = "App Version & Self-Update",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            text = "Installed: v$currentVersionName • Build $currentVersionCode • GPL-3.0",
+                            text = "Installed Version: v$currentVersionName • Build $currentVersionCode • GPL-3.0 Open Source",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = AuroraRoyalViolet
@@ -352,7 +357,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Minimal Internet Access Notice: All your notes, tags, and checklists remain 100% offline on your device. Internet permission is strictly limited to manual update scans when you tap 'Scan for New Update' below to pull the latest Aurora Notes.apk release.",
+                            text = "Minimal Internet Access: All your notes, checklists, and tags remain 100% offline on your device. Internet access is strictly limited to manual updates scans.",
                             fontSize = 11.sp,
                             lineHeight = 15.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
@@ -644,12 +649,6 @@ fun SettingsScreen(
                                     fontWeight = FontWeight.Bold,
                                     color = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface
                                 )
-                                Text(
-                                    text = option.description,
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    maxLines = 1
-                                )
                             }
                         }
                     }
@@ -687,14 +686,14 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "Haptic Feedback",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                text = "TACTILE RESPONSE",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AuroraRoyalViolet
                             )
                             Text(
-                                text = if (isHapticsEnabled) "Active on navbar & controls" else "Disabled",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isHapticsEnabled) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                                text = "Haptic Feedback",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
                         }
                     }
@@ -766,10 +765,18 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Fingerprint, contentDescription = null, tint = AuroraRoyalViolet, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Biometric & App Lock",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
+                        Column {
+                            Text(
+                                text = "NATIVE SECURITY",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AuroraRoyalViolet
+                            )
+                            Text(
+                                text = "Biometric / System PIN Lock",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
                     }
 
                     Switch(
@@ -805,7 +812,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Require Android native fingerprint, face unlock, or device PIN before opening Aurora Notes.",
+                    text = "Require Android native fingerprint, face unlock, or system PIN to access your notes upon app launch.",
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                         fontSize = 12.sp
@@ -844,7 +851,13 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "Private Storage & DB Encryption",
+                                text = "ENCRYPTION",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AuroraRoyalViolet
+                            )
+                            Text(
+                                text = "Storage Encryption",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
@@ -920,7 +933,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Mandatory hardware-backed AndroidKeyStore AES-256-GCM encryption is permanently enabled for all Room SQLite records and mirrored device storage files.",
+                            text = "Hardware-backed AndroidKeyStore AES-256-GCM encryption is enabled for all Room SQLite records and mirrored device storage files.",
                             fontSize = 11.sp,
                             lineHeight = 15.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
@@ -1001,14 +1014,22 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AuroraRoyalViolet, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Welcome Guide & What's New",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
+                    Column {
+                        Text(
+                            text = "OVERVIEW & RELEASE HIGHLIGHTS",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AuroraRoyalViolet
+                        )
+                        Text(
+                            text = "Welcome Guide & What's New",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "View the Aurora Notes welcome guide or check what's new in the latest release.",
+                    text = "Revisit the Aurora Notes feature walkthrough or inspect the latest release highlights including mandatory AES-256-GCM cryptography.",
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                         fontSize = 12.sp
@@ -1026,7 +1047,7 @@ fun SettingsScreen(
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
                     ) {
-                        Text("Open Guide", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Open Welcome Guide", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
 
                     OutlinedButton(
@@ -1167,7 +1188,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Restricted to errors and warnings only. Logged locally in device memory when an issue occurs.",
+                    text = "Restricted to warnings and errors only. Logged purely inside device memory when an issue occurs.",
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                         fontSize = 11.sp
@@ -1321,7 +1342,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Permanently delete all notes, trashed items, and custom category pins from local storage. Requires biometric or device PIN verification.",
+                    text = "Permanently delete all notes, custom category pins, and settings from local device storage. Biometric or device PIN verification is required.",
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
                         fontSize = 12.sp

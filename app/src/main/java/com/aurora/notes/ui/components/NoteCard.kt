@@ -93,9 +93,15 @@ fun NoteCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .combinedClickable(
-                onClick = { onClick() },
-                onLongClick = { onLongClick?.invoke() }
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(
+                        onClick = { onClick() },
+                        onLongClick = { onLongClick.invoke() }
+                    )
+                } else {
+                    Modifier.clickable { onClick() }
+                }
             ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(

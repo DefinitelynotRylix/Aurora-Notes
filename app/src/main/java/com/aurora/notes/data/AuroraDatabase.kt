@@ -9,7 +9,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.aurora.notes.model.Note
 
-@Database(entities = [Note::class], version = 4, exportSchema = false)
+@Database(entities = [Note::class], version = 5, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AuroraDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
@@ -81,6 +81,27 @@ abstract class AuroraDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val cursor = db.query("PRAGMA table_info(`notes`)")
+                var hasSortOrderColumn = false
+                try {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) {
+                        if (nameIndex >= 0 && cursor.getString(nameIndex) == "sortOrder") {
+                            hasSortOrderColumn = true
+                            break
+                        }
+                    }
+                } finally {
+                    cursor.close()
+                }
+                if (!hasSortOrderColumn) {
+                    db.execSQL("ALTER TABLE `notes` ADD COLUMN `sortOrder` INTEGER NOT NULL DEFAULT 0")
+                }
+            }
+        }
+
         fun getDatabase(context: Context): AuroraDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -88,7 +109,7 @@ abstract class AuroraDatabase : RoomDatabase() {
                     AuroraDatabase::class.java,
                     "aurora_notes.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                 INSTANCE = instance

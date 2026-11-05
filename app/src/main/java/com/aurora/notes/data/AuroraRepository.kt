@@ -50,8 +50,10 @@ class AuroraRepository(
 
     suspend fun togglePin(note: Note) {
         if (note.isArchived) return
+        val nextPinned = !note.isPinned
         val plainUpdated = PrivateStorageManager.decryptNoteFromRoom(note).copy(
-            isPinned = !note.isPinned,
+            isPinned = nextPinned,
+            sortOrder = if (nextPinned) 0 else note.sortOrder,
             updatedAt = System.currentTimeMillis()
         )
         val roomEntity = PrivateStorageManager.encryptNoteForRoom(
@@ -65,6 +67,25 @@ class AuroraRepository(
             encryptFileContent = isDatabaseEncryptionEnabled
         )
         cleanupOrphanedStorageFiles()
+    }
+
+    suspend fun reorderNotes(orderedNotes: List<Note>) {
+        if (orderedNotes.isEmpty()) return
+        val plainNotes = orderedNotes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+        val roomEntities = plainNotes.map { plain ->
+            PrivateStorageManager.encryptNoteForRoom(
+                note = plain,
+                encryptionEnabled = isDatabaseEncryptionEnabled
+            )
+        }
+        noteDao.insertAll(roomEntities)
+        plainNotes.forEach { plain ->
+            PrivateStorageManager.writeNoteToPrivateStorage(
+                context = context,
+                note = plain,
+                encryptFileContent = isDatabaseEncryptionEnabled
+            )
+        }
     }
 
     suspend fun toggleChecklistItem(noteId: String, itemId: String) {

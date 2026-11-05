@@ -30,6 +30,7 @@ interface NoteCardProps {
   isSelectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelection?: (noteId: string) => void;
+  disableInternalLongPress?: boolean;
   isGridView: boolean;
   animateMovement: boolean;
 }
@@ -48,6 +49,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   isSelectionMode = false,
   isSelected = false,
   onToggleSelection,
+  disableInternalLongPress = false,
   animateMovement,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
@@ -69,6 +71,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   };
 
   const startHold = (clientX: number, clientY: number) => {
+    if (disableInternalLongPress) return;
     isLongPressTriggeredRef.current = false;
     startPosRef.current = { x: clientX, y: clientY };
     setIsHolding(true);
@@ -93,6 +96,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (disableInternalLongPress) return;
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     startHold(e.clientX, e.clientY);
   };

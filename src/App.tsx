@@ -91,8 +91,8 @@ export default function App() {
     if (navLeadInTimerRef.current !== null) window.clearTimeout(navLeadInTimerRef.current);
 
     const distance = Math.abs(TAB_ORDER[nextTab] - TAB_ORDER[activeTab]);
-    const leadInDelayMs = distance >= 2 ? 55 : 0;
-    const totalWaitMs = distance >= 2 ? 480 : 340;
+    const leadInDelayMs = distance >= 2 ? 30 : 0;
+    const totalWaitMs = distance >= 2 ? 260 : 180;
 
     setIsNavTransitionPending(true);
     setPendingNavTab(nextTab);
@@ -607,10 +607,65 @@ export default function App() {
     logger.security('TRASH', `Batch moved ${ids.length} selected notes to Trash`);
   };
 
+  const heldNoteWasSelectedRef = useRef<boolean>(false);
+
   const handleToggleNoteSelection = (noteId: string) => {
     setSelectedNoteIds((prev) =>
       prev.includes(noteId) ? prev.filter((id) => id !== noteId) : [...prev, noteId]
     );
+  };
+
+  const handleHoldNoteStart = (noteId: string) => {
+    setSelectedNoteIds((prev) => {
+      if (prev.includes(noteId)) {
+        heldNoteWasSelectedRef.current = true;
+        return prev;
+      }
+      heldNoteWasSelectedRef.current = false;
+      return [...prev, noteId];
+    });
+  };
+
+  const handleHoldNoteReleaseWithoutDrag = (noteId: string) => {
+    if (heldNoteWasSelectedRef.current) {
+      heldNoteWasSelectedRef.current = false;
+      setSelectedNoteIds((prev) => prev.filter((id) => id !== noteId));
+    }
+  };
+
+  const handleReorderNotes = (orderedVisibleIds: string[]) => {
+    heldNoteWasSelectedRef.current = false;
+    setSelectedNoteIds([]);
+    const byId = new Map<string, Note>(notes.map((n) => [n.id, n]));
+
+    // Pinned notes cannot be reordered when pin is active; only reorder unpinned notes
+    const unpinnedOrderedIds = orderedVisibleIds.filter((id) => {
+      const note = byId.get(id);
+      return note && !note.isPinned;
+    });
+    if (unpinnedOrderedIds.length === 0) return;
+
+    const visibleUnpinnedSet = new Set(unpinnedOrderedIds);
+    const reorderedVisible: Note[] = [];
+    unpinnedOrderedIds.forEach((id) => {
+      const existing = byId.get(id);
+      if (existing && !existing.isPinned) {
+        reorderedVisible.push(existing);
+      }
+    });
+
+    let queueIdx = 0;
+    const updated = notes.map((n, idx) => {
+      const replaced =
+        !n.isPinned && visibleUnpinnedSet.has(n.id) && queueIdx < reorderedVisible.length
+          ? reorderedVisible[queueIdx++]
+          : n;
+      return {
+        ...replaced,
+        sortOrder: replaced.isPinned ? 0 : idx + 1,
+      };
+    });
+    persistNotes(updated);
   };
 
   // Restore Note from Trash
@@ -973,7 +1028,14 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  <MorphingNotesGrid isGridView={isGridView}>
+                  <MorphingNotesGrid
+                    isGridView={isGridView}
+                    itemIds={currentTabNotes.map((n) => n.id)}
+                    lockedItemIds={currentTabNotes.filter((n) => n.isPinned).map((n) => n.id)}
+                    onHoldNote={handleHoldNoteStart}
+                    onReleaseHoldWithoutDrag={handleHoldNoteReleaseWithoutDrag}
+                    onReorderNotes={handleReorderNotes}
+                  >
                     {currentTabNotes.map((note) => {
                       const animateMovement = note.id === lastPinnedId;
 
@@ -990,6 +1052,7 @@ export default function App() {
                             isSelectionMode={selectedNoteIds.length > 0}
                             isSelected={selectedNoteIds.includes(note.id)}
                             onToggleSelection={handleToggleNoteSelection}
+                            disableInternalLongPress={true}
                             onSelect={(selected) => {
                               captureFabOrigin();
                               setActiveNote(selected);

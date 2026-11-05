@@ -1,5 +1,34 @@
-# Classify Kotlin DSL Gradle scripts (.gradle.kts) as Kotlin in GitHub Linguist language statistics
-*.gradle.kts linguist-language=Kotlin
-*.kts linguist-language=Kotlin
+# Exclude AI Studio web preview, build scripts, and config files from GitHub Linguist
+# so the repository language breakdown reflects 100% Android Kotlin.
+src/** linguist-vendored
+public/** linguist-vendored
+docs/** linguist-vendored
+gradle/** linguist-vendored
+.github/** linguist-vendored
+
+*.ts linguist-vendored
+*.tsx linguist-vendored
+*.js linguist-vendored
+*.jsx linguist-vendored
+*.html linguist-vendored
+*.css linguist-vendored
+*.json linguist-vendored
+*.lock linguist-vendored
+*.md linguist-vendored
+*.yml linguist-vendored
+*.yaml linguist-vendored
+*.toml linguist-vendored
+*.xml linguist-vendored
+*.pro linguist-vendored
+*.properties linguist-vendored
+*.b64 linguist-vendored
+*.bat linguist-vendored
 gradlew linguist-vendored
 gradlew.bat linguist-vendored
+
+# Exclude Gradle Kotlin DSL scripts from counting as "Gradle" (or classify as Kotlin)
+*.gradle.kts linguist-vendored linguist-language=Kotlin
+*.kts linguist-vendored linguist-language=Kotlin
+
+# Explicitly include all Android Kotlin source files
+*.kt linguist-detectable=true linguist-language=Kotlin

@@ -22,6 +22,7 @@ export interface Note {
   isArchived?: boolean;
   isDeleted?: boolean;
   deletedAt?: number;
+  sortOrder?: number;
   createdAt: number;
   updatedAt: number;
 }

@@ -9,7 +9,7 @@ import {
   X
 } from 'lucide-react';
 
-export const CURRENT_WHATS_NEW_VERSION = '1.3.36';
+export const CURRENT_WHATS_NEW_VERSION = '1.3.37';
 
 interface WhatsNewModalProps {
   isOpen: boolean;
@@ -25,10 +25,10 @@ export const WhatsNewModal: React.FC<WhatsNewModalProps> = ({
   const highlights = [
     {
       icon: <Edit3 className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'Smooth Menu Animation & Hold-Note Action Navbar',
+      title: 'Drag-to-Reorder Notes & Hold Action Navbar',
       badge: 'NEW FEATURE',
       description:
-        'Pre-warmed menus with protective button wait timing let you jump between Notes, Archive, Trash, and Settings with zero lag. Hold down any note to slide the navigation bar under the screen and pop up the Selection Action Navbar (Share, Archive, Edit, Delete).',
+        'Hold down any note to elevate it with a subtle wobbly physics effect and drag it over other notes to reorder in both Masonry and Single-Column views, or use the pop-up Selection Action Navbar (Share, Archive, Edit, Delete).',
     },
     {
       icon: <ImageIcon className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,

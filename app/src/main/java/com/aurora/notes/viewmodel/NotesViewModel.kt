@@ -30,7 +30,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_BIOMETRIC_LOCK = "key_biometric_lock_enabled"
         private const val KEY_WELCOME_SEEN = "key_welcome_tour_seen_v1"
         private const val KEY_WHATS_NEW_SEEN_VERSION = "key_whats_new_seen_version_v1"
-        const val CURRENT_MAJOR_UPDATE_ID = "1.3.36"
+        const val CURRENT_MAJOR_UPDATE_ID = "1.3.37"
         private const val KEY_USER_TAGS = "key_user_created_tags_v1"
         private const val KEY_THEME_MODE = "key_theme_mode_v1"
         private const val KEY_HAPTICS_ENABLED = "key_haptics_enabled_v1"
@@ -214,10 +214,10 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         _pendingNavTab.value = tab
 
         val distance = kotlin.math.abs(tab - current)
-        // Button wait time so the two farthest menus (Notes <-> Settings, Archive <-> Settings)
-        // can load and animate cleanly without lagging or button spam
-        val leadInDelayMs = if (distance >= 2) 55L else 0L
-        val totalWaitMs = if (distance >= 2) 480L else 340L
+        // Slightly reduced button wait time so far menus (Notes <-> Settings, Archive <-> Settings)
+        // remain responsive while still loading and animating cleanly without lag
+        val leadInDelayMs = if (distance >= 2) 30L else 0L
+        val totalWaitMs = if (distance >= 2) 260L else 180L
 
         if (leadInDelayMs == 0L) {
             _selectedTab.value = tab
@@ -344,6 +344,43 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         if (note.isArchived) return
         viewModelScope.launch(Dispatchers.IO) {
             repository.togglePin(note)
+            _storageStats.value = repository.getStorageStats()
+        }
+    }
+
+    fun reorderNotes(orderedIds: List<String>, isArchive: Boolean = false) {
+        if (orderedIds.isEmpty()) return
+        val sourceList = if (isArchive) allArchivedNotes.value else allActiveNotes.value
+        val byId = sourceList.associateBy { it.id }
+
+        // Pinned notes cannot be reordered when pin is active; only reorder unpinned notes
+        val unpinnedOrderedIds = orderedIds.filter { id ->
+            val note = byId[id]
+            note != null && !note.isPinned
+        }
+        if (unpinnedOrderedIds.isEmpty()) return
+
+        val visibleUnpinnedSet = unpinnedOrderedIds.toSet()
+        val reorderedQueue = ArrayDeque(
+            unpinnedOrderedIds.mapNotNull { id -> byId[id] }
+        )
+
+        val finalOrdered = sourceList.map { note ->
+            if (!note.isPinned && note.id in visibleUnpinnedSet && reorderedQueue.isNotEmpty()) {
+                reorderedQueue.removeFirst()
+            } else {
+                note
+            }
+        }.mapIndexed { globalIdx, note ->
+            if (note.isPinned) {
+                note
+            } else {
+                note.copy(sortOrder = globalIdx + 1)
+            }
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.reorderNotes(finalOrdered)
             _storageStats.value = repository.getStorageStats()
         }
     }

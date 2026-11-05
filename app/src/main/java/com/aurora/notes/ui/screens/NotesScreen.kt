@@ -59,6 +59,7 @@ fun NotesScreen(
     onToggleCheckItem: (String, String) -> Unit,
     onAddNote: () -> Unit = {},
     onSaveNoteDetails: (Note) -> Unit = {},
+    onReorderNotes: (List<String>) -> Unit = {},
     onCreateTag: (String) -> Unit = {},
     onDeleteTag: ((String) -> Unit)? = null,
     isArchiveTab: Boolean = false,
@@ -79,10 +80,11 @@ fun NotesScreen(
     var newTagName by remember { mutableStateOf("") }
     var pendingDeleteTag by remember { mutableStateOf<String?>(null) }
 
-    // Multi-selection state (Hold down on note to select one or multiple notes)
+    // Multi-selection state (Hold down on note to select one or multiple notes, or drag to reorder)
     val selectedNoteIds = remember { mutableStateListOf<String>() }
     val isSelectionMode = selectedNoteIds.isNotEmpty()
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+    var heldNoteWasAlreadySelected by remember { mutableStateOf(false) }
 
     // Share dialog state
     var notesToShare by remember { mutableStateOf<List<Note>>(emptyList()) }
@@ -637,11 +639,34 @@ fun NotesScreen(
                 }
             }
         } else {
+            val noteIds = remember(notes) { notes.map { it.id } }
+            val pinnedNoteIds = remember(notes) { notes.filter { it.isPinned }.map { it.id }.toSet() }
             MorphingNotesGrid(
                 isGridView = isGridView,
                 horizontalSpacing = 10.dp,
                 verticalSpacing = 10.dp,
                 contentPadding = PaddingValues(bottom = 96.dp),
+                itemIds = noteIds,
+                lockedItemIds = pinnedNoteIds,
+                onHoldNote = { heldId ->
+                    if (heldId in selectedNoteIds) {
+                        heldNoteWasAlreadySelected = true
+                    } else {
+                        heldNoteWasAlreadySelected = false
+                        selectedNoteIds.add(heldId)
+                    }
+                },
+                onReleaseHoldWithoutDrag = { heldId ->
+                    if (heldNoteWasAlreadySelected) {
+                        selectedNoteIds.remove(heldId)
+                        heldNoteWasAlreadySelected = false
+                    }
+                },
+                onReorderNotes = { newOrderIds ->
+                    heldNoteWasAlreadySelected = false
+                    selectedNoteIds.clear()
+                    onReorderNotes(newOrderIds)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -664,13 +689,7 @@ fun NotesScreen(
                                     onSelectNote(note)
                                 }
                             },
-                            onLongClick = {
-                                if (!isNoteSelected) {
-                                    selectedNoteIds.add(note.id)
-                                } else {
-                                    selectedNoteIds.remove(note.id)
-                                }
-                            },
+                            onLongClick = null,
                             onTogglePin = { onTogglePin(note) },
                             onDelete = {
                                 selectedNoteIds.remove(note.id)
