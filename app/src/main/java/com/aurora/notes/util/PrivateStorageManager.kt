@@ -97,12 +97,24 @@ object PrivateStorageManager {
             val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, getOrCreateSecretKey())
             val iv = cipher.iv
-            val cipherBytes = cipher.doFinal(plainBytes)
-            val combined = ByteArray(ENC_BINARY_HEADER.size + iv.size + cipherBytes.size)
-            System.arraycopy(ENC_BINARY_HEADER, 0, combined, 0, ENC_BINARY_HEADER.size)
-            System.arraycopy(iv, 0, combined, ENC_BINARY_HEADER.size, iv.size)
-            System.arraycopy(cipherBytes, 0, combined, ENC_BINARY_HEADER.size + iv.size, cipherBytes.size)
-            combined
+            val out = java.io.ByteArrayOutputStream(ENC_BINARY_HEADER.size + iv.size + plainBytes.size + 32)
+            out.write(ENC_BINARY_HEADER)
+            out.write(iv)
+            val chunkSize = 16 * 1024
+            var offset = 0
+            while (offset < plainBytes.size) {
+                val len = minOf(chunkSize, plainBytes.size - offset)
+                val part = cipher.update(plainBytes, offset, len)
+                if (part != null && part.isNotEmpty()) {
+                    out.write(part)
+                }
+                offset += len
+            }
+            val finalPart = cipher.doFinal()
+            if (finalPart != null && finalPart.isNotEmpty()) {
+                out.write(finalPart)
+            }
+            out.toByteArray()
         } catch (e: Exception) {
             LocalLogger.warn("CRYPTO", "Binary AES-GCM encryption fallback: ${e.localizedMessage ?: "error"}")
             plainBytes
@@ -115,14 +127,29 @@ object PrivateStorageManager {
             val ivStart = ENC_BINARY_HEADER.size
             val cipherStart = ivStart + GCM_IV_BYTES
             val iv = rawBytes.copyOfRange(ivStart, cipherStart)
-            val cipherBytes = rawBytes.copyOfRange(cipherStart, rawBytes.size)
+            val cipherLen = rawBytes.size - cipherStart
             val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
             cipher.init(
                 Cipher.DECRYPT_MODE,
                 getOrCreateSecretKey(),
                 GCMParameterSpec(GCM_TAG_BITS, iv)
             )
-            cipher.doFinal(cipherBytes)
+            val out = java.io.ByteArrayOutputStream(maxOf(0, cipherLen))
+            val chunkSize = 16 * 1024
+            var offset = cipherStart
+            while (offset < rawBytes.size) {
+                val len = minOf(chunkSize, rawBytes.size - offset)
+                val part = cipher.update(rawBytes, offset, len)
+                if (part != null && part.isNotEmpty()) {
+                    out.write(part)
+                }
+                offset += len
+            }
+            val finalPart = cipher.doFinal()
+            if (finalPart != null && finalPart.isNotEmpty()) {
+                out.write(finalPart)
+            }
+            out.toByteArray()
         } catch (e: Exception) {
             LocalLogger.warn("CRYPTO", "Binary AES-GCM decryption warning: ${e.localizedMessage ?: "error"}")
             rawBytes
@@ -463,18 +490,22 @@ object PrivateStorageManager {
 
         // Also scan aurora_private_images: encrypt any unencrypted image files in-place & delete orphans
         val imageDirs = listOfNotNull(
-            context.getExternalFilesDir(null)?.let { File(it, "aurora_private_images") },
-            File(context.filesDir, "aurora_private_images")
+            getPrivateImagesDir(context),
+            context.getExternalFilesDir(null)?.let { File(it, PRIVATE_IMAGES_DIR_NAME) },
+            File(context.filesDir, PRIVATE_IMAGES_DIR_NAME)
         ).distinctBy { it.absolutePath }
 
+        val checkTime = System.currentTimeMillis()
         imageDirs.forEach { imgDir ->
             if (imgDir.exists()) {
                 imgDir.listFiles()?.forEach { imgFile ->
                     if (imgFile.isFile) {
                         val len = imgFile.length()
                         val isTemp = imgFile.name.endsWith(".tmp") || imgFile.name.endsWith(".bak")
+                        val ageMs = checkTime - imgFile.lastModified()
                         val isOrphanImage = referencedImageFileNames != null &&
-                            !referencedImageFileNames.contains(imgFile.name)
+                            !referencedImageFileNames.contains(imgFile.name) &&
+                            ageMs > 30 * 60 * 1000L
                         if (isTemp || len == 0L || isOrphanImage) {
                             if (imgFile.delete()) {
                                 if (isTemp) tempRemoved++ else orphanedRemoved++

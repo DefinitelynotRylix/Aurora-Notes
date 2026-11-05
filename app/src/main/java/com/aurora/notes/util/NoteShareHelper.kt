@@ -59,12 +59,23 @@ object NoteShareHelper {
             .trim()
     }
 
+    private fun buildDecryptedImageFileName(noteTitle: String, index: Int): String {
+        val base = noteTitle
+            .trim()
+            .ifBlank { "Aurora_Note" }
+            .replace(Regex("[^a-zA-Z0-9._\\- ]"), "")
+            .trim()
+            .replace(Regex("\\s+"), "_")
+            .take(32)
+            .ifBlank { "Aurora_Note" }
+        return "${base}_image_$index.png"
+    }
+
     private fun replaceImageMarkersWithMarkdown(
+        noteTitle: String,
         rawBody: String,
-        images: List<NoteImage>,
-        embedBase64DataUri: Boolean
+        images: List<NoteImage>
     ): String {
-        val imageById = images.associateBy { it.id }
         val referencedIds = mutableSetOf<String>()
         var imgCounter = 0
 
@@ -73,18 +84,8 @@ object NoteShareHelper {
             val imgId = matchResult.groupValues[1]
             referencedIds.add(imgId)
             imgCounter++
-            val imgItem = imageById[imgId]
-            if (imgItem != null && embedBase64DataUri) {
-                val bytes = PrivateStorageManager.loadDecryptedNoteImageBytes(imgItem.uri)
-                if (bytes != null && bytes.isNotEmpty()) {
-                    val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    "\n![Note Image $imgCounter](data:image/png;base64,$b64)\n"
-                } else {
-                    "\n![Note Image $imgCounter](aurora_image_$imgCounter.png)\n"
-                }
-            } else {
-                "\n![Note Image $imgCounter](aurora_image_$imgCounter.png)\n"
-            }
+            val imgFileName = buildDecryptedImageFileName(noteTitle, imgCounter)
+            "\n![Note Image $imgCounter]($imgFileName)\n"
         }
 
         // Append any unreferenced images at the end so no note image is ever lost in Markdown export
@@ -94,20 +95,62 @@ object NoteShareHelper {
         val extraSb = StringBuilder(replaced.trimEnd())
         for (imgItem in unreferenced) {
             imgCounter++
-            extraSb.append("\n\n")
-            if (embedBase64DataUri) {
-                val bytes = PrivateStorageManager.loadDecryptedNoteImageBytes(imgItem.uri)
-                if (bytes != null && bytes.isNotEmpty()) {
-                    val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    extraSb.append("![Note Image $imgCounter](data:image/png;base64,$b64)")
-                } else {
-                    extraSb.append("![Note Image $imgCounter](aurora_image_$imgCounter.png)")
-                }
-            } else {
-                extraSb.append("![Note Image $imgCounter](aurora_image_$imgCounter.png)")
-            }
+            val imgFileName = buildDecryptedImageFileName(noteTitle, imgCounter)
+            extraSb.append("\n\n![Note Image $imgCounter]($imgFileName)")
         }
         return extraSb.toString()
+    }
+
+    private fun exportDecryptedNoteImagesToGallery(context: Context, notes: List<Note>) {
+        val resolver = context.contentResolver
+        for (rawNote in notes) {
+            val note = PrivateStorageManager.decryptNoteFromRoom(rawNote)
+            val title = note.title.trim().ifBlank { "Untitled Note" }
+            val imageById = note.images.associateBy { it.id }
+            val orderedImages = mutableListOf<NoteImage>()
+            val seenIds = mutableSetOf<String>()
+
+            val markerRegex = Regex("\\[\\[AURORA_IMG:([^\\]]+)\\]\\]")
+            for (match in markerRegex.findAll(note.content)) {
+                val id = match.groupValues[1]
+                val item = imageById[id]
+                if (item != null && seenIds.add(id)) {
+                    orderedImages.add(item)
+                }
+            }
+            for (item in note.images) {
+                if (seenIds.add(item.id)) {
+                    orderedImages.add(item)
+                }
+            }
+
+            orderedImages.forEachIndexed { idx, imgItem ->
+                val bmp = PrivateStorageManager.loadDecryptedNoteImageBitmap(imgItem.uri) ?: return@forEachIndexed
+                val fileName = buildDecryptedImageFileName(title, idx + 1)
+                runCatching {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/AuroraNotes")
+                            put(MediaStore.Images.Media.IS_PENDING, 1)
+                        }
+                    }
+                    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                    if (uri != null) {
+                        resolver.openOutputStream(uri)?.use { out ->
+                            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            out.flush()
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            values.clear()
+                            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                            resolver.update(uri, values, null, null)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun convertLinesToMarkdown(bodyWithImages: String): String {
@@ -133,9 +176,9 @@ object NoteShareHelper {
         val updatedStr = dateFormat.format(Date(note.updatedAt))
         val title = note.title.trim().ifBlank { "Untitled Note" }
         val rawBodyWithImages = replaceImageMarkersWithMarkdown(
+            noteTitle = title,
             rawBody = stripHtmlTags(note.content),
-            images = note.images,
-            embedBase64DataUri = embedBase64Images
+            images = note.images
         )
         val cleanBody = convertLinesToMarkdown(rawBodyWithImages)
         val tagsList = note.tags.map { it.trim().removePrefix("#").trim() }.filter { it.isNotBlank() }
@@ -701,23 +744,58 @@ object NoteShareHelper {
                 chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(chooser)
             } else {
-                val formattedMarkdown = formatNotes(plainNotes, format, embedBase64Images = true)
+                val formattedMarkdown = formatNotes(plainNotes, format, embedBase64Images = false)
                 val sharedDir = File(context.cacheDir, "shared_notes").apply { mkdirs() }
-                val file = File(sharedDir, fileName)
-                file.writeText(formattedMarkdown, Charsets.UTF_8)
+                val mdFile = File(sharedDir, fileName)
+                mdFile.writeText(formattedMarkdown, Charsets.UTF_8)
 
-                val contentUri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    file
+                val streamUris = ArrayList<Uri>()
+                streamUris.add(
+                    FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        mdFile
+                    )
                 )
 
-                val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = format.mimeType
-                    putExtra(Intent.EXTRA_SUBJECT, subject)
-                    putExtra(Intent.EXTRA_TEXT, formattedMarkdown)
-                    putExtra(Intent.EXTRA_STREAM, contentUri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                // Also decrypt and attach any note images as clean .png files so exported Markdown images are never encrypted
+                for (note in plainNotes) {
+                    val title = note.title.trim().ifBlank { "Untitled Note" }
+                    note.images.forEachIndexed { idx, imgItem ->
+                        val bmp = PrivateStorageManager.loadDecryptedNoteImageBitmap(imgItem.uri)
+                        if (bmp != null) {
+                            val imgFile = File(sharedDir, buildDecryptedImageFileName(title, idx + 1))
+                            imgFile.outputStream().use { out ->
+                                bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                                out.flush()
+                            }
+                            streamUris.add(
+                                FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    imgFile
+                                )
+                            )
+                        }
+                    }
+                }
+
+                val sendIntent = if (streamUris.size > 1) {
+                    Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_SUBJECT, subject)
+                        putExtra(Intent.EXTRA_TEXT, formattedMarkdown)
+                        putParcelableArrayListExtra(Intent.EXTRA_STREAM, streamUris)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                } else {
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = format.mimeType
+                        putExtra(Intent.EXTRA_SUBJECT, subject)
+                        putExtra(Intent.EXTRA_TEXT, formattedMarkdown)
+                        putExtra(Intent.EXTRA_STREAM, streamUris.first())
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
                 }
                 val chooser = Intent.createChooser(sendIntent, "Share ${format.label}")
                 chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -751,7 +829,7 @@ object NoteShareHelper {
                     outputStream.flush()
                 } ?: return false
             } else {
-                val content = formatNotes(plainNotes, format, embedBase64Images = true)
+                val content = formatNotes(plainNotes, format, embedBase64Images = false)
                 context.contentResolver.openOutputStream(uri, "wt")?.use { outputStream ->
                     outputStream.write(content.toByteArray(Charsets.UTF_8))
                     outputStream.flush()
@@ -759,6 +837,10 @@ object NoteShareHelper {
                     outputStream.write(content.toByteArray(Charsets.UTF_8))
                     outputStream.flush()
                 } ?: return false
+                // Also export decrypted companion .png images to Pictures/AuroraNotes so images referenced in .md are decrypted and viewable
+                if (plainNotes.any { it.images.isNotEmpty() }) {
+                    exportDecryptedNoteImagesToGallery(context, plainNotes)
+                }
             }
             LocalLogger.security("SHARE", "Saved ${plainNotes.size} note(s) as .${format.extension} to chosen folder")
             true

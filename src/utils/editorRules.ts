@@ -80,9 +80,16 @@ function parseLinePrefixes(line: string): {
       hasCheckbox = true;
       checkboxPrefix = rem.slice(0, 2);
       rem = rem.slice(2);
+    } else if (!hasCheckbox && (rem.startsWith('☐') || rem.startsWith('☑'))) {
+      hasCheckbox = true;
+      checkboxPrefix = rem.startsWith('☑') ? CHECKED_PREFIX : UNCHECKED_PREFIX;
+      rem = rem.slice(1).replace(/^ /, '');
     } else if (!hasBullet && rem.startsWith(BULLET_PREFIX)) {
       hasBullet = true;
       rem = rem.slice(2);
+    } else if (!hasBullet && rem.startsWith('•')) {
+      hasBullet = true;
+      rem = rem.slice(1).replace(/^ /, '');
     }
   }
 

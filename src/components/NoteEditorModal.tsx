@@ -506,6 +506,8 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         container.appendChild(frag);
       } else if (hasActiveInlineStyle) {
         container.appendChild(createActiveStyleSpan(isBoldActive, isItalicActive, textSizeMode));
+      } else if (hasCheckbox || hasBullet) {
+        container.textContent = '\u200B';
       } else {
         container.innerHTML = '<br>';
       }
@@ -910,32 +912,38 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   /**
    * Updates `isCurrentLineChecklist` & `isBulletModeActive` state and clamps the caret out of the prefix slot.
    */
-  const syncCursorLineStateAndEnforceMinusOneRule = useCallback(() => {
-    const root = editorRef.current;
-    if (!root) return;
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
+  const syncCursorLineStateAndEnforceMinusOneRule = useCallback(
+    (syncToolbarButtonsOnLineMove: boolean = false) => {
+      const root = editorRef.current;
+      if (!root) return;
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
 
-    const range = selection.getRangeAt(0);
-    if (!root.contains(range.startContainer)) return;
+      const range = selection.getRangeAt(0);
+      if (!root.contains(range.startContainer)) return;
 
-    const line = resolveTopLevelLine(range.startContainer, range.startOffset);
-    if (!line || line.classList.contains('aurora-image-block')) return;
-    lastActiveLineRef.current = line;
+      const line = resolveTopLevelLine(range.startContainer, range.startOffset);
+      if (!line || line.classList.contains('aurora-image-block')) return;
+      const movedToDifferentLine = lastActiveLineRef.current !== line;
+      lastActiveLineRef.current = line;
 
-    const { hasCheckbox, hasBullet } = getLineFormattingFlags(line);
-    setIsCurrentLineChecklist(hasCheckbox);
-    setIsBulletModeActive(hasBullet);
-
-    // Enforce the -1 rule: if the caret landed on the line container before .aurora-checklist-text,
-    // move it inside .aurora-checklist-text.
-    if (line && (hasCheckbox || hasBullet) && range.collapsed) {
-      const textDiv = line.querySelector('.aurora-checklist-text') as HTMLElement | null;
-      if (textDiv && !textDiv.contains(range.startContainer)) {
-        placeCaretInEditableTarget(textDiv, true);
+      const { hasCheckbox, hasBullet } = getLineFormattingFlags(line);
+      if (syncToolbarButtonsOnLineMove && movedToDifferentLine) {
+        setIsCurrentLineChecklist(hasCheckbox);
+        setIsBulletModeActive(hasBullet);
       }
-    }
-  }, [resolveTopLevelLine]);
+
+      // Enforce the -1 rule: if the caret landed on the line container before .aurora-checklist-text,
+      // move it inside .aurora-checklist-text.
+      if (line && (hasCheckbox || hasBullet) && range.collapsed) {
+        const textDiv = line.querySelector('.aurora-checklist-text') as HTMLElement | null;
+        if (textDiv && !textDiv.contains(range.startContainer)) {
+          placeCaretInEditableTarget(textDiv, true);
+        }
+      }
+    },
+    [resolveTopLevelLine]
+  );
 
   /**
    * Replaces `line` with an updated formatted line (or plain line) preserving its inline text
@@ -1091,7 +1099,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     if (targetLines.length === 0) return;
 
     const firstFlags = getLineFormattingFlags(targetLines[0]);
-    const nextBulletState = !firstFlags.hasBullet;
+    const nextBulletState = !(isBulletModeActive || firstFlags.hasBullet);
 
     targetLines.forEach((line) => {
       const flags = getLineFormattingFlags(line);
@@ -1109,7 +1117,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     if (targetLines.length === 0) return;
 
     const firstFlags = getLineFormattingFlags(targetLines[0]);
-    const nextCheckboxState = !firstFlags.hasCheckbox;
+    const nextCheckboxState = !(isCurrentLineChecklist || firstFlags.hasCheckbox);
 
     targetLines.forEach((line) => {
       const flags = getLineFormattingFlags(line);
@@ -1361,7 +1369,12 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       if (!root) return;
       normalizeEditorLines();
 
-      const activeLine = resolveTopLevelLine(range.startContainer);
+      const liveSel = window.getSelection();
+      const liveRange = liveSel && liveSel.rangeCount > 0 ? liveSel.getRangeAt(0) : range;
+      const activeLine =
+        resolveTopLevelLine(liveRange.startContainer, liveRange.startOffset) ||
+        lastActiveLineRef.current ||
+        (root.lastElementChild as HTMLElement | null);
       const lineFlags = getLineFormattingFlags(activeLine);
       const continueCheckbox = isCurrentLineChecklist || lineFlags.hasCheckbox;
       const continueBullet = isBulletModeActive || lineFlags.hasBullet;
@@ -1379,14 +1392,14 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         let trailingFragment: DocumentFragment | undefined;
         const textContainer =
           (activeLine?.querySelector('.aurora-checklist-text') as HTMLElement | null) || activeLine;
-        if (textContainer && textContainer.contains(range.startContainer)) {
-          const afterRange = range.cloneRange();
+        if (textContainer && textContainer.contains(liveRange.startContainer)) {
+          const afterRange = liveRange.cloneRange();
           afterRange.selectNodeContents(textContainer);
-          afterRange.setStart(range.endContainer, range.endOffset);
+          afterRange.setStart(liveRange.endContainer, liveRange.endOffset);
           if ((afterRange.toString() || '').replace(/\u200B/g, '').length > 0) {
             trailingFragment = afterRange.extractContents();
             if (!(textContainer.textContent || '').replace(/\u200B/g, '').trim()) {
-              textContainer.innerHTML = '<br>';
+              textContainer.textContent = '\u200B';
             }
           }
         }
@@ -1408,6 +1421,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           root.appendChild(newLine);
         }
 
+        lastActiveLineRef.current = newLine;
         const targetEditable =
           (newLine.querySelector('.aurora-checklist-text') as HTMLElement | null) || newLine;
         root.focus();
@@ -1423,7 +1437,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     }
 
     requestAnimationFrame(() => {
-      syncCursorLineStateAndEnforceMinusOneRule();
+      syncCursorLineStateAndEnforceMinusOneRule(false);
       ensureCaretVisible();
     });
   };
@@ -1505,7 +1519,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     }
     if (!isReadOnly) {
       requestAnimationFrame(() => {
-        syncCursorLineStateAndEnforceMinusOneRule();
+        syncCursorLineStateAndEnforceMinusOneRule(true);
         ensureCaretVisible();
       });
     }
@@ -1748,17 +1762,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
       {showShareModal && (
         <ShareNoteModal
-          notes={[
-            {
-              ...note,
-              title: title.trim() || 'Untitled Note',
-              content: editorRef.current?.innerHTML || note.content,
-              category,
-              tags,
-              isPinned,
-              updatedAt: Date.now(),
-            },
-          ]}
+          notes={[getConstructedNote()]}
           onClose={() => setShowShareModal(false)}
         />
       )}
@@ -1834,6 +1838,30 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
               : () => {
                   markNoteDirty();
                   if (editorRef.current) {
+                    if (isCurrentLineChecklist || isBulletModeActive) {
+                      const sel = window.getSelection();
+                      if (sel && sel.rangeCount > 0) {
+                        const r = sel.getRangeAt(0);
+                        const curLine = resolveTopLevelLine(r.startContainer, r.startOffset);
+                        if (
+                          curLine &&
+                          !curLine.classList.contains('aurora-image-block')
+                        ) {
+                          const flags = getLineFormattingFlags(curLine);
+                          if (
+                            (isCurrentLineChecklist && !flags.hasCheckbox) ||
+                            (isBulletModeActive && !flags.hasBullet)
+                          ) {
+                            updateLineFormatting(
+                              curLine,
+                              isCurrentLineChecklist,
+                              isBulletModeActive,
+                              false
+                            );
+                          }
+                        }
+                      }
+                    }
                     setBodyContentSnapshot(editorRef.current.innerHTML || '');
                   }
                   requestAnimationFrame(ensureCaretVisible);

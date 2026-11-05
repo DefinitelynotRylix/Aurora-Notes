@@ -128,9 +128,18 @@ private fun parseLinePrefixes(line: String): ParsedLinePrefix {
                 checkboxPrefix = rem.substring(0, 2)
                 rem = rem.substring(2)
             }
+            !hasCheckbox && (rem.startsWith("☐") || rem.startsWith("☑")) -> {
+                hasCheckbox = true
+                checkboxPrefix = "${rem[0]} "
+                rem = rem.substring(1).removePrefix(" ")
+            }
             !hasBullet && rem.startsWith(BULLET_LINE_PREFIX) -> {
                 hasBullet = true
                 rem = rem.substring(2)
+            }
+            !hasBullet && rem.startsWith("•") -> {
+                hasBullet = true
+                rem = rem.substring(1).removePrefix(" ")
             }
         }
     }
@@ -248,16 +257,20 @@ private fun normalizeCheckboxLinesAfterEdit(
     isCheckboxModeActive: Boolean,
     isBulletModeActive: Boolean
 ): Pair<String, TextRange> {
-    if (newText.isEmpty()) return newText to TextRange(0)
+    if (newText.isEmpty() && !isCheckboxModeActive && !isBulletModeActive) {
+        return newText to TextRange(0)
+    }
 
     var workingText = newText
     var workingCursor = newSelection.start.coerceIn(0, workingText.length)
 
-    // Detect if the user just pressed Enter / Send (inserted a single '\n' at cursor - 1)
-    if (newText.length == oldText.length + 1 &&
-        workingCursor > 0 &&
-        workingText[workingCursor - 1] == '\n'
-    ) {
+    val oldNewlineCount = oldText.count { it == '\n' }
+    val newNewlineCount = workingText.count { it == '\n' }
+    val pressedEnter = newNewlineCount > oldNewlineCount ||
+        (workingCursor > 0 && workingText[workingCursor - 1] == '\n' && newText != oldText)
+
+    // Detect if the user pressed Enter / Send (even if the IME trimmed a trailing space or queued multiple newlines)
+    if (pressedEnter) {
         val prevLineStart = findLineStart(workingText, (workingCursor - 1).coerceAtLeast(0))
         val prevParsed = getParsedLineAt(workingText, prevLineStart)
         val continueCb = isCheckboxModeActive || prevParsed.hasCheckbox
@@ -266,49 +279,64 @@ private fun normalizeCheckboxLinesAfterEdit(
             (if (continueCb) UNCHECKED_BOX_PREFIX else "") +
                 (if (continueBullet) BULLET_LINE_PREFIX else "")
 
-        if (autoPrefix.isNotEmpty() && !workingText.startsWith(autoPrefix, workingCursor)) {
-            workingText =
-                workingText.substring(0, workingCursor) +
-                    autoPrefix +
-                    workingText.substring(workingCursor)
-            workingCursor += autoPrefix.length
+        if (autoPrefix.isNotEmpty()) {
+            val curLineStart = findLineStart(workingText, workingCursor)
+            val curLineEnd = findLineEnd(workingText, curLineStart)
+            val curLineParsed = parseLinePrefixes(workingText.substring(curLineStart, curLineEnd))
+            val desiredCurLine = autoPrefix + curLineParsed.cleanBody
+            val existingCurLineLen = curLineEnd - curLineStart
+            val currentSub = workingText.substring(curLineStart, curLineEnd)
+
+            if (currentSub != desiredCurLine) {
+                workingText = workingText.substring(0, curLineStart) +
+                    desiredCurLine +
+                    workingText.substring(curLineEnd)
+                val delta = desiredCurLine.length - existingCurLineLen
+                workingCursor = (workingCursor + delta).coerceAtLeast(curLineStart + autoPrefix.length)
+            } else if (workingCursor < curLineStart + autoPrefix.length) {
+                workingCursor = curLineStart + autoPrefix.length
+            }
         }
     }
 
     val lines = workingText.split('\n')
     var modified = workingText != newText
     var charOffset = 0
+    val cursorLineIdx = workingText.substring(0, workingCursor.coerceIn(0, workingText.length)).count { it == '\n' }
 
-    val normalizedLines = lines.map { line ->
+    val normalizedLines = lines.mapIndexed { idx, line ->
         val lStart = charOffset
         charOffset += line.length + 1
 
-        // Canonicalize `• ☐ ` -> `☐ • ` and `• ☑ ` -> `☑ • ` so checkbox and bullet stay side-by-side on the same line
-        when {
-            line.startsWith("$BULLET_LINE_PREFIX$UNCHECKED_BOX_PREFIX") -> {
+        val parsed = parseLinePrefixes(line)
+        if (parsed.hasCheckbox || parsed.hasBullet) {
+            val canonical = parsed.canonicalPrefix + parsed.cleanBody
+            if (canonical != line) {
                 modified = true
-                "$UNCHECKED_BOX_PREFIX$BULLET_LINE_PREFIX" + line.substring(4)
-            }
-            line.startsWith("$BULLET_LINE_PREFIX$CHECKED_BOX_PREFIX") -> {
-                modified = true
-                "$CHECKED_BOX_PREFIX$BULLET_LINE_PREFIX" + line.substring(4)
-            }
-            (line.startsWith("☐") && !line.startsWith(UNCHECKED_BOX_PREFIX)) ||
-                (line.startsWith("☑") && !line.startsWith(CHECKED_BOX_PREFIX)) -> {
-                modified = true
-                if (workingCursor > lStart) {
-                    workingCursor = (workingCursor - 1).coerceAtLeast(lStart)
+                val lenDiff = canonical.length - line.length
+                if (workingCursor >= lStart) {
+                    workingCursor = (workingCursor + lenDiff).coerceAtLeast(lStart + parsed.totalPrefixLength)
                 }
-                line.substring(1)
+                canonical
+            } else {
+                line
             }
-            line.startsWith("☐ ☐ ") || line.startsWith("☑ ☐ ") || line.startsWith("☐ ☑ ") || line.startsWith("☑ ☑ ") -> {
-                modified = true
-                if (workingCursor > lStart + 2) {
-                    workingCursor = (workingCursor - 2).coerceAtLeast(lStart + 2)
-                }
-                line.substring(0, 2) + line.substring(4)
-            }
-            else -> line
+        } else if (
+            idx == cursorLineIdx &&
+            line.isEmpty() &&
+            oldText != newText &&
+            (isCheckboxModeActive || isBulletModeActive)
+        ) {
+            // If the IME cleared or cut off the active line prefix during rapid Enter / composition flush,
+            // keep the active Checkbox / Bullet prefix alive until the user explicitly disables the button.
+            val restoredPrefix =
+                (if (isCheckboxModeActive) UNCHECKED_BOX_PREFIX else "") +
+                    (if (isBulletModeActive) BULLET_LINE_PREFIX else "")
+            modified = true
+            workingCursor += restoredPrefix.length
+            restoredPrefix
+        } else {
+            line
         }
     }
 
@@ -650,8 +678,8 @@ fun NoteEditorScreen(
         mutableStateOf(parseSpansJson(note.styleSpansJson, bodyValue.text.length))
     }
 
-    // Sync active/inactive button states whenever the cursor line or its prefix changes
-    LaunchedEffect(bodyValue.selection.start, bodyValue.text) {
+    // Initialize active/inactive button states when opening the note
+    LaunchedEffect(note.id) {
         val safeCursor = bodyValue.selection.start.coerceIn(0, bodyValue.text.length)
         val lineStart = findLineStart(bodyValue.text, safeCursor)
         lastSyncedLineStart = lineStart
@@ -945,6 +973,7 @@ fun NoteEditorScreen(
             content = bodyValue.text,
             styleSpansJson = if (charSpans.isEmpty()) "" else spanGson.toJson(charSpans),
             checklist = checklistItems.filter { it.text.trim().isNotEmpty() },
+            images = noteImages.toList(),
             tags = tags.toList(),
             category = tags.firstOrNull() ?: "",
             isPinned = isPinned,
@@ -1886,10 +1915,20 @@ fun NoteEditorScreen(
                                     isItalicActive = isItalicActive
                                 )
                                 markNoteDirty()
+                                lastSyncedLineStart = findLineStart(normalizedText, clampedSelection.start)
+                            } else {
+                                val newLineStart = findLineStart(normalizedText, clampedSelection.start)
+                                if (newLineStart != lastSyncedLineStart) {
+                                    lastSyncedLineStart = newLineStart
+                                    val movedLineParsed = getParsedLineAt(normalizedText, newLineStart)
+                                    isCheckboxModeActive = movedLineParsed.hasCheckbox
+                                    isBulletModeActive = movedLineParsed.hasBullet
+                                }
                             }
-                            bodyValue = newValue.copy(
+                            bodyValue = TextFieldValue(
                                 text = normalizedText,
-                                selection = clampedSelection
+                                selection = clampedSelection,
+                                composition = if (normalizedText != newValue.text) null else newValue.composition
                             )
                         },
                         readOnly = isReadOnly,
@@ -2094,7 +2133,22 @@ fun NoteEditorScreen(
                                         isCheckboxModeActive = isCheckboxModeActive,
                                         isBulletModeActive = isBulletModeActive
                                     )
-                                    segFieldValue = newSegVal.copy(text = normSeg, selection = clampedSegSel)
+                                    if (oldSegText == normSeg) {
+                                        val newGlobalLineStart = segStartOffset + findLineStart(normSeg, clampedSegSel.start)
+                                        if (newGlobalLineStart != lastSyncedLineStart) {
+                                            lastSyncedLineStart = newGlobalLineStart
+                                            val movedLineParsed = getParsedLineAt(normSeg, findLineStart(normSeg, clampedSegSel.start))
+                                            isCheckboxModeActive = movedLineParsed.hasCheckbox
+                                            isBulletModeActive = movedLineParsed.hasBullet
+                                        }
+                                    } else {
+                                        lastSyncedLineStart = segStartOffset + findLineStart(normSeg, clampedSegSel.start)
+                                    }
+                                    segFieldValue = TextFieldValue(
+                                        text = normSeg,
+                                        selection = clampedSegSel,
+                                        composition = if (normSeg != newSegVal.text) null else newSegVal.composition
+                                    )
                                     val updatedList = textSegments.toMutableList()
                                     if (segIdx < updatedList.size) {
                                         updatedList[segIdx] = normSeg

@@ -218,6 +218,18 @@ test('cleanupOrphanedPrivateStorageEntries removes orphaned note files, empty fi
   assert.ok(!report.cleanedKeys.includes(`${PRIVATE_EXTERNAL_FILE_PREFIX}note_1.json`));
 });
 
+test('hitting Enter repeatedly (10+ times) with checkbox and bullet active never cuts off or disables either mode', () => {
+  let state = { text: '☐ • ', cursorOffset: 4 };
+  for (let i = 0; i < 10; i++) {
+    state = handleEnterKeyWithActiveModes(state.text, state.cursorOffset, true, true);
+  }
+  const lines = state.text.split('\n');
+  assert.equal(lines.length, 11);
+  for (const line of lines) {
+    assert.equal(line, '☐ • ');
+  }
+});
+
 
 
 

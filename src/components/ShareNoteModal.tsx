@@ -80,7 +80,7 @@ export function parseNoteHtmlToBlocks(rawHtml: string, noteImages?: Note['images
 
       if (node.classList.contains('aurora-image-block') || node.tagName === 'IMG') {
         const imgEl = node.tagName === 'IMG' ? (node as HTMLImageElement) : node.querySelector('img');
-        const src = imgEl?.getAttribute('src') || '';
+        const src = maybeDecryptField(imgEl?.getAttribute('src') || '');
         if (src) {
           imageUrls.push(src);
           blocks.push({
@@ -122,7 +122,7 @@ export function parseNoteHtmlToBlocks(rawHtml: string, noteImages?: Note['images
       }
 
       inlineImgs.forEach((img) => {
-        const src = img.getAttribute('src') || '';
+        const src = maybeDecryptField(img.getAttribute('src') || '');
         if (src) {
           imageUrls.push(src);
           blocks.push({
@@ -144,11 +144,12 @@ export function parseNoteHtmlToBlocks(rawHtml: string, noteImages?: Note['images
 
   // Also include any images from note.images not already in imageUrls
   (noteImages || []).forEach((img) => {
-    if (img.dataUrl && !imageUrls.includes(img.dataUrl)) {
-      imageUrls.push(img.dataUrl);
+    const decryptedUrl = maybeDecryptField(img.dataUrl);
+    if (decryptedUrl && !imageUrls.includes(decryptedUrl)) {
+      imageUrls.push(decryptedUrl);
       blocks.push({
         type: 'image',
-        imageSrc: img.dataUrl,
+        imageSrc: decryptedUrl,
         isExpanded: Boolean(img.isExpanded),
       });
     }
@@ -159,10 +160,16 @@ export function parseNoteHtmlToBlocks(rawHtml: string, noteImages?: Note['images
 
 export function formatSingleNote(
   rawNote: Note,
-  embedFullDataUriInMarkdown: boolean = false
+  _embedFullDataUriInMarkdown: boolean = false
 ): string {
   const note = decryptNoteFields(rawNote);
   const title = (note.title || '').trim() || 'Untitled Note';
+  const cleanTitleSlug =
+    title
+      .replace(/[^a-zA-Z0-9._\- ]/g, '')
+      .trim()
+      .replace(/\s+/g, '_')
+      .slice(0, 36) || 'Aurora_Note';
   const updatedStr = new Date(note.updatedAt || Date.now()).toLocaleString();
   const tagsList = (note.tags || []).map((t) => t.trim().replace(/^#/, '')).filter(Boolean);
   const { blocks } = parseNoteHtmlToBlocks(note.content, note.images);
@@ -176,9 +183,7 @@ export function formatSingleNote(
   const bodyLines = blocks.map((blk) => {
     if (blk.type === 'image' && blk.imageSrc) {
       imgCounter++;
-      const targetUri = embedFullDataUriInMarkdown
-        ? blk.imageSrc
-        : `aurora_image_${imgCounter}.png`;
+      const targetUri = `${cleanTitleSlug}_image_${imgCounter}.png`;
       return `\n![Note Image ${imgCounter}](${targetUri})\n`;
     }
     const text = blk.text || '';
@@ -624,8 +629,26 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+
+    // Also export decrypted companion .png image files referenced in the Markdown file
+    const baseSlug = suggestedFileName.replace(/\.md$/i, '') || 'Aurora_Note';
+    embeddedMarkdownImages.forEach((decryptedImgDataUrl, idx) => {
+      if (decryptedImgDataUrl && decryptedImgDataUrl.startsWith('data:image/')) {
+        const imgLink = document.createElement('a');
+        imgLink.href = decryptedImgDataUrl;
+        imgLink.download = `${baseSlug}_image_${idx + 1}.png`;
+        document.body.appendChild(imgLink);
+        imgLink.click();
+        imgLink.remove();
+      }
+    });
+
     logger.security('SHARE', `Downloaded ${suggestedFileName}`);
-    setStatusMessage(`Saved ${suggestedFileName} with embedded images!`);
+    setStatusMessage(
+      embeddedMarkdownImages.length > 0
+        ? `Saved ${suggestedFileName} + ${embeddedMarkdownImages.length} decrypted image(s)!`
+        : `Saved ${suggestedFileName}!`
+    );
   };
 
   return (
