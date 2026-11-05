@@ -70,9 +70,13 @@ export default function App() {
     }
   };
 
-  // Active navigation tab & directional slide tracking
+  // Active navigation tab & directional slide tracking with button wait time for far menus
   const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
+  const [pendingNavTab, setPendingNavTab] = useState<ActiveTab>('notes');
+  const [isNavTransitionPending, setIsNavTransitionPending] = useState(false);
   const [slideDirection, setSlideDirection] = useState<number>(1);
+  const navWaitTimerRef = useRef<number | null>(null);
+  const navLeadInTimerRef = useRef<number | null>(null);
 
   const TAB_ORDER: Record<ActiveTab, number> = {
     notes: 0,
@@ -82,10 +86,32 @@ export default function App() {
   };
 
   const handleSelectNavTab = (nextTab: ActiveTab) => {
-    if (nextTab === activeTab) return;
+    if (nextTab === activeTab || isNavTransitionPending) return;
+    if (navWaitTimerRef.current !== null) window.clearTimeout(navWaitTimerRef.current);
+    if (navLeadInTimerRef.current !== null) window.clearTimeout(navLeadInTimerRef.current);
+
+    const distance = Math.abs(TAB_ORDER[nextTab] - TAB_ORDER[activeTab]);
+    const leadInDelayMs = distance >= 2 ? 55 : 0;
+    const totalWaitMs = distance >= 2 ? 480 : 340;
+
+    setIsNavTransitionPending(true);
+    setPendingNavTab(nextTab);
     setSlideDirection(TAB_ORDER[nextTab] >= TAB_ORDER[activeTab] ? 1 : -1);
     setSelectedNoteIds([]);
-    setActiveTab(nextTab);
+
+    if (leadInDelayMs === 0) {
+      setActiveTab(nextTab);
+    } else {
+      navLeadInTimerRef.current = window.setTimeout(() => {
+        setActiveTab(nextTab);
+        navLeadInTimerRef.current = null;
+      }, leadInDelayMs);
+    }
+
+    navWaitTimerRef.current = window.setTimeout(() => {
+      setIsNavTransitionPending(false);
+      navWaitTimerRef.current = null;
+    }, totalWaitMs);
   };
 
   // Custom user tags - starts completely empty in the base app
@@ -1212,6 +1238,8 @@ export default function App() {
       {/* Liquid Navigation Bar & Selection Action Navbar */}
       <LiquidNavbar
         activeTab={activeTab}
+        pendingTab={pendingNavTab}
+        isNavTransitionPending={isNavTransitionPending}
         onChangeTab={handleSelectNavTab}
         archivedCount={archivedNotes.length}
         trashCount={trashedNotes.length}

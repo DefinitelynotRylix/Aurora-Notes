@@ -13,6 +13,8 @@ import {
 
 interface LiquidNavbarProps {
   activeTab: ActiveTab;
+  pendingTab?: ActiveTab;
+  isNavTransitionPending?: boolean;
   onChangeTab: (tab: ActiveTab) => void;
   archivedCount: number;
   trashCount?: number;
@@ -51,6 +53,8 @@ const easeSmoothOvershoot = (t: number, overshoot: number = 1.65): number => {
 
 export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   activeTab,
+  pendingTab,
+  isNavTransitionPending = false,
   onChangeTab,
   archivedCount,
   trashCount = 0,
@@ -64,6 +68,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   onClearSelection,
 }) => {
   const isSelectionMode = selectedCount > 0;
+  const effectiveTab = isNavTransitionPending && pendingTab ? pendingTab : activeTab;
 
   const items: NavItem[] = [
     { id: 'notes', label: 'Notes', icon: FileText },
@@ -74,7 +79,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
 
   const targetIndex = Math.max(
     0,
-    items.findIndex((item) => item.id === activeTab)
+    items.findIndex((item) => item.id === effectiveTab)
   );
 
   const trackRef = useRef<HTMLDivElement>(null);
@@ -233,7 +238,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!trackRef.current || isSelectionMode) return;
+    if (!trackRef.current || isSelectionMode || isNavTransitionPending) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const rect = trackRef.current.getBoundingClientRect();
     const relX = e.clientX - rect.left;
@@ -243,7 +248,6 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
       Math.max(0, Math.floor(relX / tabWidth))
     );
 
-    // Switch immediately on pointer down with zero wait response
     if (tappedIndex !== targetIndex) {
       triggerWebHaptic(isHapticsEnabled);
       onChangeTab(items[tappedIndex].id);
@@ -399,7 +403,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
                     aria-current={isSelected ? 'page' : undefined}
                     onClick={(e) => {
                       e.preventDefault();
-                      if (idx !== targetIndex) {
+                      if (idx !== targetIndex && !isNavTransitionPending) {
                         triggerWebHaptic(isHapticsEnabled);
                         onChangeTab(item.id);
                       }

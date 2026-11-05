@@ -30,7 +30,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_BIOMETRIC_LOCK = "key_biometric_lock_enabled"
         private const val KEY_WELCOME_SEEN = "key_welcome_tour_seen_v1"
         private const val KEY_WHATS_NEW_SEEN_VERSION = "key_whats_new_seen_version_v1"
-        const val CURRENT_MAJOR_UPDATE_ID = "1.3.35"
+        const val CURRENT_MAJOR_UPDATE_ID = "1.3.36"
         private const val KEY_USER_TAGS = "key_user_created_tags_v1"
         private const val KEY_THEME_MODE = "key_theme_mode_v1"
         private const val KEY_HAPTICS_ENABLED = "key_haptics_enabled_v1"
@@ -55,6 +55,14 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _selectedTab = MutableStateFlow(0) // 0: Notes, 1: Archive, 2: Trash, 3: Settings
     val selectedTab = _selectedTab.asStateFlow()
+
+    private val _pendingNavTab = MutableStateFlow(0)
+    val pendingNavTab: StateFlow<Int> = _pendingNavTab.asStateFlow()
+
+    private val _isNavTransitionPending = MutableStateFlow(false)
+    val isNavTransitionPending: StateFlow<Boolean> = _isNavTransitionPending.asStateFlow()
+
+    private var navTransitionJob: kotlinx.coroutines.Job? = null
 
     private val _activeEditingNote = MutableStateFlow<Note?>(null)
     val activeEditingNote = _activeEditingNote.asStateFlow()
@@ -199,8 +207,30 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setSelectedTab(tab: Int) {
-        if (tab == _selectedTab.value) return
-        _selectedTab.value = tab
+        val current = _selectedTab.value
+        if (tab == current && _pendingNavTab.value == tab) return
+        navTransitionJob?.cancel()
+        _isNavTransitionPending.value = true
+        _pendingNavTab.value = tab
+
+        val distance = kotlin.math.abs(tab - current)
+        // Button wait time so the two farthest menus (Notes <-> Settings, Archive <-> Settings)
+        // can load and animate cleanly without lagging or button spam
+        val leadInDelayMs = if (distance >= 2) 55L else 0L
+        val totalWaitMs = if (distance >= 2) 480L else 340L
+
+        if (leadInDelayMs == 0L) {
+            _selectedTab.value = tab
+        }
+
+        navTransitionJob = viewModelScope.launch {
+            if (leadInDelayMs > 0L) {
+                kotlinx.coroutines.delay(leadInDelayMs)
+                _selectedTab.value = tab
+            }
+            kotlinx.coroutines.delay(totalWaitMs - leadInDelayMs)
+            _isNavTransitionPending.value = false
+        }
     }
 
     fun toggleGridView() {

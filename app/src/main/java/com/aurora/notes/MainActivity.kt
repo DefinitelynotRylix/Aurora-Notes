@@ -53,6 +53,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -180,6 +181,8 @@ fun AuroraApp(
 ) {
     val activeEditingNote by viewModel.activeEditingNote.collectAsState()
     val selectedTab by viewModel.selectedTab.collectAsState()
+    val pendingNavTab by viewModel.pendingNavTab.collectAsState()
+    val isNavTransitionPending by viewModel.isNavTransitionPending.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val isGridView by viewModel.isGridView.collectAsState()
@@ -397,15 +400,67 @@ fun AuroraApp(
             }
         }
 
-        // Instant, interruptible, zero-loading-time spring slide across the 4 menus
-        val animatedTabPos by animateFloatAsState(
-            targetValue = selectedTab.toFloat(),
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = 680f
-            ),
-            label = "instant_menu_slide"
-        )
+        // Pre-warm all 4 menus shortly after initial launch so jumping to Settings/Archive/Trash has 0ms cold-composition lag
+        var areTabsPrewarmed by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            kotlinx.coroutines.delay(180L)
+            areTabsPrewarmed = true
+        }
+
+        // Direct pair slide transition between fromTab and toTab (never mounts or animates skipped middle tabs)
+        var fromTab by remember { mutableIntStateOf(selectedTab) }
+        var toTab by remember { mutableIntStateOf(selectedTab) }
+        val tabSlideProgress = remember { Animatable(1f) }
+
+        LaunchedEffect(selectedTab) {
+            if (selectedTab != toTab) {
+                fromTab = toTab
+                toTab = selectedTab
+                tabSlideProgress.snapTo(0f)
+                tabSlideProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(
+                        durationMillis = 270,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+                fromTab = toTab
+            }
+        }
+
+        val slideDir = if (toTab >= fromTab) 1f else -1f
+        val progressVal = tabSlideProgress.value
+
+        fun computeTabOffsetPx(tabIndex: Int, widthPx: Float): Int {
+            val slideSpan = widthPx * 0.24f
+            return when {
+                tabIndex == toTab -> {
+                    if (fromTab == toTab || progressVal >= 0.999f) {
+                        0
+                    } else {
+                        ((1f - progressVal) * slideDir * slideSpan).toInt()
+                    }
+                }
+                tabIndex == fromTab && progressVal < 0.999f -> {
+                    (-progressVal * slideDir * slideSpan).toInt()
+                }
+                else -> {
+                    (widthPx * 2.5f).toInt()
+                }
+            }
+        }
+
+        fun computeTabAlpha(tabIndex: Int): Float {
+            return when {
+                tabIndex == toTab -> {
+                    if (fromTab == toTab || progressVal >= 0.999f) 1f else progressVal.coerceIn(0f, 1f)
+                }
+                tabIndex == fromTab && progressVal < 0.999f -> {
+                    (1f - progressVal).coerceIn(0f, 1f)
+                }
+                else -> 0f
+            }
+        }
 
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
@@ -430,6 +485,8 @@ fun AuroraApp(
                 bottomBar = {
                     AnimatedBottomPillBar(
                         selectedTab = selectedTab,
+                        pendingTab = pendingNavTab,
+                        isNavTransitionPending = isNavTransitionPending,
                         onTabSelected = { viewModel.setSelectedTab(it) },
                         archivedCount = archivedCount,
                         trashCount = trashCount,
@@ -453,15 +510,14 @@ fun AuroraApp(
                 ) {
                     val widthPx = with(LocalDensity.current) { maxWidth.toPx().coerceAtLeast(1f) }
 
-                    // Tab 0: Notes (kept warm so switching back is 0ms instant)
-                    val offset0 = 0f - animatedTabPos
-                    if (abs(offset0) < 1.05f || selectedTab == 0) {
+                    // Tab 0: Notes (kept pre-warmed in memory)
+                    if (areTabsPrewarmed || toTab == 0 || fromTab == 0) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .offset { IntOffset(x = computeTabOffsetPx(0, widthPx), y = 0) }
                                 .graphicsLayer {
-                                    translationX = offset0 * widthPx
-                                    alpha = (1f - abs(offset0) * 0.35f).coerceIn(0f, 1f)
+                                    alpha = computeTabAlpha(0)
                                 }
                         ) {
                             NotesScreen(
@@ -494,15 +550,14 @@ fun AuroraApp(
                         }
                     }
 
-                    // Tab 1: Archive
-                    val offset1 = 1f - animatedTabPos
-                    if (abs(offset1) < 1.05f || selectedTab == 1) {
+                    // Tab 1: Archive (kept pre-warmed in memory)
+                    if (areTabsPrewarmed || toTab == 1 || fromTab == 1) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .offset { IntOffset(x = computeTabOffsetPx(1, widthPx), y = 0) }
                                 .graphicsLayer {
-                                    translationX = offset1 * widthPx
-                                    alpha = (1f - abs(offset1) * 0.35f).coerceIn(0f, 1f)
+                                    alpha = computeTabAlpha(1)
                                 }
                         ) {
                             NotesScreen(
@@ -535,15 +590,14 @@ fun AuroraApp(
                         }
                     }
 
-                    // Tab 2: Trash
-                    val offset2 = 2f - animatedTabPos
-                    if (abs(offset2) < 1.05f || selectedTab == 2) {
+                    // Tab 2: Trash (kept pre-warmed in memory)
+                    if (areTabsPrewarmed || toTab == 2 || fromTab == 2) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .offset { IntOffset(x = computeTabOffsetPx(2, widthPx), y = 0) }
                                 .graphicsLayer {
-                                    translationX = offset2 * widthPx
-                                    alpha = (1f - abs(offset2) * 0.35f).coerceIn(0f, 1f)
+                                    alpha = computeTabAlpha(2)
                                 }
                         ) {
                             TrashScreen(
@@ -559,15 +613,14 @@ fun AuroraApp(
                         }
                     }
 
-                    // Tab 3: Settings
-                    val offset3 = 3f - animatedTabPos
-                    if (abs(offset3) < 1.05f || selectedTab == 3) {
+                    // Tab 3: Settings (kept pre-warmed in memory with LazyColumn)
+                    if (areTabsPrewarmed || toTab == 3 || fromTab == 3) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .offset { IntOffset(x = computeTabOffsetPx(3, widthPx), y = 0) }
                                 .graphicsLayer {
-                                    translationX = offset3 * widthPx
-                                    alpha = (1f - abs(offset3) * 0.35f).coerceIn(0f, 1f)
+                                    alpha = computeTabAlpha(3)
                                 }
                         ) {
                             SettingsScreen(
@@ -907,9 +960,9 @@ private fun WhatsNewDialog(
     val features = remember {
         listOf(
             WhatsNewFeatureItem(
-                title = "Instant Menu Animation & Hold-Note Action Navbar",
+                title = "Smooth Menu Animation & Hold-Note Action Navbar",
                 badge = "NEW FEATURE",
-                description = "Menu switching across Notes, Archive, Trash, and Settings is now 100% instant with zero wait delay. Hold down any note to slide the navigation bar under the screen and pop up the new Selection Action Navbar with Share, Archive, Edit, and Delete.",
+                description = "Pre-warmed menus with protective button wait timing let you jump between Notes, Archive, Trash, and Settings with zero lag. Hold down any note to slide the navigation bar under the screen and pop up the Selection Action Navbar (Share, Archive, Edit, Delete).",
                 icon = Icons.Default.Edit
             ),
             WhatsNewFeatureItem(

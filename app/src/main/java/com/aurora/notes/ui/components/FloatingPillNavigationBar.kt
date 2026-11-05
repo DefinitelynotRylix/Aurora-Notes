@@ -82,6 +82,8 @@ fun triggerNavbarHaptic(view: View, context: Context, enabled: Boolean = true) {
 @Composable
 fun AnimatedBottomPillBar(
     selectedTab: Int,
+    pendingTab: Int = selectedTab,
+    isNavTransitionPending: Boolean = false,
     onTabSelected: (Int) -> Unit,
     archivedCount: Int = 0,
     trashCount: Int = 0,
@@ -109,6 +111,8 @@ fun AnimatedBottomPillBar(
         if (selectionProgress < 0.999f) {
             FloatingPillNavigationBar(
                 selectedTab = selectedTab,
+                pendingTab = pendingTab,
+                isNavTransitionPending = isNavTransitionPending,
                 onTabSelected = onTabSelected,
                 archivedCount = archivedCount,
                 trashCount = trashCount,
@@ -312,6 +316,8 @@ private fun SelectionPillActionItem(
 @Composable
 fun FloatingPillNavigationBar(
     selectedTab: Int,
+    pendingTab: Int = selectedTab,
+    isNavTransitionPending: Boolean = false,
     onTabSelected: (Int) -> Unit,
     archivedCount: Int = 0,
     trashCount: Int = 0,
@@ -323,6 +329,8 @@ fun FloatingPillNavigationBar(
     val isDarkTheme = LocalAuroraDarkTheme.current
     val currentOnTabSelected by rememberUpdatedState(onTabSelected)
     val currentHapticsEnabled by rememberUpdatedState(isHapticsEnabled)
+    val currentIsTransitionPending by rememberUpdatedState(isNavTransitionPending)
+    val activeTargetTab = if (isNavTransitionPending) pendingTab else selectedTab
 
     val items = remember(archivedCount, trashCount) {
         listOf(
@@ -335,17 +343,17 @@ fun FloatingPillNavigationBar(
 
     // Hold-and-slide state for dragging the purple pill across the menus
     var isHoldingPill by remember { mutableStateOf(false) }
-    var dragTabPos by remember { mutableFloatStateOf(selectedTab.toFloat()) }
+    var dragTabPos by remember { mutableFloatStateOf(activeTargetTab.toFloat()) }
 
-    LaunchedEffect(selectedTab) {
+    LaunchedEffect(activeTargetTab) {
         if (!isHoldingPill) {
-            dragTabPos = selectedTab.toFloat()
+            dragTabPos = activeTargetTab.toFloat()
         }
     }
 
-    val targetPillPos = if (isHoldingPill) dragTabPos else selectedTab.toFloat()
+    val targetPillPos = if (isHoldingPill) dragTabPos else activeTargetTab.toFloat()
 
-    // Single stretching pill animation with arrival overshoot and zero wait time
+    // Single stretching pill animation with arrival overshoot
     val dropTabPos by animateFloatAsState(
         targetValue = targetPillPos,
         animationSpec = spring(
@@ -368,7 +376,7 @@ fun FloatingPillNavigationBar(
     val visualSelectedTab = if (isHoldingPill) {
         dragTabPos.roundToInt().coerceIn(0, items.size - 1)
     } else {
-        selectedTab
+        activeTargetTab
     }
 
     val pillSurfaceColor = if (isDarkTheme) Color(0xFF1B1524) else Color(0xFFFFFFFF)
@@ -414,13 +422,17 @@ fun FloatingPillNavigationBar(
 
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
+                            if (currentIsTransitionPending) {
+                                // Respect button wait time while far menus are loading/transitioning
+                                return@awaitEachGesture
+                            }
+
                             val trackWidthPx = size.width.toFloat().coerceAtLeast(1f)
                             val tabWidthPx = trackWidthPx / items.size.toFloat()
                             val startX = down.position.x
                             var currentX = startX
                             val initialTappedTab = (startX / tabWidthPx).toInt().coerceIn(0, items.size - 1)
 
-                            // Instant tab switch on touch down with zero wait response
                             if (initialTappedTab != selectedTab) {
                                 triggerNavbarHaptic(view, context, currentHapticsEnabled)
                                 currentOnTabSelected(initialTappedTab)
@@ -473,8 +485,8 @@ fun FloatingPillNavigationBar(
                                 val landedTab = dragTabPos.roundToInt().coerceIn(0, items.size - 1)
                                 isHoldingPill = false
                                 if (landedTab != initialTappedTab) {
-                                    currentOnTabSelected(landedTab)
                                     triggerNavbarHaptic(view, context, currentHapticsEnabled)
+                                    currentOnTabSelected(landedTab)
                                 }
                             } else {
                                 isHoldingPill = false

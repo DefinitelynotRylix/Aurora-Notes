@@ -9,7 +9,7 @@ import {
   X
 } from 'lucide-react';
 
-export const CURRENT_WHATS_NEW_VERSION = '1.3.35';
+export const CURRENT_WHATS_NEW_VERSION = '1.3.36';
 
 interface WhatsNewModalProps {
   isOpen: boolean;
@@ -25,10 +25,10 @@ export const WhatsNewModal: React.FC<WhatsNewModalProps> = ({
   const highlights = [
     {
       icon: <Edit3 className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'Instant Menu Animation & Hold-Note Action Navbar',
+      title: 'Smooth Menu Animation & Hold-Note Action Navbar',
       badge: 'NEW FEATURE',
       description:
-        'Menu switching across Notes, Archive, Trash, and Settings is now 100% instant with zero wait delay. Hold down any note to slide the navigation bar under the screen and pop up the new Selection Action Navbar with Share, Archive, Edit, and Delete.',
+        'Pre-warmed menus with protective button wait timing let you jump between Notes, Archive, Trash, and Settings with zero lag. Hold down any note to slide the navigation bar under the screen and pop up the Selection Action Navbar (Share, Archive, Edit, Delete).',
     },
     {
       icon: <ImageIcon className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,

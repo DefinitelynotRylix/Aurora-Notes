@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -122,7 +123,7 @@ fun SettingsScreen(
         if (selectedLevelFilter == null) logs else logs.filter { it.level == selectedLevelFilter }
     }
 
-    val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+    val dateFormat = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
 
     val themeOptions = remember {
         listOf(
@@ -269,27 +270,28 @@ fun SettingsScreen(
         )
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 14.dp)
-            .verticalScroll(rememberScrollState())
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Page Header & Description
-        Text(
-            text = "Settings & Preferences",
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-        )
-        Text(
-            text = "Manage app appearance & theme, self-updates, biometric security, custom category pins, and local data.",
-            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
-            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
-        )
+        item(key = "settings_header") {
+            Column {
+                Text(
+                    text = "Settings & Preferences",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                )
+                Text(
+                    text = "Manage app appearance & theme, self-updates, biometric security, custom category pins, and local data.",
+                    style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
 
         // 0. App Version & Self-Update Card (GitHub Release Scanner + Auto Self-Update & Forced Restart)
-        Card(
+        item(key = "settings_self_update") {
+            Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -544,10 +546,10 @@ fun SettingsScreen(
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
+        }
 
         // 1. App Appearance & Theme Card
+        item(key = "settings_appearance") {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
@@ -654,10 +656,10 @@ fun SettingsScreen(
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
+        }
 
         // 1b. In-App Haptic Feedback Card
+        item(key = "settings_haptics") {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
@@ -740,10 +742,10 @@ fun SettingsScreen(
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
+        }
 
         // 2. Biometric / PIN Lock Card
+        item(key = "settings_biometric") {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
@@ -811,10 +813,10 @@ fun SettingsScreen(
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
+        }
 
         // 2b. Private External Storage & Optional Room Database Encryption Card
+        item(key = "settings_storage") {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
@@ -976,10 +978,10 @@ fun SettingsScreen(
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
+        }
 
         // 3. Welcome Tour & What's New Guide Card
+        item(key = "settings_welcome") {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
@@ -1037,10 +1039,10 @@ fun SettingsScreen(
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
+        }
 
         // 4. Aurora Notes Community Card
+        item(key = "settings_community") {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
@@ -1124,10 +1126,10 @@ fun SettingsScreen(
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
+        }
 
         // 5. Local Diagnostic Logs Card
+        item(key = "settings_logs") {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
@@ -1286,10 +1288,10 @@ fun SettingsScreen(
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
+        }
 
         // 6. Danger Zone: Wipe All Application Data (Biometric Required)
+        item(key = "settings_danger_zone") {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
@@ -1349,7 +1351,6 @@ fun SettingsScreen(
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(96.dp))
+        }
     }
 }
