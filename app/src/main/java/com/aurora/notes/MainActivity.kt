@@ -462,7 +462,14 @@ fun AuroraApp(
             }
         }
 
+        val isEditorFullyCoveringScreen =
+            displayedEditorNote != null &&
+                editorRevealProgress.value >= 0.999f &&
+                editorBackProgress <= 0.001f &&
+                !isClosingEditor
+
         Box(modifier = Modifier.fillMaxSize()) {
+            if (!isEditorFullyCoveringScreen) {
             Scaffold(
                 floatingActionButton = {
                     if (selectedTab == 0 && !selectionBarState.isVisible) {
@@ -658,6 +665,7 @@ fun AuroraApp(
                         }
                     }
                 }
+            }
             }
 
             // Full-Screen Circular Reveal Note Editor Overlay with Predictive Back Gesture Support

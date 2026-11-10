@@ -59,7 +59,10 @@ object LinkHelper {
     }
 
     fun extractLinks(text: String): List<DetectedUrlRange> {
-        if (text.isBlank()) return emptyList()
+        if (text.length < 4) return emptyList()
+        if (!text.contains("http", ignoreCase = true) && !text.contains("www.", ignoreCase = true)) {
+            return emptyList()
+        }
         val results = ArrayList<DetectedUrlRange>()
         val matches = urlRegex.findAll(text)
         for (match in matches) {

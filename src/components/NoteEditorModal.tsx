@@ -60,11 +60,21 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   const [isCurrentLineChecklist, setIsCurrentLineChecklist] = useState(false);
   const [isBulletModeActive, setIsBulletModeActive] = useState(false);
 
+  const isExistingSavedNote = Boolean(
+    note.title?.trim() ||
+      note.content?.trim() ||
+      (note.checklist && note.checklist.length > 0) ||
+      (note.images && note.images.length > 0)
+  );
+  const [displayedUpdatedAt, setDisplayedUpdatedAt] = useState<number>(note.updatedAt || Date.now());
+
   // Save indicator & anti-spam clean state for the top-bar Checkmark button
-  const [isSavedClean, setIsSavedClean] = useState(false);
+  const [isSavedClean, setIsSavedClean] = useState(isExistingSavedNote);
   const [showSavedIndicator, setShowSavedIndicator] = useState(false);
+  const hasUnsavedChangesRef = useRef(false);
 
   const markNoteDirty = useCallback(() => {
+    hasUnsavedChangesRef.current = true;
     setIsSavedClean(false);
     setShowSavedIndicator(false);
   }, []);
@@ -100,8 +110,8 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-    }).format(note.updatedAt || Date.now());
-  }, [note.updatedAt]);
+    }).format(displayedUpdatedAt);
+  }, [displayedUpdatedAt]);
 
   // Predictive Back Gesture State (0..1 progress & swipe edge)
   const [predictiveBackProgress, setPredictiveBackProgress] = useState(0);
@@ -212,9 +222,10 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         bindCheckboxBehavior(cb as HTMLInputElement);
       });
     }
-    setIsSavedClean(false);
+    hasUnsavedChangesRef.current = false;
+    setIsSavedClean(isExistingSavedNote);
     setShowSavedIndicator(false);
-  }, [note.id, isReadOnly, bindCheckboxBehavior]);
+  }, [note.id, isReadOnly, bindCheckboxBehavior, isExistingSavedNote]);
 
   /**
    * Constructs latest note object from state & editor
@@ -274,7 +285,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   };
 
   /**
-   * Auto-Save & Close Handler (Discards completely empty notes)
+   * Auto-Save & Close Handler (Discards completely empty notes, and does NOT update date if note was only viewed)
    */
   const handleAutoSaveAndClose = () => {
     if (hasSavedRef.current) return;
@@ -304,7 +315,14 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       return;
     }
 
+    // If the user only viewed the note and made no modifications, close without updating updatedAt!
+    if (!hasUnsavedChangesRef.current) {
+      onClose();
+      return;
+    }
+
     const updated = getConstructedNote();
+    setDisplayedUpdatedAt(updated.updatedAt);
     onSave(updated);
     logger.security('NOTE', `Saved local note: "${updated.title}" (ID: ${updated.id})`);
     onClose();
@@ -338,12 +356,14 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       .trim();
     const cleanTitle = title.trim();
 
-    if (cleanTitle || cleanText || hasEmbeddedImages) {
+    if (hasUnsavedChangesRef.current && (cleanTitle || cleanText || hasEmbeddedImages)) {
       const updated = getConstructedNote();
+      setDisplayedUpdatedAt(updated.updatedAt);
       onSave(updated);
       logger.security('NOTE', `Saved local note in editor: "${updated.title}" (ID: ${updated.id})`);
     }
 
+    hasUnsavedChangesRef.current = false;
     setIsSavedClean(true);
     setShowSavedIndicator(true);
   };
@@ -1845,7 +1865,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           onClick={handleEditorClick}
           aria-label="Note content editor"
           data-placeholder="Start typing your note here..."
-          className="w-full min-h-[360px] pb-36 text-sm sm:text-base leading-relaxed text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none bg-transparent font-normal space-y-2 [&_a]:text-[#8B3DFF] dark:[&_a]:text-[#C296FD] [&_a]:underline [&_a]:font-semibold [&_a]:cursor-pointer [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:space-y-1 [&_b]:font-bold [&_strong]:font-bold [&_i]:italic [&_em]:italic empty:before:content-[attr(data-placeholder)] empty:before:text-[#797487]/50 empty:before:dark:text-[#A39BAC]/50"
+          className="w-full min-h-[360px] pb-36 text-sm sm:text-base leading-relaxed text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none bg-transparent font-normal select-text space-y-2 [&_a]:text-[#8B3DFF] dark:[&_a]:text-[#C296FD] [&_a]:underline [&_a]:font-semibold [&_a]:cursor-pointer [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:space-y-1 [&_b]:font-bold [&_strong]:font-bold [&_i]:italic [&_em]:italic empty:before:content-[attr(data-placeholder)] empty:before:text-[#797487]/50 empty:before:dark:text-[#A39BAC]/50"
         />
       </div>
 

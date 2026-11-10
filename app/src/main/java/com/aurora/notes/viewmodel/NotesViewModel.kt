@@ -318,6 +318,21 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             title = cleanTitle.ifBlank { "Untitled Note" }
         )
 
+        // Do not overwrite updatedAt or re-save to Room if an existing note was not modified at all
+        val existingNote = allActiveNotes.value.firstOrNull { it.id == finalNote.id }
+        if (existingNote != null &&
+            existingNote.title == finalNote.title &&
+            existingNote.content == finalNote.content &&
+            existingNote.styleSpansJson == finalNote.styleSpansJson &&
+            existingNote.checklist == finalNote.checklist &&
+            existingNote.images == finalNote.images &&
+            existingNote.tags == finalNote.tags &&
+            existingNote.category == finalNote.category &&
+            existingNote.isPinned == finalNote.isPinned
+        ) {
+            return
+        }
+
         // Ensure any tags attached to the note are also registered in userTags
         if (finalNote.tags.isNotEmpty()) {
             val current = _userTags.value.toMutableList()

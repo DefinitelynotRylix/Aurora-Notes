@@ -688,40 +688,60 @@ object PrivateStorageManager {
         )
     }
 
+    private val IMG_MARKER_CLEAN_REGEX = Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]")
+
     /**
-     * Computes live word and letter counts for the Note Editor header.
+     * Computes live word and letter counts for the Note Editor header in a single fast pass.
      * Strips inline checkbox (`☐ `, `☑ `), bullet (`• `), and image block (`[[AURORA_IMG:...]]`) markers
      * so formatting markers are not counted as words or letters.
      */
     fun computeWordAndLetterCounts(title: String, body: String): WordLetterCount {
-        val sanitizedBody = body
-            .replace(Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]"), " ")
-            .replace("☐ ", " ")
-            .replace("☑ ", " ")
-            .replace("• ", " ")
-            .replace("☐", " ")
-            .replace("☑", " ")
-            .replace("•", " ")
-
-        val combined = buildString {
-            if (title.isNotBlank()) {
-                append(title.trim())
-                append(' ')
-            }
-            if (sanitizedBody.isNotBlank()) {
-                append(sanitizedBody.trim())
-            }
-        }.trim()
-
-        if (combined.isEmpty()) {
-            return WordLetterCount(words = 0, letters = 0)
+        val cleanBody = if (body.contains("[[AURORA_IMG:")) {
+            IMG_MARKER_CLEAN_REGEX.replace(body, " ")
+        } else {
+            body
         }
 
-        val words = combined
-            .split(Regex("\\s+"))
-            .count { token -> token.any { ch -> ch.isLetterOrDigit() } }
+        var words = 0
+        var letters = 0
+        var inToken = false
+        var tokenHasAlnum = false
 
-        val letters = combined.count { ch -> !ch.isWhitespace() }
+        fun processChar(ch: Char) {
+            if (ch == '☐' || ch == '☑' || ch == '•') {
+                if (inToken) {
+                    if (tokenHasAlnum) words++
+                    inToken = false
+                    tokenHasAlnum = false
+                }
+                return
+            }
+            if (ch.isWhitespace()) {
+                if (inToken) {
+                    if (tokenHasAlnum) words++
+                    inToken = false
+                    tokenHasAlnum = false
+                }
+            } else {
+                letters++
+                inToken = true
+                if (!tokenHasAlnum && ch.isLetterOrDigit()) {
+                    tokenHasAlnum = true
+                }
+            }
+        }
+
+        val trimmedTitle = title.trim()
+        for (i in 0 until trimmedTitle.length) {
+            processChar(trimmedTitle[i])
+        }
+        processChar(' ')
+        for (i in 0 until cleanBody.length) {
+            processChar(cleanBody[i])
+        }
+        if (inToken && tokenHasAlnum) {
+            words++
+        }
 
         return WordLetterCount(words = words, letters = letters)
     }

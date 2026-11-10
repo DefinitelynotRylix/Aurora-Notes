@@ -528,9 +528,21 @@ export default function App() {
 
   const handleSaveActiveNote = (savedNote: Note) => {
     if (savedNote.isArchived) return;
-    const exists = notes.some((n) => n.id === savedNote.id);
+    const existing = notes.find((n) => n.id === savedNote.id);
+    if (
+      existing &&
+      existing.title === savedNote.title &&
+      existing.content === savedNote.content &&
+      existing.category === savedNote.category &&
+      existing.isPinned === savedNote.isPinned &&
+      JSON.stringify(existing.tags || []) === JSON.stringify(savedNote.tags || []) &&
+      JSON.stringify(existing.checklist || []) === JSON.stringify(savedNote.checklist || []) &&
+      JSON.stringify(existing.images || []) === JSON.stringify(savedNote.images || [])
+    ) {
+      return;
+    }
     let updatedNotes: Note[];
-    if (exists) {
+    if (existing) {
       updatedNotes = notes.map((n) => (n.id === savedNote.id ? savedNote : n));
     } else {
       updatedNotes = [savedNote, ...notes];

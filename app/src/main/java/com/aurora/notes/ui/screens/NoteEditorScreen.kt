@@ -20,7 +20,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -104,6 +103,10 @@ private const val UNCHECKED_BOX_PREFIX = "☐ "
 private const val CHECKED_BOX_PREFIX = "☑ "
 private const val BULLET_LINE_PREFIX = "• "
 
+private val CANONICAL_IMG_MARKER_REGEX = Regex("(?<!\\n)(\\[\\[AURORA_IMG:[^\\]]+\\]\\])")
+private val CLEAN_BODY_IMG_REGEX = Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]")
+private val SEGMENT_MARKER_REGEX = Regex("\\n?\\[\\[AURORA_IMG:([^\\]]+)\\]\\]\\n?")
+
 private data class ParsedLinePrefix(
     val hasCheckbox: Boolean,
     val checkboxPrefix: String,
@@ -118,6 +121,24 @@ private data class ParsedLinePrefix(
 }
 
 private fun parseLinePrefixes(line: String): ParsedLinePrefix {
+    if (line.isEmpty()) {
+        return ParsedLinePrefix(
+            hasCheckbox = false,
+            checkboxPrefix = UNCHECKED_BOX_PREFIX,
+            hasBullet = false,
+            cleanBody = line
+        )
+    }
+    val firstChar = line[0]
+    if (firstChar != '☐' && firstChar != '☑' && firstChar != '•') {
+        return ParsedLinePrefix(
+            hasCheckbox = false,
+            checkboxPrefix = UNCHECKED_BOX_PREFIX,
+            hasBullet = false,
+            cleanBody = line
+        )
+    }
+
     var rem = line
     var hasCheckbox = false
     var checkboxPrefix = UNCHECKED_BOX_PREFIX
@@ -263,6 +284,13 @@ private fun normalizeCheckboxLinesAfterEdit(
         return newText to TextRange(0)
     }
 
+    // Fast path when text was not modified (e.g. cursor movement, long-press text selection,
+    // or dragging the two Android selection teardrop handles character-by-character):
+    // preserve both start and end of newSelection so native text selection handles never collapse!
+    if (oldText == newText) {
+        return newText to clampSelectionToMinusOneRule(newText, newSelection)
+    }
+
     var workingText = newText
     var workingCursor = newSelection.start.coerceIn(0, workingText.length)
 
@@ -343,10 +371,15 @@ private fun normalizeCheckboxLinesAfterEdit(
     }
 
     val finalString = if (modified) normalizedLines.joinToString("\n") else workingText
-    val finalRange = clampSelectionToMinusOneRule(
-        finalString,
+    val desiredRange = if (!modified && !newSelection.collapsed) {
+        TextRange(
+            newSelection.start.coerceIn(0, finalString.length),
+            newSelection.end.coerceIn(0, finalString.length)
+        )
+    } else {
         TextRange(workingCursor.coerceIn(0, finalString.length))
-    )
+    }
+    val finalRange = clampSelectionToMinusOneRule(finalString, desiredRange)
     return finalString to finalRange
 }
 
@@ -521,6 +554,7 @@ private fun applyStyleToSelectionRange(
  */
 private data class RichNoteVisualTransformation(
     val spans: List<StyledCharSpan>,
+    val links: List<com.aurora.notes.util.DetectedUrlRange> = emptyList(),
     val baseOffset: Int = 0
 ) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
@@ -551,51 +585,53 @@ private data class RichNoteVisualTransformation(
 
             // Style inline per-line checkboxes (`☐ ` and `☑ `) and bullets (`• `) on the same line
             var lineStart = 0
-            while (lineStart <= len) {
+            while (lineStart < len) {
                 val lineEnd = findLineEnd(raw, lineStart)
-                val parsed = getParsedLineAt(raw, lineStart)
-                if (parsed.hasCheckbox) {
-                    addStyle(
-                        style = SpanStyle(
-                            color = AuroraRoyalViolet,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp
-                        ),
-                        start = lineStart,
-                        end = (lineStart + 1).coerceAtMost(len)
-                    )
-                    if (parsed.checkboxPrefix == CHECKED_BOX_PREFIX && lineStart + parsed.totalPrefixLength < lineEnd) {
-                        addStyle(
-                            style = SpanStyle(
-                                color = AuroraRoyalViolet.copy(alpha = 0.58f),
-                                textDecoration = TextDecoration.LineThrough
-                            ),
-                            start = lineStart + parsed.totalPrefixLength,
-                            end = lineEnd
-                        )
-                    }
-                }
-                if (parsed.hasBullet) {
-                    val bulletPos = lineStart + (if (parsed.hasCheckbox) 2 else 0)
-                    if (bulletPos < len) {
+                val firstCh = raw[lineStart]
+                if (firstCh == '☐' || firstCh == '☑' || firstCh == '•') {
+                    val parsed = getParsedLineAt(raw, lineStart)
+                    if (parsed.hasCheckbox) {
                         addStyle(
                             style = SpanStyle(
                                 color = AuroraRoyalViolet,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
+                                fontSize = 17.sp
                             ),
-                            start = bulletPos,
-                            end = (bulletPos + 1).coerceAtMost(len)
+                            start = lineStart,
+                            end = (lineStart + 1).coerceAtMost(len)
                         )
+                        if (parsed.checkboxPrefix == CHECKED_BOX_PREFIX && lineStart + parsed.totalPrefixLength < lineEnd) {
+                            addStyle(
+                                style = SpanStyle(
+                                    color = AuroraRoyalViolet.copy(alpha = 0.58f),
+                                    textDecoration = TextDecoration.LineThrough
+                                ),
+                                start = lineStart + parsed.totalPrefixLength,
+                                end = lineEnd
+                            )
+                        }
+                    }
+                    if (parsed.hasBullet) {
+                        val bulletPos = lineStart + (if (parsed.hasCheckbox) 2 else 0)
+                        if (bulletPos < len) {
+                            addStyle(
+                                style = SpanStyle(
+                                    color = AuroraRoyalViolet,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                ),
+                                start = bulletPos,
+                                end = (bulletPos + 1).coerceAtMost(len)
+                            )
+                        }
                     }
                 }
                 lineStart = lineEnd + 1
             }
 
-            val links = LinkHelper.extractLinks(raw)
             for (link in links) {
-                val ls = link.start.coerceIn(0, len)
-                val le = link.end.coerceIn(0, len)
+                val ls = (link.start - baseOffset).coerceIn(0, len)
+                val le = (link.end - baseOffset).coerceIn(0, len)
                 if (ls < le) {
                     addStyle(
                         style = SpanStyle(
@@ -637,11 +673,21 @@ fun NoteEditorScreen(
     val noteImages = remember(note.id) { mutableStateListOf(*note.images.toTypedArray()) }
     var activeImageMenuId by remember(note.id) { mutableStateOf<String?>(null) }
 
+    val isExistingSavedNote = remember(note.id) {
+        note.title.isNotBlank() ||
+            note.content.isNotBlank() ||
+            note.checklist.isNotEmpty() ||
+            note.images.isNotEmpty()
+    }
+    var displayedUpdatedAt by remember(note.id) { mutableLongStateOf(note.updatedAt) }
+
     // Save indicator & anti-spam clean state for the top-bar Checkmark button
-    var isSavedClean by remember(note.id) { mutableStateOf(false) }
+    var isSavedClean by remember(note.id) { mutableStateOf(isExistingSavedNote) }
     var showSavedIndicator by remember(note.id) { mutableStateOf(false) }
+    var hasUnsavedModifications by remember(note.id) { mutableStateOf(false) }
 
     fun markNoteDirty() {
+        hasUnsavedModifications = true
         isSavedClean = false
         showSavedIndicator = false
     }
@@ -663,21 +709,45 @@ fun NoteEditorScreen(
     var pendingToolbarCursorOverride by remember(note.id) { mutableIntStateOf(-1) }
     var pendingToolbarTimestamp by remember(note.id) { mutableLongStateOf(0L) }
 
+    val initialCanonicalContent = remember(note.id) {
+        note.content.replace(CANONICAL_IMG_MARKER_REGEX, "\n$1")
+    }
+
     var bodyValue by remember(note.id) {
-        val canonicalInitialContent = note.content.replace(
-            Regex("(?<!\\n)(\\[\\[AURORA_IMG:[^\\]]+\\]\\])"),
-            "\n$1"
-        )
         mutableStateOf(
             TextFieldValue(
-                text = canonicalInitialContent,
-                selection = TextRange(canonicalInitialContent.length)
+                text = initialCanonicalContent,
+                selection = TextRange(initialCanonicalContent.length)
             )
         )
     }
 
     var charSpans by remember(note.id) {
         mutableStateOf(parseSpansJson(note.styleSpansJson, bodyValue.text.length))
+    }
+
+    // Track last-saved baseline values so leaving without modifying anything NEVER changes updatedAt
+    var baselineTitle by remember(note.id) { mutableStateOf(note.title.trim()) }
+    var baselineContent by remember(note.id) { mutableStateOf(initialCanonicalContent) }
+    var baselineSpans by remember(note.id) { mutableStateOf(charSpans) }
+    var baselineChecklists by remember(note.id) {
+        mutableStateOf(note.checklist.filter { it.text.trim().isNotEmpty() })
+    }
+    var baselineImages by remember(note.id) { mutableStateOf(note.images.toList()) }
+    var baselineTags by remember(note.id) { mutableStateOf(note.tags.toList()) }
+    var baselinePinned by remember(note.id) { mutableStateOf(note.isPinned) }
+
+    fun hasActualContentChanges(): Boolean {
+        if (!hasUnsavedModifications) return false
+        val cleanTitle = title.trim()
+        val validChecklists = checklistItems.filter { it.text.trim().isNotEmpty() }
+        return cleanTitle != baselineTitle ||
+            bodyValue.text != baselineContent ||
+            charSpans != baselineSpans ||
+            validChecklists != baselineChecklists ||
+            noteImages.toList() != baselineImages ||
+            tags.toList() != baselineTags ||
+            isPinned != baselinePinned
     }
 
     // Initialize active/inactive button states when opening the note
@@ -709,19 +779,15 @@ fun NoteEditorScreen(
     var bodyTopInColumnPx by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
     val checkboxHitWidthPx = with(density) { 34.dp.toPx() }
-    val imeBottomPx = WindowInsets.ime.getBottom(density)
 
-    // Automatically scroll the editor container down with the cursor BEFORE it reaches
-    // the bottom formatting bar and keyboard so the cursor and current line stay in view.
+    // Scroll the editor container down with the cursor when typing or moving the caret,
+    // without observing WindowInsets.ime on every keyboard animation frame (eliminates keyboard lag).
     LaunchedEffect(
         bodyValue.text,
-        bodyValue.selection,
-        textLayoutResult,
-        viewportHeightPx,
-        imeBottomPx,
-        editorScrollState.maxValue
+        bodyValue.selection
     ) {
         if (isReadOnly) return@LaunchedEffect
+        if (!bodyValue.selection.collapsed) return@LaunchedEffect
         val layout = textLayoutResult ?: return@LaunchedEffect
         if (viewportHeightPx <= 0) return@LaunchedEffect
 
@@ -746,14 +812,14 @@ fun NoteEditorScreen(
                 .toInt()
                 .coerceIn(0, editorScrollState.maxValue)
             if (targetScroll > editorScrollState.value) {
-                editorScrollState.animateScrollTo(targetScroll)
+                editorScrollState.scrollTo(targetScroll)
             }
         } else if (cursorTopInContent < visibleTop + topClearancePx) {
             val targetScroll = (cursorTopInContent - topClearancePx)
                 .toInt()
                 .coerceIn(0, editorScrollState.maxValue)
             if (targetScroll < editorScrollState.value) {
-                editorScrollState.animateScrollTo(targetScroll)
+                editorScrollState.scrollTo(targetScroll)
             }
         }
     }
@@ -809,8 +875,12 @@ fun NoteEditorScreen(
     }
 
     // Value-based VisualTransformation keeps IME typing 100% lag-free and immediately reflects charSpans updates
-    val richVisualTransformation = remember(charSpans) {
-        RichNoteVisualTransformation(spans = charSpans.toList(), baseOffset = 0)
+    val richVisualTransformation = remember(charSpans, detectedBodyLinks) {
+        RichNoteVisualTransformation(
+            spans = charSpans.toList(),
+            links = detectedBodyLinks,
+            baseOffset = 0
+        )
     }
 
     fun handleExitEditor() {
@@ -821,7 +891,7 @@ fun NoteEditorScreen(
         }
         val cleanTitle = title.trim()
         val cleanBody = bodyValue.text
-            .replace(Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]"), "")
+            .replace(CLEAN_BODY_IMG_REGEX, "")
             .trim()
         val validChecklists = checklistItems.filter { it.text.trim().isNotEmpty() }
 
@@ -831,6 +901,15 @@ fun NoteEditorScreen(
             return
         }
 
+        // If user only viewed the note (or already saved via Checkmark) and made no modifications,
+        // close without re-saving so the note's updatedAt date is never changed!
+        if (!hasActualContentChanges()) {
+            onDiscardAndClose()
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        displayedUpdatedAt = now
         val updatedNote = note.copy(
             title = cleanTitle,
             content = bodyValue.text,
@@ -840,7 +919,7 @@ fun NoteEditorScreen(
             tags = tags.toList(),
             category = tags.firstOrNull() ?: "",
             isPinned = isPinned,
-            updatedAt = System.currentTimeMillis()
+            updatedAt = now
         )
         onSaveAndClose(updatedNote)
     }
@@ -855,11 +934,15 @@ fun NoteEditorScreen(
 
         val cleanTitle = title.trim()
         val cleanBody = bodyValue.text
-            .replace(Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]"), "")
+            .replace(CLEAN_BODY_IMG_REGEX, "")
             .trim()
         val validChecklists = checklistItems.filter { it.text.trim().isNotEmpty() }
 
-        if (cleanTitle.isNotEmpty() || cleanBody.isNotEmpty() || validChecklists.isNotEmpty() || noteImages.isNotEmpty()) {
+        if (hasActualContentChanges() &&
+            (cleanTitle.isNotEmpty() || cleanBody.isNotEmpty() || validChecklists.isNotEmpty() || noteImages.isNotEmpty())
+        ) {
+            val now = System.currentTimeMillis()
+            displayedUpdatedAt = now
             val updatedNote = note.copy(
                 title = cleanTitle,
                 content = bodyValue.text,
@@ -869,11 +952,20 @@ fun NoteEditorScreen(
                 tags = tags.toList(),
                 category = tags.firstOrNull() ?: "",
                 isPinned = isPinned,
-                updatedAt = System.currentTimeMillis()
+                updatedAt = now
             )
             onSaveInPlace(updatedNote)
+
+            baselineTitle = cleanTitle
+            baselineContent = bodyValue.text
+            baselineSpans = charSpans
+            baselineChecklists = validChecklists
+            baselineImages = noteImages.toList()
+            baselineTags = tags.toList()
+            baselinePinned = isPinned
         }
 
+        hasUnsavedModifications = false
         isSavedClean = true
         showSavedIndicator = true
     }
@@ -915,6 +1007,7 @@ fun NoteEditorScreen(
                         pendingDeleteTag = null
                         if (tag != null) {
                             tags.remove(tag)
+                            markNoteDirty()
                             onDeleteTagGlobal?.invoke(tag)
                         }
                     },
@@ -951,6 +1044,7 @@ fun NoteEditorScreen(
                         if (clean.isNotEmpty()) {
                             checklistItems.add(ChecklistItem(text = clean, completed = false))
                             newChecklistInput = ""
+                            markNoteDirty()
                         }
                         showAddChecklistDialog = false
                     },
@@ -979,7 +1073,7 @@ fun NoteEditorScreen(
             tags = tags.toList(),
             category = tags.firstOrNull() ?: "",
             isPinned = isPinned,
-            updatedAt = System.currentTimeMillis()
+            updatedAt = displayedUpdatedAt
         )
         ShareNoteDialog(
             notes = listOf(currentSnapshot),
@@ -1663,8 +1757,11 @@ fun NoteEditorScreen(
                     value = title,
                     onValueChange = {
                         if (!isReadOnly) {
+                            val didChange = it != title
                             title = it
-                            markNoteDirty()
+                            if (didChange) {
+                                markNoteDirty()
+                            }
                         }
                     },
                     readOnly = isReadOnly,
@@ -1697,8 +1794,8 @@ fun NoteEditorScreen(
 
                 // Last Edited Timestamp with Day, Month, Hour, and Minute
                 val editorDateFormat = remember { SimpleDateFormat("MMM d, h:mm a", Locale.US) }
-                val formattedLastEdited = remember(note.updatedAt) {
-                    editorDateFormat.format(Date(note.updatedAt))
+                val formattedLastEdited = remember(displayedUpdatedAt) {
+                    editorDateFormat.format(Date(displayedUpdatedAt))
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1860,7 +1957,11 @@ fun NoteEditorScreen(
                             val oldText = bodyValue.text
                             val newText = newValue.text
 
-                            if (oldText == newText && newValue.selection.collapsed && newValue.selection != bodyValue.selection) {
+                            if (oldText == newText &&
+                                newValue.selection.collapsed &&
+                                bodyValue.selection.collapsed &&
+                                newValue.selection != bodyValue.selection
+                            ) {
                                 val tappedOffset = newValue.selection.start.coerceIn(0, newText.length)
                                 val tappedLineStart = findLineStart(newText, tappedOffset)
                                 val parsed = getParsedLineAt(newText, tappedLineStart)
@@ -1887,10 +1988,15 @@ fun NoteEditorScreen(
                                 }
                             }
 
-                            if (isReadOnly) return@BasicTextField
+                            if (isReadOnly) {
+                                // Allow native text selection handles even in read-only mode
+                                bodyValue = bodyValue.copy(selection = newValue.selection)
+                                return@BasicTextField
+                            }
 
                             val effectiveSelection = if (
                                 oldText == newText &&
+                                newValue.selection.collapsed &&
                                 pendingToolbarCursorOverride >= 0 &&
                                 (System.currentTimeMillis() - pendingToolbarTimestamp) < 350L
                             ) {
@@ -1990,32 +2096,13 @@ fun NoteEditorScreen(
                                     }
                                 }
                             )
-                            .let { mod ->
-                                if (isReadOnly && detectedBodyLinks.isNotEmpty()) {
-                                    mod.pointerInput(bodyValue.text, detectedBodyLinks) {
-                                        detectTapGestures { tapOffset ->
-                                            val layout = textLayoutResult ?: return@detectTapGestures
-                                            val charOffset = layout.getOffsetForPosition(tapOffset)
-                                            val hitLink = detectedBodyLinks.firstOrNull { link ->
-                                                charOffset in link.start..link.end
-                                            }
-                                            if (hitLink != null) {
-                                                LinkHelper.openUrlInDefaultBrowser(context, hitLink.normalizedUrl)
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    mod
-                                }
-                            }
                             .onGloballyPositioned { coords ->
                                 bodyTopInColumnPx = coords.positionInParent().y
                             }
                     )
                 } else {
                     // Split note content by [[AURORA_IMG:<id>]] markers so text is strictly ABOVE and UNDER each image
-                    val markerRegex = remember { Regex("\\n?\\[\\[AURORA_IMG:([^\\]]+)\\]\\]\\n?") }
-                    val matches = remember(bodyValue.text) { markerRegex.findAll(bodyValue.text).toList() }
+                    val matches = remember(bodyValue.text) { SEGMENT_MARKER_REGEX.findAll(bodyValue.text).toList() }
                     val textSegments = remember(bodyValue.text, noteImages.size) {
                         val list = ArrayList<String>()
                         var lastIdx = 0
@@ -2043,13 +2130,20 @@ fun NoteEditorScreen(
                         offsets
                     }
 
-                    fun rebuildBodyWithSegments(updatedSegments: List<String>, activeSegIdx: Int, segCursor: Int) {
+                    fun rebuildBodyWithSegments(
+                        updatedSegments: List<String>,
+                        activeSegIdx: Int,
+                        segSelection: TextRange
+                    ) {
                         val oldFull = bodyValue.text
                         val sb = StringBuilder()
-                        var globalCursor = 0
+                        var globalSelStart = 0
+                        var globalSelEnd = 0
                         for (i in updatedSegments.indices) {
                             if (i == activeSegIdx) {
-                                globalCursor = sb.length + segCursor.coerceIn(0, updatedSegments[i].length)
+                                val segLen = updatedSegments[i].length
+                                globalSelStart = sb.length + segSelection.start.coerceIn(0, segLen)
+                                globalSelEnd = sb.length + segSelection.end.coerceIn(0, segLen)
                             }
                             sb.append(updatedSegments[i])
                             if (i < noteImages.size) {
@@ -2071,7 +2165,10 @@ fun NoteEditorScreen(
                         }
                         bodyValue = TextFieldValue(
                             text = full,
-                            selection = TextRange(globalCursor.coerceIn(0, full.length))
+                            selection = TextRange(
+                                globalSelStart.coerceIn(0, full.length),
+                                globalSelEnd.coerceIn(0, full.length)
+                            )
                         )
                     }
 
@@ -2086,8 +2183,12 @@ fun NoteEditorScreen(
                         for (segIdx in 0..noteImages.size) {
                             val segText = textSegments.getOrElse(segIdx) { "" }
                             val segStartOffset = segmentStartOffsets.getOrElse(segIdx) { 0 }
-                            val segVisualTransformation = remember(charSpans, segStartOffset) {
-                                RichNoteVisualTransformation(spans = charSpans.toList(), baseOffset = segStartOffset)
+                            val segVisualTransformation = remember(charSpans, detectedBodyLinks, segStartOffset) {
+                                RichNoteVisualTransformation(
+                                    spans = charSpans.toList(),
+                                    links = detectedBodyLinks,
+                                    baseOffset = segStartOffset
+                                )
                             }
                             var segLayoutResult by remember(note.id, segIdx, noteImages.size) {
                                 mutableStateOf<TextLayoutResult?>(null)
@@ -2096,16 +2197,21 @@ fun NoteEditorScreen(
                                 mutableStateOf(TextFieldValue(text = segText, selection = TextRange(segText.length)))
                             }
                             if (segFieldValue.text != segText) {
-                                val desiredLocalCursor = if (segIdx == activeSegIndex) {
+                                val desiredLocalStart = if (segIdx == activeSegIndex) {
                                     (bodyValue.selection.start - segStartOffset).coerceIn(0, segText.length)
                                 } else {
                                     segFieldValue.selection.start.coerceIn(0, segText.length)
+                                }
+                                val desiredLocalEnd = if (segIdx == activeSegIndex) {
+                                    (bodyValue.selection.end - segStartOffset).coerceIn(0, segText.length)
+                                } else {
+                                    segFieldValue.selection.end.coerceIn(0, segText.length)
                                 }
                                 segFieldValue = TextFieldValue(
                                     text = segText,
                                     selection = clampSelectionToMinusOneRule(
                                         segText,
-                                        TextRange(desiredLocalCursor)
+                                        TextRange(desiredLocalStart, desiredLocalEnd)
                                     ),
                                     composition = null
                                 )
@@ -2116,11 +2222,15 @@ fun NoteEditorScreen(
                                 value = segFieldValue,
                                 onValueChange = { newSegVal ->
                                     activeImageMenuId = null
-                                    if (isReadOnly) return@BasicTextField
+                                    if (isReadOnly) {
+                                        segFieldValue = segFieldValue.copy(selection = newSegVal.selection)
+                                        return@BasicTextField
+                                    }
                                     activeSegIndex = segIdx
                                     val oldSegText = segFieldValue.text
                                     val effectiveSegSelection = if (
                                         oldSegText == newSegVal.text &&
+                                        newSegVal.selection.collapsed &&
                                         pendingToolbarCursorOverride >= 0 &&
                                         (System.currentTimeMillis() - pendingToolbarTimestamp) < 350L
                                     ) {
@@ -2143,19 +2253,29 @@ fun NoteEditorScreen(
                                             isCheckboxModeActive = movedLineParsed.hasCheckbox
                                             isBulletModeActive = movedLineParsed.hasBullet
                                         }
+                                        segFieldValue = TextFieldValue(
+                                            text = normSeg,
+                                            selection = clampedSegSel,
+                                            composition = newSegVal.composition
+                                        )
+                                        val globalStart = (segStartOffset + clampedSegSel.start).coerceIn(0, bodyValue.text.length)
+                                        val globalEnd = (segStartOffset + clampedSegSel.end).coerceIn(0, bodyValue.text.length)
+                                        if (bodyValue.selection.start != globalStart || bodyValue.selection.end != globalEnd) {
+                                            bodyValue = bodyValue.copy(selection = TextRange(globalStart, globalEnd))
+                                        }
                                     } else {
                                         lastSyncedLineStart = segStartOffset + findLineStart(normSeg, clampedSegSel.start)
+                                        segFieldValue = TextFieldValue(
+                                            text = normSeg,
+                                            selection = clampedSegSel,
+                                            composition = if (normSeg != newSegVal.text) null else newSegVal.composition
+                                        )
+                                        val updatedList = textSegments.toMutableList()
+                                        if (segIdx < updatedList.size) {
+                                            updatedList[segIdx] = normSeg
+                                        }
+                                        rebuildBodyWithSegments(updatedList, segIdx, clampedSegSel)
                                     }
-                                    segFieldValue = TextFieldValue(
-                                        text = normSeg,
-                                        selection = clampedSegSel,
-                                        composition = if (normSeg != newSegVal.text) null else newSegVal.composition
-                                    )
-                                    val updatedList = textSegments.toMutableList()
-                                    if (segIdx < updatedList.size) {
-                                        updatedList[segIdx] = normSeg
-                                    }
-                                    rebuildBodyWithSegments(updatedList, segIdx, clampedSegSel.start)
                                 },
                                 readOnly = isReadOnly,
                                 singleLine = false,
@@ -2201,10 +2321,12 @@ fun NoteEditorScreen(
                                     .onFocusChanged { focusState ->
                                         if (focusState.isFocused) {
                                             activeSegIndex = segIdx
-                                            val globalPos = (segStartOffset + segFieldValue.selection.start.coerceIn(0, segFieldValue.text.length))
+                                            val globalStart = (segStartOffset + segFieldValue.selection.start.coerceIn(0, segFieldValue.text.length))
                                                 .coerceIn(0, bodyValue.text.length)
-                                            if (bodyValue.selection.start != globalPos) {
-                                                bodyValue = bodyValue.copy(selection = TextRange(globalPos))
+                                            val globalEnd = (segStartOffset + segFieldValue.selection.end.coerceIn(0, segFieldValue.text.length))
+                                                .coerceIn(0, bodyValue.text.length)
+                                            if (bodyValue.selection.start != globalStart || bodyValue.selection.end != globalEnd) {
+                                                bodyValue = bodyValue.copy(selection = TextRange(globalStart, globalEnd))
                                             }
                                         }
                                     }
@@ -2232,7 +2354,7 @@ fun NoteEditorScreen(
                                                     updatedList[segIdx] = toggledSeg
                                                 }
                                                 markNoteDirty()
-                                                rebuildBodyWithSegments(updatedList, segIdx, nextCursor)
+                                                rebuildBodyWithSegments(updatedList, segIdx, TextRange(nextCursor))
                                             }
                                         }
                                     )
@@ -2376,7 +2498,7 @@ fun NoteEditorScreen(
                                                         noteImages.removeAt(segIdx)
                                                         activeImageMenuId = null
                                                         markNoteDirty()
-                                                        rebuildBodyWithSegments(updatedSegments, segIdx, above.length)
+                                                        rebuildBodyWithSegments(updatedSegments, segIdx, TextRange(above.length))
                                                     }
                                                 ) {
                                                     Row(
