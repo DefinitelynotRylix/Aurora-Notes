@@ -5,38 +5,32 @@ import {
   Sun,
   Moon,
   Monitor,
-  Tag,
-  Plus,
   Trash2,
   Download,
   Smartphone,
-  Check,
   Terminal,
   Copy,
   Sliders,
   AlertTriangle,
   RefreshCw,
-  ShieldAlert,
   CheckCircle2,
-  Folder,
-  Lock,
   Sparkles,
-  MessageCircle,
-  ExternalLink,
-  Send
+  Send,
+  ChevronDown,
+  ChevronUp,
+  Fingerprint
 } from 'lucide-react';
 import {
   isNativeLockEnabled,
   registerNativeDeviceLock,
   verifyWithAndroidNativeLock,
   setNativeLockEnabled,
-  isNativePlatformAuthenticatorAvailable
 } from '../utils/nativeAuth';
 import { logger, LogEntry, LogLevel } from '../utils/logger';
 import { compareReleaseVersions, extractReleaseRunNumber } from '../utils/editorRules';
 
-const DEFAULT_APP_VERSION = '1.3.28';
-const DEFAULT_APP_BUILD_CODE = 128;
+const DEFAULT_APP_VERSION = '1.3.39';
+const DEFAULT_APP_BUILD_CODE = 139;
 const DEFAULT_GITHUB_REPO = 'DefinitelynotRylix/Aurora-Notes';
 
 interface SettingsPageProps {
@@ -68,25 +62,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onSelectTheme,
   isHapticsEnabled = true,
   onToggleHaptics,
-  isDbEncryptionEnabled = false,
-  onToggleDbEncryption,
-  storageStats = {
-    directoryPath: '/storage/emulated/0/Android/data/com.aurora.notes/files/aurora_private_notes',
-    syncedFileCount: 0,
-    orphanedFileCount: 0,
-    totalBytes: 0,
-  },
-  lastCleanupSummary,
-  onCleanUpOrphanedFiles,
-  customCategories,
-  onAddCategory,
-  onRemoveCategory,
   notes,
   onWipeData,
   onOpenWelcomeTour,
   onOpenWhatsNew,
 }) => {
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
+  const [isLogsExpanded, setIsLogsExpanded] = useState(false);
 
   // App Version & Self-Update State
   const [installedVersion, setInstalledVersion] = useState<string>(() => {
@@ -123,10 +105,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [isLockChecking, setIsLockChecking] = useState(false);
   const [lockStatusMsg, setLockStatusMsg] = useState<{ text: string; isError?: boolean } | null>(null);
 
-  const themeOptions: { id: ThemeOption; label: string; icon: React.ElementType; }[] = [
-    { id: 'system', label: 'System Default', icon: Monitor},
-    { id: 'light', label: 'Light Mode', icon: Sun},
-    { id: 'dark', label: 'Dark Mode', icon: Moon},
+  const themeOptions: { id: ThemeOption; label: string; icon: React.ElementType }[] = [
+    { id: 'system', label: 'System', icon: Monitor },
+    { id: 'light', label: 'Light', icon: Sun },
+    { id: 'dark', label: 'Dark', icon: Moon },
   ];
 
   const handleScanForUpdates = async () => {
@@ -196,7 +178,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         setUpdateStatus({
           type: 'uptodate',
           latestVersion: installedVersion,
-          message: `You are running the latest version (v${installedVersion}). No newer release found.`,
+          message: `Up to date (v${installedVersion}).`,
         });
         return;
       }
@@ -228,7 +210,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           type: 'uptodate',
           latestVersion: latestVer,
           apkUrl: apkAsset?.browser_download_url || releaseData.html_url || '',
-          message: `Aurora Notes is up to date! You are on the latest version (v${installedVersion}).`,
+          message: `Up to date (v${installedVersion}).`,
         });
       } else {
         const downloadUrl = apkAsset?.browser_download_url || releaseData.html_url || '';
@@ -238,7 +220,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           type: 'available',
           latestVersion: latestVer,
           apkUrl: downloadUrl,
-          message: `New release v${latestVer} (Build ${nextBuildCode}) found on GitHub Releases! Pulling update...`,
+          message: `New release v${latestVer} (Build ${nextBuildCode}) found! Pulling update...`,
         });
         setIsPullingUpdate(true);
         setPullProgress(25);
@@ -254,7 +236,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             type: 'available',
             latestVersion: latestVer,
             apkUrl: downloadUrl,
-            message: `Updated to latest release v${latestVer} (Build ${nextBuildCode})! Tap below if you also want to download Aurora Notes.apk directly.`,
+            message: `Updated to v${latestVer} (Build ${nextBuildCode}).`,
           });
         }, 700);
       }
@@ -273,13 +255,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setIsLockChecking(true);
 
     if (isNativeLockOn) {
-      // Require biometric unlock when attempting to disable the app lock
       const verifyResult = await verifyWithAndroidNativeLock();
       setIsLockChecking(false);
       if (verifyResult.success) {
         setNativeLockEnabled(false);
         setIsNativeLockOn(false);
-        setLockStatusMsg({ text: 'Biometric verified. Android native lock disabled.' });
+        setLockStatusMsg({ text: 'Biometric verified. App lock disabled.' });
       } else {
         setLockStatusMsg({
           text: verifyResult.error || 'Biometric authentication required to disable app lock.',
@@ -294,7 +275,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
     if (result.success) {
       setIsNativeLockOn(true);
-      setLockStatusMsg({ text: 'Android native screen lock successfully activated!' });
+      setLockStatusMsg({ text: 'Biometric / device lock activated.' });
     } else {
       setLockStatusMsg({
         text: result.error || 'Could not verify Android native lock screen.',
@@ -302,20 +283,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       });
     }
   };
-
-  const handleTestNativeLock = async () => {
-    setLockStatusMsg(null);
-    setIsLockChecking(true);
-    const result = await verifyWithAndroidNativeLock();
-    setIsLockChecking(false);
-
-    if (result.success) {
-      setLockStatusMsg({ text: 'Android biometric / device authentication verified!' });
-    } else {
-      setLockStatusMsg({ text: result.error || 'Authentication canceled or failed.', isError: true });
-    }
-  };
-
 
   const handleExportMarkdown = () => {
     const mdContent = notes
@@ -340,51 +307,174 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -16 }}
-      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="max-w-2xl mx-auto px-4 sm:px-6 pt-3 pb-24 space-y-6"
+      exit={{ opacity: 0, y: -12 }}
+      transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+      className="max-w-2xl mx-auto px-4 sm:px-6 pt-2 pb-24 space-y-3"
     >
-      {/* Page Title & Description Header */}
-      <div className="pb-2 border-b border-[#EADBFC]/60 dark:border-[#322742]/60">
-        <h2 className="text-xl sm:text-2xl font-bold text-[#1E1A24] dark:text-[#F7EEFC] tracking-tight">
-          Settings & Preferences
+      {/* Compact Header */}
+      <div className="pb-1">
+        <h2 className="text-lg sm:text-xl font-bold text-[#1E1A24] dark:text-[#F7EEFC] tracking-tight">
+          Settings
         </h2>
-        <p className="text-xs text-[#797487] dark:text-[#A39BAC] mt-1 leading-relaxed">
-          Manage app appearance & theme, self-updates, haptic feedback and biometric security.
+        <p className="text-xs text-[#797487] dark:text-[#A39BAC] mt-0.5">
+          Theme, lock, updates, and diagnostics.
         </p>
       </div>
 
-      {/* 0. App Version & Self-Update Section */}
-      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5925DC] dark:text-[#C296FD]">
-              GITHUB RELEASE UPDATER
-            </span>
-            <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] mt-0.5 flex items-center gap-2">
-              <RefreshCw className={`w-4 h-4 text-[#5925DC] dark:text-[#C296FD] ${isScanningUpdate ? 'animate-spin' : ''}`} />
-              <span>App Version & Self-Update</span>
-            </h3>
-            <p className="text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD] mt-0.5">
-              Installed Version: v{installedVersion} • Build {installedBuildCode} • GPL-3.0 Open Source
-            </p>
+      {/* 1. Appearance (Compact 3-column segmented row) */}
+      <div className="rounded-2xl p-3.5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-2.5">
+        <h3 className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
+          <Sliders className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
+          <span>Appearance</span>
+        </h3>
+
+        <div className="grid grid-cols-3 gap-2">
+          {themeOptions.map((opt) => {
+            const Icon = opt.icon;
+            const isSelected = currentTheme === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onSelectTheme(opt.id)}
+                className={`py-2 px-2.5 rounded-xl border flex items-center justify-center gap-1.5 text-xs transition-all cursor-pointer ${
+                  isSelected
+                    ? 'bg-[#F4EBFF] dark:bg-[#2B1E3E] border-[#5925DC] dark:border-[#9D5AF5] text-[#5925DC] dark:text-[#C296FD] font-bold shadow-xs'
+                    : 'bg-[#FAF8FB] dark:bg-[#120E17] border-[#EADBFC] dark:border-[#322742] text-[#484455] dark:text-[#A39BAC] font-semibold hover:bg-white dark:hover:bg-[#1B1524]'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span>{opt.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 2. Preferences & Security (Grouped Haptics + Biometric Lock) */}
+      <div className="rounded-2xl px-3.5 py-2.5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs divide-y divide-[#EADBFC]/60 dark:divide-[#322742]/70">
+        {/* Haptics Row */}
+        <div className="py-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Sparkles className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD] shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC]">Haptic Feedback</div>
+              <div className="text-[11px] text-[#797487] dark:text-[#A39BAC] truncate">
+                Subtle vibration on navigation taps
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isHapticsEnabled && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                    navigator.vibrate(40);
+                  }
+                }}
+                className="px-2.5 py-1 rounded-lg bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-[11px] font-bold hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+              >
+                Test
+              </button>
+            )}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isHapticsEnabled}
+              aria-label="Toggle haptic feedback"
+              onClick={() => {
+                const nextState = !isHapticsEnabled;
+                onToggleHaptics?.(nextState);
+                if (nextState && typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                  navigator.vibrate(35);
+                }
+              }}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                isHapticsEnabled
+                  ? 'bg-[#5925DC] dark:bg-[#9D5AF5] text-white border-transparent'
+                  : 'bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border-[#EADBFC] dark:border-[#322742]'
+              }`}
+            >
+              {isHapticsEnabled ? 'On' : 'Off'}
+            </button>
           </div>
         </div>
 
-        {/* Minimal Internet Access Warning Box */}
-        <div className="p-3 rounded-xl bg-[#F4EBFF]/60 dark:bg-[#2B1E3E]/40 border border-[#EADBFC] dark:border-[#322742] flex items-start gap-2.5">
-          <ShieldAlert className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD] shrink-0 mt-0.5" />
-          <p className="text-[11px] text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            <strong className="text-[#1E1A24] dark:text-[#F7EEFC]">Minimal Internet Access:</strong> All your notes, checklists, and tags remain 100% offline on your device. Internet access is strictly limited to manual updates scans.
-          </p>
+        {/* Biometric Lock Row */}
+        <div className="py-2 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Fingerprint className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD] shrink-0" />
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC]">Biometric / PIN Lock</div>
+                <div className="text-[11px] text-[#797487] dark:text-[#A39BAC] truncate">
+                  Require device unlock on launch
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isNativeLockOn}
+              aria-label="Toggle biometric lock"
+              onClick={handleToggleNativeLock}
+              disabled={isLockChecking}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer shrink-0 ${
+                isNativeLockOn
+                  ? 'bg-[#5925DC] dark:bg-[#9D5AF5] text-white border-transparent'
+                  : 'bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border-[#EADBFC] dark:border-[#322742]'
+              }`}
+            >
+              {isNativeLockOn ? 'On' : 'Off'}
+            </button>
+          </div>
+
+          {lockStatusMsg && (
+            <div
+              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border ${
+                lockStatusMsg.isError
+                  ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900'
+                  : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900'
+              }`}
+            >
+              {lockStatusMsg.text}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 3. App Updates (Compact) */}
+      <div className="rounded-2xl p-3.5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <RefreshCw className={`w-4 h-4 text-[#5925DC] dark:text-[#C296FD] shrink-0 ${isScanningUpdate ? 'animate-spin' : ''}`} />
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC]">App Updates</div>
+              <div className="text-[11px] text-[#797487] dark:text-[#A39BAC] truncate">
+                v{installedVersion} • Build {installedBuildCode} • Offline-first
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleScanForUpdates}
+            disabled={isScanningUpdate || isPullingUpdate}
+            className="px-3 py-1.5 rounded-xl bg-[#5925DC] hover:bg-[#4A1FB8] text-white text-[11px] font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:opacity-60 shrink-0"
+          >
+            <span>{isScanningUpdate ? 'Checking...' : 'Check'}</span>
+          </button>
         </div>
 
         {isPullingUpdate && (
-          <div className="space-y-1.5 pt-1">
+          <div className="space-y-1">
             <div className="flex items-center justify-between text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD]">
-              <span>Pulling latest release & preparing self-update...</span>
+              <span>Pulling latest release...</span>
               <span>{pullProgress}%</span>
             </div>
             <div className="w-full h-1.5 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] overflow-hidden">
@@ -398,7 +488,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
         {updateStatus && (
           <div
-            className={`p-3 rounded-xl text-xs font-medium border space-y-2 ${
+            className={`p-2.5 rounded-xl text-[11px] font-medium border space-y-1.5 ${
               updateStatus.type === 'uptodate'
                 ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                 : updateStatus.type === 'available'
@@ -406,424 +496,197 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900'
             }`}
           >
-            <div className="flex items-start gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
               <span>{updateStatus.message}</span>
             </div>
             {updateStatus.apkUrl && (
-              <div className="pl-6">
-                <a
-                  href={updateStatus.apkUrl}
-                  download="Aurora Notes.apk"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5925DC] text-white text-[11px] font-bold hover:bg-[#4A1FB8] transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download Aurora Notes.apk (v{updateStatus.latestVersion})</span>
-                </a>
-              </div>
+              <a
+                href={updateStatus.apkUrl}
+                download="Aurora Notes.apk"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#5925DC] text-white text-[11px] font-bold hover:bg-[#4A1FB8] transition-colors"
+              >
+                <Download className="w-3 h-3" />
+                <span>Download APK (v{updateStatus.latestVersion})</span>
+              </a>
             )}
           </div>
         )}
-
-        <div className="pt-1">
-          <button
-            type="button"
-            onClick={handleScanForUpdates}
-            disabled={isScanningUpdate || isPullingUpdate}
-            className="w-full py-2.5 px-4 rounded-xl bg-[#5925DC] hover:bg-[#4A1FB8] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer disabled:opacity-60"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isScanningUpdate ? 'animate-spin' : ''}`} />
-            <span>{isScanningUpdate ? 'Scanning GitHub Releases...' : 'Scan for Updates'}</span>
-          </button>
-        </div>
       </div>
 
-      {/* 1. Theme Selection Section */}
-      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-2">
-            <Sliders className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
-            <span>App Appearance & Theme</span>
-          </h3>
-          <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD]">
-            {currentTheme.toUpperCase()}
-          </span>
-        </div>
+      {/* 4. Guides & Community (Combined compact card) */}
+      <div className="rounded-2xl p-3.5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-2.5">
+        <h3 className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
+          <span>Guides & Community</span>
+        </h3>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-          {themeOptions.map((opt) => {
-            const Icon = opt.icon;
-            const isSelected = currentTheme === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => onSelectTheme(opt.id)}
-                className={`p-3 rounded-xl border text-left flex flex-col justify-between transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-[#F4EBFF] dark:bg-[#2B1E3E] border-[#5925DC] dark:border-[#9D5AF5] text-[#5925DC] dark:text-[#C296FD] shadow-xs'
-                    : 'bg-[#FAF8FB] dark:bg-[#120E17] border-[#EADBFC] dark:border-[#322742] text-[#484455] dark:text-[#A39BAC] hover:bg-white dark:hover:bg-[#1B1524]'
-                }`}
-              >
-                <div className="flex items-center justify-between w-full mb-2">
-                  <Icon className="w-5 h-5" />
-                  {isSelected && <Check className="w-4 h-4 stroke-[2.5]" />}
-                </div>
-                <div>
-                  <div className="text-xs font-bold">{opt.label}</div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 1b. In-App Haptic Feedback Section */}
-      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5925DC] dark:text-[#C296FD]">
-              TACTILE RESPONSE
-            </span>
-            <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] mt-0.5 flex items-center gap-2">
-              <Smartphone className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
-              <span>Haptic Feedback</span>
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              const nextState = !isHapticsEnabled;
-              onToggleHaptics?.(nextState);
-              if (nextState && typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-                navigator.vibrate(35);
-              }
-            }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-              isHapticsEnabled
-                ? 'bg-[#5925DC] dark:bg-[#9D5AF5] text-white border-transparent shadow-xs'
-                : 'bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border-[#EADBFC] dark:border-[#322742]'
-            }`}
-          >
-            {isHapticsEnabled ? 'Haptics Enabled' : 'Haptics Disabled'}
-          </button>
-        </div>
-
-        <p className="text-xs text-[#484455] dark:text-[#A39BAC] leading-relaxed">
-          Provides tactile vibration feedback when pressing navigation bar buttons, even if system touch vibration is muted.
-        </p>
-
-        {isHapticsEnabled && (
-          <div className="pt-1">
-            <button
-              type="button"
-              onClick={() => {
-                if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-                  navigator.vibrate(40);
-                }
-              }}
-              className="px-3.5 py-2 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-xs font-semibold hover:opacity-90 active:scale-95 transition-all border border-[#EADBFC] dark:border-[#322742] cursor-pointer"
-            >
-              Test Haptic Pulse
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* 2. Android Biometric & Native Screen Lock */}
-      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5925DC] dark:text-[#C296FD]">
-              NATIVE SECURITY
-            </span>
-            <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] mt-0.5 flex items-center gap-2">
-              <Smartphone className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
-              <span>Biometric / System PIN Lock</span>
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={handleToggleNativeLock}
-            disabled={isLockChecking}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-              isNativeLockOn
-                ? 'bg-[#5925DC] dark:bg-[#9D5AF5] text-white border-transparent shadow-xs'
-                : 'bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border-[#EADBFC] dark:border-[#322742]'
-            }`}
-          >
-            {isNativeLockOn ? 'Lock Enabled' : 'Enable Lock'}
-          </button>
-        </div>
-
-        <p className="text-xs text-[#484455] dark:text-[#A39BAC] leading-relaxed">
-          Require Android native fingerprint, face unlock, or system PIN to access your notes upon app launch.
-        </p>
-
-        {lockStatusMsg && (
-          <div
-            className={`p-2.5 rounded-xl text-xs font-medium border ${
-              lockStatusMsg.isError
-                ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900'
-                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900'
-            }`}
-          >
-            {lockStatusMsg.text}
-          </div>
-        )}
-
-        {isNativeLockOn && (
-          <div className="pt-1">
-            <button
-              type="button"
-              onClick={handleTestNativeLock}
-              disabled={isLockChecking}
-              className="px-3.5 py-2 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-xs font-semibold hover:opacity-90 active:scale-95 transition-all border border-[#EADBFC] dark:border-[#322742] cursor-pointer"
-            >
-              Test Biometric Auth
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* 2b. Storage Encryption */}
-      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5925DC] dark:text-[#C296FD]">
-              ENCRYPTION
-            </span>
-            <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] mt-0.5 flex items-center gap-2">
-              <Folder className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
-              <span>Storage Encryption</span>
-            </h3>
-            <p className="text-[11px] font-semibold text-[#5925DC] dark:text-[#C296FD] mt-0.5">
-              {storageStats.syncedFileCount} synced file(s) • {storageStats.totalBytes} B on device
-            </p>
-          </div>
-
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg border bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 shrink-0 whitespace-nowrap">
-            AES-256
-          </span>
-        </div>
-
-        <div className="p-3 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] space-y-1">
-          <div className="text-[10px] font-bold text-[#5925DC] dark:text-[#C296FD] uppercase tracking-wider">
-            Device Private External Storage Path
-          </div>
-          <div className="text-[11px] font-mono text-[#484455] dark:text-[#C5BECD] break-all">
-            {storageStats.directoryPath}
-          </div>
-        </div>
-
-        <div className="pt-1">
-          <div className="space-y-0.5">
-            <div className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
-              <span>Room Database & File Encryption</span>
-            </div>
-            <p className="text-[11px] text-[#484455] dark:text-[#A39BAC] leading-relaxed">
-              Hardware-backed AndroidKeyStore AES-256-GCM encryption is enabled for all Room SQLite records and mirrored device storage files.
-            </p>
-          </div>
-        </div>
-
-        <div className="pt-2 border-t border-[#EADBFC]/60 dark:border-[#322742]/60">
-          <div className="space-y-0.5">
-            <div className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
-              <Check className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
-              <span>Orphaned & Temp File Cleanup</span>
-            </div>
-            <p className="text-[11px] text-[#484455] dark:text-[#A39BAC] leading-relaxed">
-              Orphaned note files, incomplete .tmp writes, and stale shared/update cache files are swept automatically on launch, resume, and every note change.
-            </p>
-          </div>
-        </div>
-
-        {lastCleanupSummary && (
-          <div className="p-2.5 rounded-xl bg-[#F4EBFF]/70 dark:bg-[#2B1E3E]/60 border border-[#EADBFC] dark:border-[#322742] text-[11px] font-medium text-[#5925DC] dark:text-[#C296FD]">
-            {lastCleanupSummary}
-          </div>
-        )}
-      </div>
-
-      {/* 3. Welcome Guide & What's New Section */}
-      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
-        <div>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[#5925DC] dark:text-[#C296FD]">
-            OVERVIEW & RELEASE HIGHLIGHTS
-          </span>
-          <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] mt-0.5 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
-            <span>Welcome Guide & What&apos;s New</span>
-          </h3>
-        </div>
-        <p className="text-xs text-[#484455] dark:text-[#A39BAC] leading-relaxed">
-          Revisit the Aurora Notes feature walkthrough or inspect the latest release highlights including mandatory AES-256-GCM cryptography.
-        </p>
-        <div className="flex items-center gap-2 pt-1 flex-wrap">
+        <div className="grid grid-cols-3 gap-2">
           {onOpenWelcomeTour && (
             <button
               type="button"
+              data-testid="settings-open-tour-btn"
               onClick={onOpenWelcomeTour}
-              className="px-3.5 py-2 rounded-xl bg-[#5925DC] hover:bg-[#4A1FB8] text-white text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-95"
+              className="py-2 px-2 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] text-[#5925DC] dark:text-[#C296FD] text-xs font-bold border border-[#EADBFC] dark:border-[#322742] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] transition-all cursor-pointer active:scale-95"
             >
-              Open Welcome Guide
+              Tour
             </button>
           )}
           {onOpenWhatsNew && (
             <button
               type="button"
+              data-testid="settings-open-whats-new-btn"
               onClick={onOpenWhatsNew}
-              className="px-3.5 py-2 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-xs font-bold border border-[#EADBFC] dark:border-[#322742] hover:opacity-90 transition-all cursor-pointer active:scale-95"
+              className="py-2 px-2 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] text-[#5925DC] dark:text-[#C296FD] text-xs font-bold border border-[#EADBFC] dark:border-[#322742] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] transition-all cursor-pointer active:scale-95"
             >
               What&apos;s New
             </button>
           )}
-        </div>
-      </div>
-
-      {/* 3b. Aurora Notes Community Card */}
-      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-2">
-            <MessageCircle className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
-            <span>Aurora Notes Community</span>
-          </h3>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD]">
-            TELEGRAM
-          </span>
-        </div>
-        <p className="text-xs text-[#484455] dark:text-[#A39BAC] leading-relaxed">
-          Join the official Aurora Notes community server on Telegram for user discussions, questions, feature proposals, and direct announcements.
-        </p>
-        <div className="pt-1">
           <a
             href="https://t.me/GithubAuroraNotes"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-bold shadow-xs hover:opacity-95 active:scale-95 transition-all cursor-pointer"
+            className="py-2 px-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1 hover:opacity-95 active:scale-95 transition-all cursor-pointer"
           >
-            <Send className="w-3.5 h-3.5" />
-            <span>Join Community Server</span>
-            <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+            <Send className="w-3 h-3 shrink-0" />
+            <span>Telegram</span>
           </a>
         </div>
       </div>
 
-      {/* 4. Local Diagnostic Logs & Export (Errors & Warnings Only) */}
-      <div className="rounded-2xl p-4 sm:p-5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-2">
-            <Terminal className="w-4 h-4 text-[#5925DC] dark:text-[#C296FD]" />
-            <span>Local Diagnostic Logs</span>
-          </h3>
-          <span className="text-xs font-medium text-[#797487] dark:text-[#A39BAC]">
-            {logs.length}/250 entries
+      {/* 5. Diagnostic Logs (Collapsed by default to keep Settings minimal) */}
+      <div className="rounded-2xl p-3.5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs">
+        <button
+          type="button"
+          data-testid="settings-logs-toggle"
+          onClick={() => setIsLogsExpanded((prev) => !prev)}
+          aria-expanded={isLogsExpanded}
+          className="w-full flex items-center justify-between gap-2 cursor-pointer text-left"
+        >
+          <span className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
+            <Terminal className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
+            <span>Diagnostic Logs</span>
           </span>
-        </div>
+          <span className="flex items-center gap-1.5 text-[11px] font-medium text-[#797487] dark:text-[#A39BAC]">
+            <span>{logs.length} entries</span>
+            {isLogsExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </span>
+        </button>
 
-        <p className="text-xs text-[#484455] dark:text-[#A39BAC] leading-relaxed">
-          Restricted to warnings and errors only. Logged purely inside device memory when an issue occurs.
-        </p>
+        {isLogsExpanded && (
+          <div className="mt-3 space-y-2.5 pt-2.5 border-t border-[#EADBFC]/60 dark:border-[#322742]/70">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {(['ALL', 'WARN', 'ERROR'] as const).map((lvl) => {
+                const count =
+                  lvl === 'ALL'
+                    ? logs.length
+                    : logs.filter((entry) => entry.level === lvl).length;
+                const active = logFilter === lvl;
+                return (
+                  <button
+                    key={lvl}
+                    type="button"
+                    onClick={() => setLogFilter(lvl)}
+                    className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                      active
+                        ? 'bg-[#5925DC] dark:bg-[#9D5AF5] text-white border-transparent'
+                        : 'bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border-[#EADBFC] dark:border-[#322742]'
+                    }`}
+                  >
+                    {lvl} ({count})
+                  </button>
+                );
+              })}
+            </div>
 
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {(['ALL', 'WARN', 'ERROR'] as const).map((lvl) => {
-            const count =
-              lvl === 'ALL'
-                ? logs.length
-                : logs.filter((entry) => entry.level === lvl).length;
-            const active = logFilter === lvl;
-            return (
+            <div className="p-2.5 rounded-xl bg-[#0F0B14] font-mono text-[11px] text-[#A39BAC] space-y-1 max-h-36 overflow-y-auto custom-scrollbar border border-[#322742]">
+              {filteredLogs.length === 0 ? (
+                <div className="text-slate-500 py-1.5 text-center">No warnings or errors recorded.</div>
+              ) : (
+                filteredLogs.slice(0, 50).map((log) => (
+                  <div key={log.id} className="leading-tight">
+                    <span
+                      className={
+                        log.level === 'ERROR'
+                          ? 'text-rose-400 font-semibold'
+                          : 'text-amber-400 font-semibold'
+                      }
+                    >
+                      [{log.level}]
+                    </span>{' '}
+                    <span className="text-slate-400">[{log.category}]</span> {log.message}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
               <button
-                key={lvl}
                 type="button"
-                onClick={() => setLogFilter(lvl)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
-                  active
-                    ? 'bg-[#5925DC] dark:bg-[#9D5AF5] text-white border-transparent'
-                    : 'bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border-[#EADBFC] dark:border-[#322742]'
-                }`}
+                onClick={() => {
+                  const dump = logger.exportLogsAsText();
+                  navigator.clipboard?.writeText(dump);
+                  setCopiedNotice(true);
+                  setTimeout(() => setCopiedNotice(false), 2000);
+                }}
+                className="px-2.5 py-1.5 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-[11px] font-semibold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 cursor-pointer"
               >
-                {lvl} ({count})
+                <Copy className="w-3 h-3" />
+                <span>{copiedNotice ? 'Copied!' : 'Copy'}</span>
               </button>
-            );
-          })}
-        </div>
 
-        {/* Log Viewer Container */}
-        <div className="p-3 rounded-xl bg-[#0F0B14] font-mono text-[11px] text-[#A39BAC] space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar border border-[#322742]">
-          {filteredLogs.length === 0 ? (
-            <div className="text-slate-500 py-2 text-center">No warnings or errors recorded.</div>
-          ) : (
-            filteredLogs.slice(0, 50).map((log) => (
-              <div key={log.id} className="leading-tight">
-                <span
-                  className={
-                    log.level === 'ERROR'
-                      ? 'text-rose-400 font-semibold'
-                      : 'text-amber-400 font-semibold'
-                  }
+              {logs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => logger.clearLogs()}
+                  className="px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-[11px] font-semibold border border-rose-200 dark:border-rose-800 flex items-center gap-1 cursor-pointer"
                 >
-                  [{log.level}]
-                </span>{' '}
-                <span className="text-slate-400">[{log.category}]</span> {log.message}
-              </div>
-            ))
-          )}
-        </div>
+                  <Trash2 className="w-3 h-3" />
+                  <span>Clear</span>
+                </button>
+              )}
 
-        <div className="flex items-center gap-2 pt-1 flex-wrap">
-          <button
-            type="button"
-            onClick={() => {
-              const dump = logger.exportLogsAsText();
-              navigator.clipboard?.writeText(dump);
-              setCopiedNotice(true);
-              setTimeout(() => setCopiedNotice(false), 2000);
-            }}
-            className="px-3 py-1.5 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-xs font-semibold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 cursor-pointer"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            <span>{copiedNotice ? 'Copied Logs!' : 'Copy Logs'}</span>
-          </button>
-
-          {logs.length > 0 && (
-            <button
-              type="button"
-              onClick={() => logger.clearLogs()}
-              className="px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-xs font-semibold border border-rose-200 dark:border-rose-800 flex items-center gap-1 cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Clear Logs</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={handleExportMarkdown}
-            className="px-3 py-1.5 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] text-[#1E1A24] dark:text-[#F7EEFC] text-xs font-semibold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export Notes (.md)</span>
-          </button>
-        </div>
+              <button
+                type="button"
+                onClick={handleExportMarkdown}
+                className="px-2.5 py-1.5 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] text-[#1E1A24] dark:text-[#F7EEFC] text-[11px] font-semibold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 cursor-pointer"
+              >
+                <Download className="w-3 h-3" />
+                <span>Export Notes (.md)</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* 5. Danger Zone / Wipe Data (Biometric Verification Required) */}
-      <div className="rounded-2xl p-4 sm:p-5 border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20 shadow-xs space-y-3">
-        <h3 className="text-sm font-semibold text-rose-700 dark:text-rose-400 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4" />
-          <span>Wipe All Application Data</span>
-        </h3>
-        <p className="text-xs text-rose-600/80 dark:text-rose-300/80 leading-relaxed">
-          Permanently delete all notes, custom category pins, and settings from local device storage. Biometric or device PIN verification is required.
-        </p>
+      {/* 6. Danger Zone (Compact) */}
+      <div className="rounded-2xl p-3.5 border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20 shadow-xs space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-rose-700 dark:text-rose-400">Wipe All Data</div>
+              <div className="text-[11px] text-rose-600/80 dark:text-rose-300/80 truncate">
+                Requires biometric or PIN verification
+              </div>
+            </div>
+          </div>
 
-        {showWipeConfirm ? (
-          <div className="space-y-2.5 pt-1">
-            <div className="p-2.5 rounded-xl bg-rose-100/70 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-200 font-medium">
-              Please verify your identity with Android biometric lock or device PIN to permanently wipe all notes.
+          {!showWipeConfirm && (
+            <button
+              type="button"
+              onClick={() => setShowWipeConfirm(true)}
+              className="px-3 py-1.5 rounded-xl bg-rose-600 text-white text-[11px] font-bold shadow-xs cursor-pointer active:scale-95 shrink-0"
+            >
+              Wipe
+            </button>
+          )}
+        </div>
+
+        {showWipeConfirm && (
+          <div className="space-y-2 pt-1">
+            <div className="p-2 rounded-xl bg-rose-100/70 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-[11px] text-rose-800 dark:text-rose-200 font-medium">
+              Verify with biometric lock or device PIN to permanently wipe all notes.
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <button
@@ -840,7 +703,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   if (authResult.success) {
                     setShowWipeConfirm(false);
                     onWipeData();
-                    setLockStatusMsg({ text: 'Biometric verified. All notes and categories wiped.' });
+                    setLockStatusMsg({ text: 'Biometric verified. All notes wiped.' });
                   } else {
                     setLockStatusMsg({
                       text: authResult.error || 'Biometric verification required to wipe notes.',
@@ -848,29 +711,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     });
                   }
                 }}
-                className="px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold shadow-xs cursor-pointer active:scale-95 flex items-center gap-1.5"
+                className="px-3 py-1.5 rounded-xl bg-rose-600 text-white text-[11px] font-bold shadow-xs cursor-pointer active:scale-95 flex items-center gap-1"
               >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>Verify Biometric & Wipe All</span>
+                <Smartphone className="w-3 h-3" />
+                <span>Verify & Wipe</span>
               </button>
               <button
                 type="button"
                 onClick={() => setShowWipeConfirm(false)}
-                className="px-4 py-2 rounded-xl bg-white dark:bg-[#1B1524] text-[#484455] dark:text-[#A39BAC] text-xs font-semibold border border-[#EADBFC] dark:border-[#322742] cursor-pointer"
+                className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#1B1524] text-[#484455] dark:text-[#A39BAC] text-[11px] font-semibold border border-[#EADBFC] dark:border-[#322742] cursor-pointer"
               >
                 Cancel
               </button>
             </div>
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setShowWipeConfirm(true)}
-            className="px-3.5 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Wipe All Notes</span>
-          </button>
         )}
       </div>
     </motion.div>

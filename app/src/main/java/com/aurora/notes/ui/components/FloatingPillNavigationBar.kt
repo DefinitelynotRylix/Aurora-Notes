@@ -30,11 +30,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -98,20 +101,23 @@ fun AnimatedBottomPillBar(
     val slideDistancePx = with(density) { 104.dp.toPx() }
 
     // 0f = normal navigation bar visible; 1f = selection action bar visible
-    val selectionProgress by animateFloatAsState(
+    // Keep as State<Float> so reads occur strictly in graphicsLayer (zero recompositions during slide).
+    val selectionProgressState = animateFloatAsState(
         targetValue = if (selectionState.isVisible) 1f else 0f,
         animationSpec = spring(
-            dampingRatio = 0.78f,
-            stiffness = 520f
+            dampingRatio = 0.80f,
+            stiffness = 560f
         ),
         label = "bottom_bar_selection_swap"
     )
+    val showNormalBar by remember { derivedStateOf { selectionProgressState.value < 0.999f } }
+    val showSelectionBar by remember { derivedStateOf { selectionProgressState.value > 0.001f } }
 
     Box(
         modifier = modifier.fillMaxWidth(),
         contentAlignment = Alignment.BottomCenter
     ) {
-        if (selectionProgress < 0.999f) {
+        if (showNormalBar) {
             FloatingPillNavigationBar(
                 selectedTab = selectedTab,
                 pendingTab = pendingTab,
@@ -121,19 +127,21 @@ fun AnimatedBottomPillBar(
                 trashCount = trashCount,
                 isHapticsEnabled = isHapticsEnabled,
                 modifier = Modifier.graphicsLayer {
-                    translationY = selectionProgress * slideDistancePx
-                    alpha = (1f - selectionProgress * 1.35f).coerceIn(0f, 1f)
+                    val p = selectionProgressState.value
+                    translationY = p * slideDistancePx
+                    alpha = (1f - p * 1.35f).coerceIn(0f, 1f)
                 }
             )
         }
 
-        if (selectionProgress > 0.001f) {
+        if (showSelectionBar) {
             FloatingSelectionActionBar(
                 state = selectionState,
                 isHapticsEnabled = isHapticsEnabled,
                 modifier = Modifier.graphicsLayer {
-                    translationY = (1f - selectionProgress) * slideDistancePx
-                    alpha = ((selectionProgress - 0.15f) / 0.85f).coerceIn(0f, 1f)
+                    val p = selectionProgressState.value
+                    translationY = (1f - p) * slideDistancePx
+                    alpha = ((p - 0.15f) / 0.85f).coerceIn(0f, 1f)
                 }
             )
         }
@@ -396,21 +404,23 @@ fun FloatingPillNavigationBar(
 
     val targetPillPos = if (isHoldingPill) dragTabPos else activeTargetTab.toFloat()
 
-    // Single stretching pill animation with arrival overshoot
-    val dropTabPos by animateFloatAsState(
+    // Keep animated pill positions as State<Float> (NOT delegated with `by`) so reading `.value`
+    // inside `drawWithCache { onDrawBehind { ... } }` skips Compose recomposition completely
+    // on every frame, running the pill animation purely on the render/draw thread at 60/120fps.
+    val dropTabPosState = animateFloatAsState(
         targetValue = targetPillPos,
         animationSpec = spring(
-            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.62f,
-            stiffness = if (isHoldingPill) 520f else 360f
+            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.70f,
+            stiffness = if (isHoldingPill) 680f else 480f
         ),
         label = "pill_lead_pos"
     )
 
-    val bodyTabPos by animateFloatAsState(
+    val bodyTabPosState = animateFloatAsState(
         targetValue = targetPillPos,
         animationSpec = spring(
-            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.68f,
-            stiffness = if (isHoldingPill) 340f else 240f
+            dampingRatio = if (isHoldingPill) Spring.DampingRatioNoBouncy else 0.76f,
+            stiffness = if (isHoldingPill) 440f else 310f
         ),
         label = "pill_trail_pos"
     )
@@ -424,6 +434,15 @@ fun FloatingPillNavigationBar(
 
     val pillSurfaceColor = if (isDarkTheme) Color(0xFF1B1524) else Color(0xFFFFFFFF)
     val unselectedItemColor = if (isDarkTheme) Color(0xFFD8CFE8) else Color(0xFF2B194D)
+    val borderBrush = remember {
+        Brush.horizontalGradient(
+            listOf(
+                AuroraRoyalViolet.copy(alpha = 0.55f),
+                AuroraAmethyst.copy(alpha = 0.75f),
+                AuroraRoyalViolet.copy(alpha = 0.55f)
+            )
+        )
+    }
 
     Box(
         modifier = modifier
@@ -437,16 +456,10 @@ fun FloatingPillNavigationBar(
             color = pillSurfaceColor,
             contentColor = unselectedItemColor,
             tonalElevation = 0.dp,
-            shadowElevation = 12.dp,
+            shadowElevation = 10.dp,
             border = BorderStroke(
                 width = 1.5.dp,
-                brush = Brush.horizontalGradient(
-                    listOf(
-                        AuroraRoyalViolet.copy(alpha = 0.55f),
-                        AuroraAmethyst.copy(alpha = 0.75f),
-                        AuroraRoyalViolet.copy(alpha = 0.55f)
-                    )
-                )
+                brush = borderBrush
             ),
             modifier = Modifier
                 .widthIn(max = 380.dp)
@@ -537,67 +550,65 @@ fun FloatingPillNavigationBar(
                         }
                     }
             ) {
-                val density = LocalDensity.current
-                val containerWidthPx = with(density) { maxWidth.toPx() }
-                val containerHeightPx = with(density) { maxHeight.toPx() }
-
+                val tabCount = items.size
                 Spacer(
                     modifier = Modifier
                         .fillMaxSize()
-                        .drawBehind {
-                            val fluidPaths = FluidDropPathBuilder.buildFluidDropPaths(
-                                dropPos = dropTabPos,
-                                bodyPos = bodyTabPos,
-                                tabCount = items.size,
-                                containerWidthPx = size.width.coerceAtLeast(containerWidthPx),
-                                containerHeightPx = size.height.coerceAtLeast(containerHeightPx)
-                            )
-
-                            val left = fluidPaths.boundingLeftPx
-                            val right = (fluidPaths.boundingRightPx).coerceAtLeast(left + 1f)
+                        .drawWithCache {
                             val h = size.height
-
-                            // Outer soft neon purple glow around the main pill and connected droplet
-                            drawPath(
-                                path = fluidPaths.mainMetaballPath,
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(
-                                        AuroraRoyalViolet.copy(alpha = 0.36f),
-                                        AuroraAmethyst.copy(alpha = 0.48f),
-                                        AuroraRoyalViolet.copy(alpha = 0.36f)
-                                    ),
-                                    startX = left,
-                                    endX = right
-                                )
-                            )
-
-                            // Main Neon Purple Fluid Drop + Connected Pill Fill
-                            drawPath(
-                                path = fluidPaths.mainMetaballPath,
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(
-                                        AuroraRoyalViolet,
-                                        Color(0xFF7B35E8),
-                                        AuroraAmethyst
-                                    ),
-                                    startX = left,
-                                    endX = right
-                                )
-                            )
-
-                            // Subtle outer rim highlight along the capsule contour
-                            drawPath(
-                                path = fluidPaths.mainMetaballPath,
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.38f),
-                                        Color.White.copy(alpha = 0.08f)
-                                    ),
-                                    startY = 0f,
-                                    endY = h
+                            val tabWidthPx = (size.width / tabCount.coerceAtLeast(1)).coerceAtLeast(1f)
+                            val pillCornerRadius = CornerRadius(h / 2f, h / 2f)
+                            val fillBrush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    AuroraRoyalViolet,
+                                    Color(0xFF7B35E8),
+                                    AuroraAmethyst
                                 ),
-                                style = Stroke(width = with(density) { 1.dp.toPx() })
+                                startX = 0f,
+                                endX = tabWidthPx * 1.15f
                             )
+                            val rimBrush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = 0.36f),
+                                    Color.White.copy(alpha = 0.06f)
+                                ),
+                                startY = 0f,
+                                endY = h
+                            )
+                            val rimStroke = Stroke(width = 1.dp.toPx())
+                            val bounds = FloatArray(2)
+
+                            onDrawBehind {
+                                FluidDropPathBuilder.computeCapsuleBounds(
+                                    dropPos = dropTabPosState.value,
+                                    bodyPos = bodyTabPosState.value,
+                                    tabCount = tabCount,
+                                    containerWidthPx = size.width,
+                                    containerHeightPx = h,
+                                    outBounds = bounds
+                                )
+                                val leftPx = bounds[0]
+                                val pillWidth = (bounds[1] - leftPx).coerceAtLeast(h)
+                                val pillSize = Size(pillWidth, h)
+
+                                translate(left = leftPx) {
+                                    // Single GPU-accelerated rounded rect fill (zero Path/Brush allocations per frame)
+                                    drawRoundRect(
+                                        brush = fillBrush,
+                                        topLeft = Offset.Zero,
+                                        size = pillSize,
+                                        cornerRadius = pillCornerRadius
+                                    )
+                                    // Crisp rim highlight along the capsule contour
+                                    drawRoundRect(
+                                        brush = rimBrush,
+                                        topLeft = Offset.Zero,
+                                        size = pillSize,
+                                        cornerRadius = pillCornerRadius,
+                                        style = rimStroke
+                                    )
+                                }
+                            }
                         }
                 )
 
@@ -611,15 +622,15 @@ fun FloatingPillNavigationBar(
 
                         val contentColor by animateColorAsState(
                             targetValue = if (isSelected) Color.White else unselectedItemColor,
-                            animationSpec = tween(durationMillis = 160),
+                            animationSpec = tween(durationMillis = 140),
                             label = "tab_content_color"
                         )
 
-                        val iconScale by animateFloatAsState(
-                            targetValue = if (isSelected) 1.08f else 1.0f,
+                        val iconScaleState = animateFloatAsState(
+                            targetValue = if (isSelected) 1.07f else 1.0f,
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
+                                stiffness = Spring.StiffnessMedium
                             ),
                             label = "tab_icon_scale"
                         )
@@ -641,7 +652,11 @@ fun FloatingPillNavigationBar(
                                     tint = contentColor,
                                     modifier = Modifier
                                         .size(18.dp)
-                                        .scale(iconScale)
+                                        .graphicsLayer {
+                                            val s = iconScaleState.value
+                                            scaleX = s
+                                            scaleY = s
+                                        }
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(

@@ -28,25 +28,25 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
     {
       id: 'welcome',
       title: 'Welcome to Aurora Notes',
-      subtitle: 'Tactile Minimalism Meets AES-256 Cryptography',
+      subtitle: 'Tactile Minimalism & Fluid Navigation',
       icon: <Sparkles className="w-6 h-6 text-[#5925DC] dark:text-[#C296FD]" />,
-      badge: 'Design & Cryptography',
+      badge: 'Design & Motion',
       content: (
         <div className="space-y-4">
           <p className="text-sm text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            Aurora Notes is an atmospheric, privacy-first digital note-taking experience protected by mandatory <strong>AES-256-GCM cryptography</strong> and designed for deep, uninterrupted thought.
+            Aurora Notes is an atmospheric, privacy-first digital note-taking experience built for deep, uninterrupted thought with zero cloud bloat.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] shadow-xs">
-              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">AES-256 Encrypted Storage</span>
+              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">Automatic AES-256 Protection</span>
               <p className="text-[#797487] dark:text-[#A39BAC] leading-normal">
-                Hardware-backed AndroidKeyStore AES-256-GCM encryption permanently secures your Room database and private storage files.
+                Hardware-backed AES-256-GCM encryption runs silently in the background to keep every note private on your device.
               </p>
             </div>
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] shadow-xs">
-              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">Liquid Navigation & Morphing</span>
+              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">Fluid Pill Navigation</span>
               <p className="text-[#797487] dark:text-[#A39BAC] leading-normal">
-                Floating pill navigation with tactile haptics and smooth Masonry-to-Column view morphing.
+                GPU-accelerated floating pill navigation with hold-to-slide gestures, tactile haptics, and Masonry-to-Column morphing.
               </p>
             </div>
           </div>
@@ -55,7 +55,7 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
               ✦
             </div>
             <p className="text-xs text-[#5925DC] dark:text-[#C296FD] font-medium leading-relaxed">
-              No account creation or cloud login required. Your AES-256 encrypted local vault is active immediately on first launch.
+              No account creation or cloud login required. Everything stays locally encrypted on your device from first launch.
             </p>
           </div>
         </div>
@@ -63,27 +63,27 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
     },
     {
       id: 'local-privacy',
-      title: 'AES-256 Local Storage & Auto-Cleanup',
-      subtitle: 'Encrypted Offline Storage • Internet Only For Updates',
+      title: 'Private & Encrypted Offline',
+      subtitle: 'Zero Cloud Tracking • Internet Only For Updates',
       icon: <ShieldCheck className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />,
-      badge: 'Cryptography & Privacy',
+      badge: 'Privacy First',
       content: (
         <div className="space-y-4">
           <p className="text-sm text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            All of your notes, checklists, and custom tags are encrypted with AES-256-GCM on your device. Internet access is kept minimal and used exclusively when you manually scan for app updates:
+            All of your notes, checklists, images, and tags remain 100% offline on your device. Internet access is kept minimal and used only when you check for app updates:
           </p>
           <div className="space-y-2.5">
             <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Mandatory AES-256-GCM Encryption: Room SQLite records and mirrored private files stay encrypted at rest.</span>
+              <span>Always-On Background Encryption: Notes stay protected at rest automatically with zero configuration.</span>
             </div>
             <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Automatic Orphaned File Cleanup: Stale .tmp writes and orphaned note files are swept automatically.</span>
+              <span>Clean Local Exports: Export clean Markdown (.md) notes or high-resolution visual PNG cards anytime.</span>
             </div>
             <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Minimal Internet Permission: Only used when you tap &ldquo;Scan for Updates&rdquo; in Settings to pull GitHub Releases.</span>
+              <span>Minimal Internet Permission: Only used when you tap &ldquo;Check Updates&rdquo; in Settings.</span>
             </div>
           </div>
         </div>
@@ -98,19 +98,19 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
       content: (
         <div className="space-y-4">
           <p className="text-sm text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            Secure access to Aurora Notes directly through your Android device's native lock screen:
+            Secure access to Aurora Notes directly through your Android device&apos;s native lock screen:
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742]">
               <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">Native Hardware Authentication</span>
               <p className="text-[#797487] dark:text-[#A39BAC]">
-                Uses your device's native biometric prompt (Fingerprint, Face unlock, or lock screen PIN).
+                Uses your device&apos;s native biometric prompt (Fingerprint, Face unlock, or lock screen PIN).
               </p>
             </div>
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742]">
               <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">No Custom Passwords</span>
               <p className="text-[#797487] dark:text-[#A39BAC]">
-                No need to memorize another password—your phone's native security gatekeeper handles verification.
+                No need to memorize another password—your phone&apos;s native security gatekeeper handles verification.
               </p>
             </div>
           </div>
@@ -119,32 +119,32 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
     },
     {
       id: 'productivity',
-      title: 'Tactile Notes, Pins & Checklists',
-      subtitle: 'Fast Organization for Ideas and Tasks',
+      title: 'Fast Editor, Undo/Redo & Drag Reorder',
+      subtitle: 'Effortless Writing, Checklists & Organization',
       icon: <CheckSquare className="w-6 h-6 text-[#9B51E0] dark:text-[#C296FD]" />,
-      badge: 'Productivity Features',
+      badge: 'Editor & Productivity',
       content: (
         <div className="space-y-4">
           <p className="text-sm text-[#484455] dark:text-[#C5BECD] leading-relaxed">
-            Effortlessly organize your thoughts with custom category pins, smooth pinned note prioritization, and interactive checklists:
+            Write with confidence using instant Undo &amp; Redo, rich formatting, inline checklists, and hold-to-drag note reordering:
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-center">
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742]">
               <div className="w-8 h-8 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] flex items-center justify-center mx-auto mb-2">
                 <CheckSquare className="w-4 h-4" />
               </div>
-              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-0.5">Inline Checklists</span>
+              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-0.5">Undo, Redo &amp; Checklists</span>
               <p className="text-[11px] text-[#797487] dark:text-[#A39BAC]">
-                Smooth checkboxes with real-time strike-through transitions.
+                Step backward or forward through edits right from the top bar alongside live word counts.
               </p>
             </div>
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742]">
               <div className="w-8 h-8 rounded-full bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] flex items-center justify-center mx-auto mb-2">
                 <Trash2 className="w-4 h-4" />
               </div>
-              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-0.5">Trash & Restore</span>
+              <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-0.5">Hold to Reorder &amp; Tag</span>
               <p className="text-[11px] text-[#797487] dark:text-[#A39BAC]">
-                Deleted notes are safely held in Trash with one-by-one or bulk purge.
+                Long-press notes to drag them into place, batch-tag, archive, or safely move them to Trash.
               </p>
             </div>
           </div>

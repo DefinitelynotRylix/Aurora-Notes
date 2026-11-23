@@ -218,6 +218,15 @@ test('cleanupOrphanedPrivateStorageEntries removes orphaned note files, empty fi
   assert.ok(!report.cleanedKeys.includes(`${PRIVATE_EXTERNAL_FILE_PREFIX}note_1.json`));
 });
 
+import {
+  createEditorHistory,
+  pushEditorHistory,
+  undoEditorHistory,
+  redoEditorHistory,
+  canUndoEditorHistory,
+  canRedoEditorHistory,
+} from './editorRules';
+
 test('hitting Enter repeatedly (10+ times) with checkbox and bullet active never cuts off or disables either mode', () => {
   let state = { text: '☐ • ', cursorOffset: 4 };
   for (let i = 0; i < 10; i++) {
@@ -230,6 +239,85 @@ test('hitting Enter repeatedly (10+ times) with checkbox and bullet active never
   }
 });
 
+test('EditorHistory records character-by-character typing without coalescing, preserves spaces and newlines, and deletes whole-word entries in one step', () => {
+  type Snap = { title: string; body: string };
+  const eq = (a: Snap, b: Snap) => a.title === b.title && a.body === b.body;
+  let h = createEditorHistory<Snap>({ title: '', body: '' });
 
+  assert.equal(canUndoEditorHistory(h), false);
+  assert.equal(canRedoEditorHistory(h), false);
+  assert.equal(h.maxDepth, 500);
 
+  // 1. Type letters one by one rapidly (10ms apart) -> each letter is its own undo step
+  h = pushEditorHistory(h, { title: '', body: 'H' }, { now: 1000, isEqual: eq });
+  h = pushEditorHistory(h, { title: '', body: 'Hi' }, { now: 1010, isEqual: eq });
+  // 2. Type a Space -> distinct undo step
+  h = pushEditorHistory(h, { title: '', body: 'Hi ' }, { now: 1020, isEqual: eq });
+  // 3. Insert a whole word at once (swipe/suggestion/paste) -> single undo step
+  h = pushEditorHistory(h, { title: '', body: 'Hi world' }, { now: 1030, isEqual: eq });
+  // 4. Press Enter (newline) -> distinct undo step
+  h = pushEditorHistory(h, { title: '', body: 'Hi world\n' }, { now: 1040, isEqual: eq });
+  // 5. Type another letter
+  h = pushEditorHistory(h, { title: '', body: 'Hi world\nA' }, { now: 1050, isEqual: eq });
+
+  assert.equal(h.past.length, 6);
+
+  // Undo step-by-step: removes 'A', then Enter, then whole word 'world', then Space, then 'i', then 'H'
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'Hi world\n');
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'Hi world');
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'Hi ');
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'Hi');
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'H');
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, '');
+  assert.equal(canUndoEditorHistory(h), false);
+
+  // Redo step-by-step: restores 'H', 'Hi', 'Hi ', 'Hi world', 'Hi world\n', 'Hi world\nA'
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'H');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hi');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hi ');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hi world');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hi world\n');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hi world\nA');
+  assert.equal(canRedoEditorHistory(h), false);
+
+  // Duplicate no-op snapshot is ignored
+  const beforeNoop = h;
+  h = pushEditorHistory(h, { title: '', body: 'Hi world\nA' }, { now: 1060, isEqual: eq });
+  assert.equal(h, beforeNoop);
+});
+
+test('EditorHistory clears redo stack on new branch and enforces maxDepth cap', () => {
+  type Snap = { title: string; body: string };
+  const eq = (a: Snap, b: Snap) => a.title === b.title && a.body === b.body;
+  let h = createEditorHistory<Snap>({ title: 'Init', body: '' }, 3);
+
+  h = pushEditorHistory(h, { title: 'Init', body: 'a' }, { isEqual: eq });
+  h = pushEditorHistory(h, { title: 'Init', body: 'ab' }, { isEqual: eq });
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'a');
+  assert.equal(canRedoEditorHistory(h), true);
+
+  // Branching edit clears redo stack
+  h = pushEditorHistory(h, { title: 'Init', body: 'ac' }, { isEqual: eq });
+  assert.equal(canRedoEditorHistory(h), false);
+
+  // Pushing past maxDepth = 3 trims oldest entries
+  h = pushEditorHistory(h, { title: 'Init', body: 'acd' }, { isEqual: eq });
+  h = pushEditorHistory(h, { title: 'Init', body: 'acde' }, { isEqual: eq });
+  h = pushEditorHistory(h, { title: 'Init', body: 'acdef' }, { isEqual: eq });
+  assert.equal(h.past.length, 3);
+  assert.equal(h.past[0].body, 'ac');
+});
 

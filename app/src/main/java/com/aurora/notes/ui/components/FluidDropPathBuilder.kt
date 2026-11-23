@@ -24,13 +24,18 @@ object FluidDropPathBuilder {
         val boundingRightPx: Float
     )
 
-    fun buildFluidDropPaths(
+    /**
+     * Zero-allocation capsule bounds computation for high-refresh (60/120fps) draw-phase rendering.
+     * Writes `[leftPx, rightPx]` directly into `outBounds` without allocating Path, RoundRect, or wrapper objects.
+     */
+    fun computeCapsuleBounds(
         dropPos: Float,
         bodyPos: Float,
         tabCount: Int,
         containerWidthPx: Float,
-        containerHeightPx: Float
-    ): FluidDropPaths {
+        containerHeightPx: Float,
+        outBounds: FloatArray
+    ) {
         val safeTabCount = max(1, tabCount)
         val tabWidthPx = containerWidthPx / safeTabCount.toFloat()
         val h = containerHeightPx
@@ -42,21 +47,18 @@ object FluidDropPathBuilder {
         val minSlot = min(leadPos, trailPos)
         val maxSlot = max(leadPos, trailPos)
 
-        // Single continuous pill stretches slightly along the travel axis
-        // Max span is 1.28 slots (28% stretch)
+        // Single continuous pill stretches slightly along the travel axis (max 24% stretch)
         val naturalSpan = (maxSlot - minSlot) + 1f
-        val clampedSpan = naturalSpan.coerceAtMost(1.28f)
+        val clampedSpan = naturalSpan.coerceAtMost(1.24f)
 
         val leftSlot: Float
         val rightSlot: Float
         if (leadPos >= trailPos) {
-            // Moving right: lead edge leads, trail edge follows
             val right = (minSlot + clampedSpan).coerceAtMost(maxTabIndex + 1f)
             val left = (right - clampedSpan).coerceAtLeast(0f)
             leftSlot = left
             rightSlot = right
         } else {
-            // Moving left: lead edge leads to the left
             val left = (maxSlot + 1f - clampedSpan).coerceAtLeast(0f)
             val right = (left + clampedSpan).coerceAtMost(maxTabIndex + 1f)
             leftSlot = left
@@ -65,8 +67,22 @@ object FluidDropPathBuilder {
 
         val leftPx = (leftSlot * tabWidthPx).coerceIn(0f, (containerWidthPx - h).coerceAtLeast(0f))
         val rightPx = (rightSlot * tabWidthPx).coerceIn(leftPx + h, containerWidthPx)
+        outBounds[0] = leftPx
+        outBounds[1] = rightPx
+    }
 
-        val capsulePath = buildSymmetricCapsule(leftPx, 0f, rightPx, h)
+    fun buildFluidDropPaths(
+        dropPos: Float,
+        bodyPos: Float,
+        tabCount: Int,
+        containerWidthPx: Float,
+        containerHeightPx: Float
+    ): FluidDropPaths {
+        val bounds = FloatArray(2)
+        computeCapsuleBounds(dropPos, bodyPos, tabCount, containerWidthPx, containerHeightPx, bounds)
+        val leftPx = bounds[0]
+        val rightPx = bounds[1]
+        val capsulePath = buildSymmetricCapsule(leftPx, 0f, rightPx, containerHeightPx)
 
         return FluidDropPaths(
             mainMetaballPath = capsulePath,

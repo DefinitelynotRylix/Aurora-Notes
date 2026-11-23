@@ -86,14 +86,12 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   );
 
   const trackRef = useRef<HTMLDivElement>(null);
-  const [trackSize, setTrackSize] = useState({ width: 320, height: 44 });
+  const pillRef = useRef<HTMLDivElement>(null);
+  const trackWidthRef = useRef<number>(320);
   const [isHoldingPill, setIsHoldingPill] = useState(false);
   const [dragTabPos, setDragTabPos] = useState(targetIndex);
-
-  const [animBounds, setAnimBounds] = useState({
-    leftSlot: targetIndex,
-    rightSlot: targetIndex + 1,
-  });
+  const dragTabPosRef = useRef<number>(targetIndex);
+  dragTabPosRef.current = dragTabPos;
 
   const animRef = useRef({
     currentLeft: targetIndex,
@@ -122,12 +120,27 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     holdTimer: null,
   });
 
+  // Directly updates GPU-composited transform on the pill element (0 React re-renders, 0 layout/paint)
+  const applyPillTransform = (leftSlot: number, rightSlot: number) => {
+    const el = pillRef.current;
+    if (!el) return;
+    const tabCount = Math.max(1, items.length);
+    const width = Math.max(1, trackWidthRef.current);
+    const slotWidth = width / tabCount;
+    const clampedLeft = Math.max(0, Math.min(tabCount - 1, leftSlot));
+    const clampedRight = Math.max(clampedLeft + 1, Math.min(tabCount, rightSlot));
+    const leftPx = clampedLeft * slotWidth;
+    const scaleX = Math.max(1, clampedRight - clampedLeft);
+    el.style.transform = `translate3d(${leftPx.toFixed(2)}px, 0, 0) scaleX(${scaleX.toFixed(4)})`;
+  };
+
   useEffect(() => {
     const updateMeasure = () => {
       if (trackRef.current) {
         const rect = trackRef.current.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          setTrackSize({ width: rect.width, height: rect.height });
+        if (rect.width > 0) {
+          trackWidthRef.current = rect.width;
+          applyPillTransform(animRef.current.currentLeft, animRef.current.currentRight);
         }
       }
     };
@@ -136,7 +149,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     return () => window.removeEventListener('resize', updateMeasure);
   }, []);
 
-  // Follow finger smoothly when holding and sliding across buttons
+  // Follow finger smoothly when holding and sliding across buttons (pure rAF DOM transform, zero setState)
   useEffect(() => {
     if (!isHoldingPill) return;
     cancelAnimationFrame(animRef.current.rafId);
@@ -144,33 +157,29 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     let raf = 0;
     const step = () => {
       const state = animRef.current;
-      const targetLeft = dragTabPos;
-      const targetRight = dragTabPos + 1;
-      const nextLeft = state.currentLeft + (targetLeft - state.currentLeft) * 0.4;
-      const nextRight = state.currentRight + (targetRight - state.currentRight) * 0.4;
+      const targetLeft = dragTabPosRef.current;
+      const targetRight = targetLeft + 1;
+      const nextLeft = state.currentLeft + (targetLeft - state.currentLeft) * 0.42;
+      const nextRight = state.currentRight + (targetRight - state.currentRight) * 0.42;
       state.currentLeft = nextLeft;
       state.currentRight = nextRight;
-      setAnimBounds({
-        leftSlot: nextLeft,
-        rightSlot: nextRight,
-      });
-      if (Math.abs(targetLeft - nextLeft) > 0.002 || Math.abs(targetRight - nextRight) > 0.002) {
-        raf = requestAnimationFrame(step);
-      }
+      applyPillTransform(nextLeft, nextRight);
+      raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [isHoldingPill, dragTabPos]);
+  }, [isHoldingPill]);
 
-  // Single solid pill travels smoothly with zero cooldown and interruptible mid-flight retargeting
+  // Single solid GPU-composited pill travels smoothly at 60/120fps with interruptible retargeting
   useEffect(() => {
     if (isHoldingPill) return;
     const state = animRef.current;
     if (
       state.targetLeft === targetIndex &&
-      Math.abs(state.currentLeft - targetIndex) < 0.005 &&
-      Math.abs(state.currentRight - (targetIndex + 1)) < 0.005
+      Math.abs(state.currentLeft - targetIndex) < 0.004 &&
+      Math.abs(state.currentRight - (targetIndex + 1)) < 0.004
     ) {
+      applyPillTransform(targetIndex, targetIndex + 1);
       return;
     }
 
@@ -181,7 +190,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     state.targetRight = targetIndex + 1;
     state.startTime = performance.now();
 
-    const DURATION = 320;
+    const DURATION = 260;
 
     const tick = (now: number) => {
       const elapsed = Math.max(0, now - state.startTime);
@@ -189,10 +198,11 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
 
       const movingRight = state.targetLeft >= state.startLeft;
 
-      const leadProgress = easeSmoothOvershoot(progress, 1.75);
-      const trailProgress = progress < 0.04
-        ? 0
-        : easeSmoothOvershoot((progress - 0.04) / 0.96, 1.25);
+      const leadProgress = easeSmoothOvershoot(progress, 1.45);
+      const trailProgress =
+        progress < 0.05
+          ? 0
+          : easeSmoothOvershoot((progress - 0.05) / 0.95, 1.05);
 
       let nextLeft = state.currentLeft;
       let nextRight = state.currentRight;
@@ -200,14 +210,14 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
       if (movingRight) {
         nextRight = state.startRight + (state.targetRight - state.startRight) * leadProgress;
         nextLeft = state.startLeft + (state.targetLeft - state.startLeft) * trailProgress;
-        if (nextRight - nextLeft > 1.3) {
-          nextLeft = nextRight - 1.3;
+        if (nextRight - nextLeft > 1.24) {
+          nextLeft = nextRight - 1.24;
         }
       } else {
         nextLeft = state.startLeft + (state.targetLeft - state.startLeft) * leadProgress;
         nextRight = state.startRight + (state.targetRight - state.startRight) * trailProgress;
-        if (nextRight - nextLeft > 1.3) {
-          nextRight = nextLeft + 1.3;
+        if (nextRight - nextLeft > 1.24) {
+          nextRight = nextLeft + 1.24;
         }
       }
 
@@ -218,10 +228,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
 
       state.currentLeft = nextLeft;
       state.currentRight = nextRight;
-      setAnimBounds({
-        leftSlot: nextLeft,
-        rightSlot: nextRight,
-      });
+      applyPillTransform(nextLeft, nextRight);
 
       if (progress < 1) {
         state.rafId = requestAnimationFrame(tick);
@@ -323,13 +330,6 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
     }
   };
 
-  const slotWidth = trackSize.width / Math.max(1, items.length);
-  const h = trackSize.height;
-  const leftPx = Math.max(0, Math.min(trackSize.width - h, animBounds.leftSlot * slotWidth));
-  const rightPx = Math.max(leftPx + h, Math.min(trackSize.width, animBounds.rightSlot * slotWidth));
-  const pillWidth = Math.max(h, rightPx - leftPx);
-  const pillRadius = h / 2;
-
   const visualActiveIndex = isHoldingPill
     ? Math.min(items.length - 1, Math.max(0, Math.round(dragTabPos)))
     : targetIndex;
@@ -351,13 +351,13 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
         <nav
           aria-label="Bottom Navigation"
           aria-hidden={isSelectionMode}
-          className={`absolute inset-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          className={`absolute inset-0 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
             isSelectionMode
               ? 'translate-y-28 opacity-0 pointer-events-none'
               : 'translate-y-0 opacity-100 pointer-events-auto'
           }`}
         >
-          <div className="glass-floating rounded-full p-1.5 flex items-center justify-between shadow-[0_16px_36px_-4px_rgba(89,37,220,0.28)] dark:shadow-[0_16px_36px_-4px_rgba(0,0,0,0.75)] border border-white/80 dark:border-white/15 bg-white/95 dark:bg-[#140E21]/95 backdrop-blur-2xl overflow-hidden">
+          <div className="glass-floating rounded-full p-1.5 flex items-center justify-between shadow-[0_14px_32px_-4px_rgba(89,37,220,0.26)] dark:shadow-[0_14px_32px_-4px_rgba(0,0,0,0.72)] border border-white/80 dark:border-white/15 bg-white/95 dark:bg-[#140E21]/95 backdrop-blur-xl overflow-hidden">
             <div
               ref={trackRef}
               onPointerDown={handlePointerDown}
@@ -366,40 +366,18 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
               onPointerCancel={finishGesture}
               className="relative grid grid-cols-4 w-full rounded-full overflow-hidden touch-none select-none"
             >
-              <svg
-                width={trackSize.width}
-                height={trackSize.height}
-                viewBox={`0 0 ${trackSize.width} ${trackSize.height}`}
-                className="absolute inset-0 pointer-events-none z-0 overflow-hidden"
+              {/* GPU-Composited Active Pill (transform-only, zero SVG filter blur, zero per-frame React re-renders) */}
+              <div
+                ref={pillRef}
                 aria-hidden="true"
-              >
-                <defs>
-                  <linearGradient id="aurora-pill-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#6929F5" />
-                    <stop offset="50%" stopColor="#7B35E8" />
-                    <stop offset="100%" stopColor="#B86BFF" />
-                  </linearGradient>
-                  <filter id="aurora-pill-glow" x="-15%" y="-25%" width="130%" height="150%">
-                    <feGaussianBlur stdDeviation="5" result="blur" />
-                    <feMerge>
-                      <feMergeNode in="blur" />
-                      <feMergeNode in="SourceGraphic" />
-                    </feMerge>
-                  </filter>
-                </defs>
-                <rect
-                  x={leftPx}
-                  y={0}
-                  width={pillWidth}
-                  height={h}
-                  rx={pillRadius}
-                  ry={pillRadius}
-                  fill="url(#aurora-pill-grad)"
-                  stroke="rgba(255,255,255,0.34)"
-                  strokeWidth="1"
-                  filter="url(#aurora-pill-glow)"
-                />
-              </svg>
+                data-testid="navbar-active-pill"
+                style={{
+                  width: `${100 / Math.max(1, items.length)}%`,
+                  transformOrigin: 'left center',
+                  willChange: 'transform',
+                }}
+                className="pointer-events-none absolute top-0 bottom-0 left-0 z-0 rounded-full bg-gradient-to-r from-[#6929F5] via-[#7B35E8] to-[#B86BFF] border border-white/30 shadow-[0_2px_12px_rgba(105,41,245,0.45)]"
+              />
 
               {items.map((item, idx) => {
                 const isSelected = visualActiveIndex === idx;

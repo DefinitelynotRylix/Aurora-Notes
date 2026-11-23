@@ -16,7 +16,9 @@ import {
   Clock,
   Image as ImageIcon,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Undo2,
+  Redo2
 } from 'lucide-react';
 import { logger } from '../utils/logger';
 import {
@@ -24,8 +26,31 @@ import {
   linkifyDomContainer,
   openUrlInDefaultBrowser,
 } from '../utils/linkUtils';
-import { computeWordAndLetterCounts } from '../utils/editorRules';
+import {
+  computeWordAndLetterCounts,
+  createEditorHistory,
+  pushEditorHistory,
+  replacePresentEditorHistory,
+  undoEditorHistory,
+  redoEditorHistory,
+  canUndoEditorHistory,
+  canRedoEditorHistory,
+  EditorHistoryState,
+} from '../utils/editorRules';
 import { ShareNoteModal } from './ShareNoteModal';
+
+interface EditorCaretBookmark {
+  field: 'title' | 'body';
+  titleCaret?: number | null;
+  bodyPath?: number[];
+  bodyOffset?: number;
+}
+
+interface EditorHistorySnapshot {
+  title: string;
+  contentHtml: string;
+  caret?: EditorCaretBookmark | null;
+}
 
 interface NoteEditorModalProps {
   note: Note;
@@ -78,6 +103,157 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     setIsSavedClean(false);
     setShowSavedIndicator(false);
   }, []);
+
+  // Character-by-character / atomic-action Undo & Redo history engine
+  // Every single character, space, Enter, Backspace, or whole-word paste/swipe edit
+  // gets its own discrete step with exact caret bookmark restoration.
+  const initialHistoryDepth = (note.content || '').length > 40_000 ? 120 : 500;
+  const historyRef = useRef<EditorHistoryState<EditorHistorySnapshot>>(
+    createEditorHistory<EditorHistorySnapshot>(
+      {
+        title: note.title,
+        contentHtml: note.content || '',
+      },
+      initialHistoryDepth
+    )
+  );
+  const baselineSnapshotRef = useRef<EditorHistorySnapshot>({
+    title: note.title.trim(),
+    contentHtml: note.content || '',
+  });
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const captureCaretBookmark = useCallback(
+    (preferredField?: 'title' | 'body'): EditorCaretBookmark | null => {
+      const titleEl = titleInputRef.current;
+      const root = editorRef.current;
+      const isTitleActive =
+        preferredField === 'title' ||
+        (preferredField !== 'body' && titleEl && document.activeElement === titleEl);
+
+      if (isTitleActive && titleEl) {
+        return {
+          field: 'title',
+          titleCaret: titleEl.selectionStart ?? titleEl.value.length,
+        };
+      }
+
+      if (root) {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          let node: Node | null = range.startContainer;
+          if (root.contains(node)) {
+            const path: number[] = [];
+            while (node && node !== root) {
+              const parent: Node | null = node.parentNode;
+              if (!parent) break;
+              const idx = Array.prototype.indexOf.call(parent.childNodes, node);
+              if (idx < 0) break;
+              path.unshift(idx);
+              node = parent;
+            }
+            if (node === root) {
+              return {
+                field: 'body',
+                bodyPath: path,
+                bodyOffset: range.startOffset,
+              };
+            }
+          }
+        }
+        return { field: 'body' };
+      }
+      return null;
+    },
+    []
+  );
+
+  const restoreCaretBookmark = useCallback((bookmark?: EditorCaretBookmark | null) => {
+    if (!bookmark) return;
+    if (bookmark.field === 'title' && titleInputRef.current) {
+      const el = titleInputRef.current;
+      const pos = Math.max(0, Math.min(bookmark.titleCaret ?? el.value.length, el.value.length));
+      requestAnimationFrame(() => {
+        if (document.activeElement === el) {
+          try {
+            el.setSelectionRange(pos, pos);
+          } catch {
+            // ignore unsupported input selection
+          }
+        }
+      });
+      return;
+    }
+
+    const root = editorRef.current;
+    if (!root) return;
+    const sel = window.getSelection();
+    if (!sel) return;
+
+    let targetNode: Node | null = root;
+    if (bookmark.bodyPath) {
+      for (const idx of bookmark.bodyPath) {
+        if (!targetNode || idx < 0 || idx >= targetNode.childNodes.length) {
+          targetNode = null;
+          break;
+        }
+        targetNode = targetNode.childNodes[idx];
+      }
+    } else {
+      targetNode = null;
+    }
+
+    const range = document.createRange();
+    try {
+      if (targetNode) {
+        const maxOffset =
+          targetNode.nodeType === Node.TEXT_NODE
+            ? (targetNode.textContent || '').length
+            : targetNode.childNodes.length;
+        const safeOffset = Math.max(0, Math.min(bookmark.bodyOffset ?? maxOffset, maxOffset));
+        range.setStart(targetNode, safeOffset);
+        range.collapse(true);
+      } else {
+        range.selectNodeContents(root);
+        range.collapse(false);
+      }
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } catch {
+      // fallback safely if DOM node cannot receive range
+    }
+  }, []);
+
+  const syncHistoryFlags = useCallback(() => {
+    setCanUndo(canUndoEditorHistory(historyRef.current));
+    setCanRedo(canRedoEditorHistory(historyRef.current));
+  }, []);
+
+  const commitHistorySnapshot = useCallback(
+    (
+      nextTitle: string,
+      nextHtml: string,
+      _forceNewEntry: boolean = true,
+      preferredField?: 'title' | 'body'
+    ) => {
+      if (isReadOnly) return;
+      const caret = captureCaretBookmark(preferredField);
+      historyRef.current = pushEditorHistory(
+        historyRef.current,
+        { title: nextTitle, contentHtml: nextHtml, caret },
+        {
+          now: Date.now(),
+          coalesceMs: 0,
+          forceNewEntry: true,
+          isEqual: (a, b) => a.title === b.title && a.contentHtml === b.contentHtml,
+        }
+      );
+      syncHistoryFlags();
+    },
+    [isReadOnly, syncHistoryFlags, captureCaretBookmark]
+  );
 
   // Selected image popover state (small window next to clicked image)
   const [activeImagePopover, setActiveImagePopover] = useState<{
@@ -210,10 +386,11 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     [isReadOnly, setCheckboxVisualAndDomState]
   );
 
-  // Populate editor initial content on mount & sync checkboxes and clickable purple links
+  // Populate editor initial content on mount & sync checkboxes, clickable links, and Undo/Redo baseline
   useEffect(() => {
+    let initialHtml = note.content || '';
     if (editorRef.current) {
-      editorRef.current.innerHTML = note.content || '';
+      editorRef.current.innerHTML = initialHtml;
       syncBodyTextSnapshot(editorRef.current);
       linkifyDomContainer(editorRef.current);
 
@@ -221,11 +398,84 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       checkboxes.forEach((cb) => {
         bindCheckboxBehavior(cb as HTMLInputElement);
       });
+      initialHtml = editorRef.current.innerHTML;
     }
+    baselineSnapshotRef.current = {
+      title: note.title.trim(),
+      contentHtml: initialHtml,
+    };
+    const nextDepth = initialHtml.length > 40_000 ? 120 : 500;
+    historyRef.current = createEditorHistory<EditorHistorySnapshot>(
+      {
+        title: note.title,
+        contentHtml: initialHtml,
+        caret: { field: 'body' },
+      },
+      nextDepth
+    );
+    syncHistoryFlags();
     hasUnsavedChangesRef.current = false;
     setIsSavedClean(isExistingSavedNote);
     setShowSavedIndicator(false);
-  }, [note.id, isReadOnly, bindCheckboxBehavior, isExistingSavedNote]);
+  }, [note.id, isReadOnly, bindCheckboxBehavior, isExistingSavedNote, syncHistoryFlags, syncBodyTextSnapshot]);
+
+  const applyHistorySnapshot = useCallback(
+    (snapshot: EditorHistorySnapshot) => {
+      setTitle(snapshot.title);
+      setActiveImagePopover(null);
+      if (editorRef.current) {
+        editorRef.current.innerHTML = snapshot.contentHtml;
+        const checkboxes = editorRef.current.querySelectorAll('input[type="checkbox"]');
+        checkboxes.forEach((cb) => {
+          bindCheckboxBehavior(cb as HTMLInputElement);
+        });
+        syncBodyTextSnapshot(editorRef.current);
+      }
+      restoreCaretBookmark(snapshot.caret);
+      const matchesBaseline =
+        snapshot.title.trim() === baselineSnapshotRef.current.title &&
+        snapshot.contentHtml === baselineSnapshotRef.current.contentHtml;
+      hasUnsavedChangesRef.current = !matchesBaseline;
+      setIsSavedClean(matchesBaseline && isExistingSavedNote);
+      setShowSavedIndicator(false);
+    },
+    [bindCheckboxBehavior, isExistingSavedNote, syncBodyTextSnapshot, restoreCaretBookmark]
+  );
+
+  const handleUndo = useCallback(() => {
+    if (isReadOnly || !canUndoEditorHistory(historyRef.current)) return;
+    historyRef.current = undoEditorHistory(historyRef.current);
+    syncHistoryFlags();
+    applyHistorySnapshot(historyRef.current.present);
+  }, [isReadOnly, syncHistoryFlags, applyHistorySnapshot]);
+
+  const handleRedo = useCallback(() => {
+    if (isReadOnly || !canRedoEditorHistory(historyRef.current)) return;
+    historyRef.current = redoEditorHistory(historyRef.current);
+    syncHistoryFlags();
+    applyHistorySnapshot(historyRef.current.present);
+  }, [isReadOnly, syncHistoryFlags, applyHistorySnapshot]);
+
+  useEffect(() => {
+    if (isReadOnly) return;
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) {
+        if (canUndoEditorHistory(historyRef.current)) {
+          e.preventDefault();
+          handleUndo();
+        }
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        if (canRedoEditorHistory(historyRef.current)) {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, [isReadOnly, handleUndo, handleRedo]);
 
   /**
    * Constructs latest note object from state & editor
@@ -360,6 +610,10 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       const updated = getConstructedNote();
       setDisplayedUpdatedAt(updated.updatedAt);
       onSave(updated);
+      baselineSnapshotRef.current = {
+        title: title.trim(),
+        contentHtml: editorRef.current ? editorRef.current.innerHTML : updated.content,
+      };
       logger.security('NOTE', `Saved local note in editor: "${updated.title}" (ID: ${updated.id})`);
     }
 
@@ -808,6 +1062,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         selection.addRange(newRange);
         markNoteDirty();
         syncBodyTextSnapshot(root);
+        commitHistorySnapshot(title, root.innerHTML, true);
         return;
       }
     }
@@ -992,6 +1247,9 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     setIsBulletModeActive(nextHasBullet);
     markNoteDirty();
     syncBodyTextSnapshot();
+    if (editorRef.current) {
+      commitHistorySnapshot(title, editorRef.current.innerHTML, true);
+    }
     return replacement;
   };
 
@@ -1223,6 +1481,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
     markNoteDirty();
     syncBodyTextSnapshot(root);
+    commitHistorySnapshot(title, root.innerHTML, true);
     requestAnimationFrame(ensureCaretVisible);
   };
 
@@ -1251,6 +1510,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     }
 
     markNoteDirty();
+    commitHistorySnapshot(title, editorRef.current.innerHTML, true);
 
     // Recompute popover position next to the resized image
     requestAnimationFrame(() => {
@@ -1299,6 +1559,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     markNoteDirty();
     setActiveImagePopover(null);
     syncBodyTextSnapshot(root);
+    commitHistorySnapshot(title, root.innerHTML, true);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -1442,6 +1703,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         setIsBulletModeActive(continueBullet);
         markNoteDirty();
         syncBodyTextSnapshot(root);
+        commitHistorySnapshot(title, root.innerHTML, true);
         requestAnimationFrame(ensureCaretVisible);
         return;
       }
@@ -1464,11 +1726,27 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       e.preventDefault();
       const linkedHtml = convertPlainTextToLinkedHtml(plainText);
       document.execCommand('insertHTML', false, `${linkedHtml}&nbsp;`);
+      if (editorRef.current) {
+        syncBodyTextSnapshot(editorRef.current);
+        commitHistorySnapshot(title, editorRef.current.innerHTML, true);
+      }
       requestAnimationFrame(ensureCaretVisible);
     } else {
       setTimeout(() => {
         if (editorRef.current) {
+          const beforeLinkify = editorRef.current.innerHTML;
           linkifyDomContainer(editorRef.current);
+          const afterLinkify = editorRef.current.innerHTML;
+          syncBodyTextSnapshot(editorRef.current);
+          if (beforeLinkify !== afterLinkify && historyRef.current.present.contentHtml === beforeLinkify) {
+            historyRef.current = replacePresentEditorHistory(historyRef.current, {
+              ...historyRef.current.present,
+              contentHtml: afterLinkify,
+              caret: captureCaretBookmark('body'),
+            });
+          } else {
+            commitHistorySnapshot(title, afterLinkify, true, 'body');
+          }
         }
       }, 0);
     }
@@ -1512,6 +1790,9 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           setCheckboxVisualAndDomState(checkboxEl, nextChecked);
           markNoteDirty();
           syncBodyTextSnapshot();
+          if (editorRef.current) {
+            commitHistorySnapshot(title, editorRef.current.innerHTML, true);
+          }
         }
         return;
       }
@@ -1680,8 +1961,8 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           </div>
         </div>
 
-        {/* Right side: Restore + Delete when archived, or Share + Save Indicator + Checkmark when active */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        {/* Right side: Restore + Delete when archived, or Share + Undo + Redo + Save Checkmark when active */}
+        <div className="flex items-center gap-1 shrink-0">
           {isReadOnly ? (
             <>
               {onUnarchive && (
@@ -1718,7 +1999,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
               {showSavedIndicator && (
                 <span
                   data-testid="editor-saved-indicator"
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[10.5px] font-semibold text-[#797487] dark:text-[#A39BAC] select-none shrink-0"
+                  className="inline-flex items-center gap-1 px-1.5 py-1 rounded-lg bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[10px] font-semibold text-[#797487] dark:text-[#A39BAC] select-none shrink-0"
                 >
                   <Check className="w-3 h-3 text-emerald-500 stroke-[2.5]" />
                   <span>Saved</span>
@@ -1729,10 +2010,44 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
                 type="button"
                 onClick={() => setShowShareModal(true)}
                 aria-label="Share or export note"
-                className="w-7.5 h-7.5 rounded-lg bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#5925DC] dark:text-[#C296FD] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] flex items-center justify-center transition-all active:scale-95 cursor-pointer shrink-0"
+                className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-lg bg-[#FAF8FB] dark:bg-[#120E17] border border-[#EADBFC] dark:border-[#322742] text-[#5925DC] dark:text-[#C296FD] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] flex items-center justify-center transition-all active:scale-95 cursor-pointer shrink-0"
                 title="Share note"
               >
                 <Share2 className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                disabled={!canUndo}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleUndo}
+                aria-label="Undo"
+                data-testid="editor-undo-btn"
+                className={`w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-lg border flex items-center justify-center transition-all shrink-0 ${
+                  canUndo
+                    ? 'bg-[#FAF8FB] dark:bg-[#120E17] border-[#EADBFC] dark:border-[#322742] text-[#5925DC] dark:text-[#C296FD] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] active:scale-95 cursor-pointer'
+                    : 'bg-[#FAF8FB]/60 dark:bg-[#120E17]/60 border-[#EADBFC]/50 dark:border-[#322742]/50 text-[#797487]/40 dark:text-[#A39BAC]/35 cursor-not-allowed'
+                }`}
+                title={canUndo ? 'Undo (Ctrl+Z)' : 'Nothing to undo'}
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                disabled={!canRedo}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleRedo}
+                aria-label="Redo"
+                data-testid="editor-redo-btn"
+                className={`w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-lg border flex items-center justify-center transition-all shrink-0 ${
+                  canRedo
+                    ? 'bg-[#FAF8FB] dark:bg-[#120E17] border-[#EADBFC] dark:border-[#322742] text-[#5925DC] dark:text-[#C296FD] hover:bg-[#F4EBFF] dark:hover:bg-[#2B1E3E] active:scale-95 cursor-pointer'
+                    : 'bg-[#FAF8FB]/60 dark:bg-[#120E17]/60 border-[#EADBFC]/50 dark:border-[#322742]/50 text-[#797487]/40 dark:text-[#A39BAC]/35 cursor-not-allowed'
+                }`}
+                title={canRedo ? 'Redo (Ctrl+Y)' : 'Nothing to redo'}
+              >
+                <Redo2 className="w-3.5 h-3.5" />
               </button>
 
               <button
@@ -1788,8 +2103,15 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           value={title}
           onChange={(e) => {
             if (!isReadOnly) {
-              setTitle(e.target.value);
+              const nextTitle = e.target.value;
+              setTitle(nextTitle);
               markNoteDirty();
+              commitHistorySnapshot(
+                nextTitle,
+                editorRef.current ? editorRef.current.innerHTML : note.content || '',
+                true,
+                'title'
+              );
             }
           }}
           className="w-full text-2xl sm:text-3xl font-bold text-[#1E1A24] dark:text-[#F7EEFC] placeholder-[#797487]/50 dark:placeholder-[#A39BAC]/50 border-none focus:outline-none focus:ring-0 bg-transparent tracking-tight py-1"
@@ -1819,7 +2141,19 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
               ? undefined
               : (e) => {
                   if ((e.key === ' ' || e.key === 'Enter') && editorRef.current) {
+                    const beforeLinkify = editorRef.current.innerHTML;
                     linkifyDomContainer(editorRef.current);
+                    const afterLinkify = editorRef.current.innerHTML;
+                    if (
+                      beforeLinkify !== afterLinkify &&
+                      historyRef.current.present.contentHtml === beforeLinkify
+                    ) {
+                      historyRef.current = replacePresentEditorHistory(historyRef.current, {
+                        ...historyRef.current.present,
+                        contentHtml: afterLinkify,
+                        caret: captureCaretBookmark('body'),
+                      });
+                    }
                   }
                   if (editorRef.current) {
                     syncBodyTextSnapshot(editorRef.current);
@@ -1858,6 +2192,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
                       }
                     }
                     syncBodyTextSnapshot(editorRef.current);
+                    commitHistorySnapshot(title, editorRef.current.innerHTML, true, 'body');
                   }
                   requestAnimationFrame(ensureCaretVisible);
                 }

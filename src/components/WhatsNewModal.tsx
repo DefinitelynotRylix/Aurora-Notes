@@ -1,14 +1,14 @@
 import React from 'react';
 import {
   Sparkles,
-  Image as ImageIcon,
-  ListChecks,
-  Edit3,
+  Sliders,
+  ShieldCheck,
+  Undo2,
   Check,
   X
 } from 'lucide-react';
 
-export const CURRENT_WHATS_NEW_VERSION = '1.3.38';
+export const CURRENT_WHATS_NEW_VERSION = '1.3.39';
 
 interface WhatsNewModalProps {
   isOpen: boolean;
@@ -23,32 +23,32 @@ export const WhatsNewModal: React.FC<WhatsNewModalProps> = ({
 
   const highlights = [
     {
-      icon: <Edit3 className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'Pinned & Unpinned Drag-to-Reorder',
-      badge: 'REORDERING',
+      icon: <Undo2 className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
+      title: 'Note Editor Undo & Redo',
+      badge: 'EDITOR',
       description:
-        'Hold and drag notes with a subtle wobbly physics effect and instant drop-in locking. Reorder pinned notes among pinned notes and unpinned among unpinned notes in both Masonry and Single-Column views.',
+        'Added dedicated Undo and Redo buttons directly before the Save button in the top bar so you can step backward and forward through text edits, formatting, checklists, and images.',
     },
     {
-      icon: <ListChecks className="w-5 h-5 text-[#8B3DFF] dark:text-[#C296FD]" />,
-      title: 'Hold Selection Navbar & Batch Tagging',
-      badge: 'MULTI-SELECT',
-      description:
-        'Holding a note slides out the bottom navigation bar for the Selection Action Navbar. Selecting multiple notes replaces Share & Edit with a Tag button to group selected notes under a new or existing tag.',
-    },
-    {
-      icon: <ImageIcon className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'Text-Only Markdown (.MD) & Gallery PNG Export',
-      badge: 'EXPORT & MEDIA',
-      description:
-        'Export notes as clean text-only Markdown (.md) files without images (each selected note saved in its own .md file), or save full-length visual note cards with images (.png) directly to your Android Gallery.',
-    },
-    {
-      icon: <Sparkles className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
-      title: 'Instant Image Notes & Clickable Previews',
+      icon: <Sparkles className="w-5 h-5 text-[#8B3DFF] dark:text-[#C296FD]" />,
+      title: 'Silky-Smooth Navbar Pill Animation',
       badge: 'PERFORMANCE',
       description:
-        'In-memory bitmap caching and subsampled decoding make opening notes with images instantaneous, while tapping any note card’s preview image opens the Note Editor right away.',
+        'Re-engineered the floating navigation pill with zero-recomposition GPU rendering so tab switches and hold-to-slide gestures stay locked at 60/120fps.',
+    },
+    {
+      icon: <Sliders className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
+      title: 'Minimalist Settings Menu',
+      badge: 'DESIGN',
+      description:
+        'Decluttered Settings into compact grouped cards with collapsible Diagnostic Logs and removed the verbose encryption section while keeping automatic AES-256 protection active behind the scenes.',
+    },
+    {
+      icon: <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
+      title: 'Native Selection, Smooth Keyboard & Exact Dates',
+      badge: 'RELIABILITY',
+      description:
+        'Restored native long-press text selection handles in the editor, eliminated keyboard animation lag, and ensured opening a note without editing never alters its last-edited date.',
     },
   ];
 

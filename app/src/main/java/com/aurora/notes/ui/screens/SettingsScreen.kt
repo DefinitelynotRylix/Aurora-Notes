@@ -6,11 +6,11 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,25 +18,22 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.SystemUpdate
-import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -52,8 +49,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Lock
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.util.AppUpdateManager
@@ -75,6 +70,7 @@ private data class ThemeOptionItem(
     val icon: ImageVector
 )
 
+@Suppress("UNUSED_PARAMETER")
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
@@ -105,6 +101,7 @@ fun SettingsScreen(
     val coroutineScope = rememberCoroutineScope()
     val logs by LocalLogger.logs.collectAsState()
     var selectedLevelFilter by remember { mutableStateOf<LogLevel?>(null) }
+    var isLogsExpanded by remember { mutableStateOf(false) }
 
     var showWipeConfirmDialog by remember { mutableStateOf(false) }
 
@@ -126,9 +123,9 @@ fun SettingsScreen(
 
     val themeOptions = remember {
         listOf(
-            ThemeOptionItem("system", "System Default", Icons.Default.BrightnessAuto),
-            ThemeOptionItem("light", "Light Mode", Icons.Default.LightMode),
-            ThemeOptionItem("dark", "Dark Mode", Icons.Default.DarkMode)
+            ThemeOptionItem("system", "System", Icons.Default.BrightnessAuto),
+            ThemeOptionItem("light", "Light", Icons.Default.LightMode),
+            ThemeOptionItem("dark", "Dark", Icons.Default.DarkMode)
         )
     }
 
@@ -203,7 +200,6 @@ fun SettingsScreen(
         }
     }
 
-
     if (showWipeConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showWipeConfirmDialog = false },
@@ -271,110 +267,322 @@ fun SettingsScreen(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // Compact Header
         item(key = "settings_header") {
-            Column {
+            Column(modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
                 Text(
-                    text = "Settings & Preferences",
+                    text = "Settings",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                 )
                 Text(
-                    text = "Manage app appearance & theme, self-updates, haptic feedback and biometric security.",
-                    style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
-                    modifier = Modifier.padding(top = 2.dp)
+                    text = "Theme, lock, updates, and diagnostics.",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                        fontSize = 12.sp
+                    )
                 )
             }
         }
 
-        // 0. App Version & Self-Update Card (GitHub Release Scanner + Auto Self-Update & Forced Restart)
-        item(key = "settings_self_update") {
+        // 1. Appearance (Compact 3-option row)
+        item(key = "settings_appearance") {
             Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Start,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SystemUpdate,
-                        contentDescription = null,
-                        tint = AuroraRoyalViolet,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = "GITHUB RELEASE UPDATER",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AuroraRoyalViolet
-                        )
-                        Text(
-                            text = "App Version & Self-Update",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                        Text(
-                            text = "Installed Version: v$currentVersionName • Build $currentVersionCode • GPL-3.0 Open Source",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = AuroraRoyalViolet
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Minimal Internet Access Warning Box
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = AuroraRoyalViolet.copy(alpha = 0.08f),
-                    border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.25f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Default.Security,
+                            imageVector = Icons.Default.Palette,
                             contentDescription = null,
                             tint = AuroraRoyalViolet,
-                            modifier = Modifier
-                                .size(16.dp)
-                                .padding(top = 1.dp)
+                            modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(7.dp))
                         Text(
-                            text = "Minimal Internet Access: All your notes, checklists, and tags remain 100% offline on your device. Internet access is strictly limited to manual updates scans.",
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                            text = "Appearance",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        themeOptions.forEach { option ->
+                            val isSelected = themeMode.equals(option.id, ignoreCase = true)
+                            Surface(
+                                shape = RoundedCornerShape(11.dp),
+                                color = if (isSelected) AuroraRoyalViolet.copy(alpha = 0.14f) else MaterialTheme.colorScheme.background,
+                                border = BorderStroke(
+                                    width = if (isSelected) 1.5.dp else 1.dp,
+                                    color = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { onSelectThemeMode(option.id) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = option.icon,
+                                        contentDescription = option.label,
+                                        tint = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = option.label,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                        color = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Preferences & Security (Grouped Haptics + Biometric Lock)
+        item(key = "settings_preferences") {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    // Haptic Feedback row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f).padding(end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = AuroraRoyalViolet,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Haptic Feedback",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Subtle vibration on navigation taps",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                )
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (isHapticsEnabled) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = AuroraRoyalViolet.copy(alpha = 0.12f),
+                                    modifier = Modifier.clickable {
+                                        HapticHelper.triggerHaptic(view = view, context = context, enabled = true, durationMs = 40L)
+                                    }
+                                ) {
+                                    Text(
+                                        text = "Test",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AuroraRoyalViolet,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = isHapticsEnabled,
+                                onCheckedChange = { enabled ->
+                                    onSetHapticsEnabled(enabled)
+                                    if (enabled) {
+                                        HapticHelper.triggerHaptic(view = view, context = context, enabled = true, durationMs = 35L)
+                                        Toast.makeText(context, "Haptic feedback enabled", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Haptic feedback disabled", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                    )
+
+                    // Biometric / PIN Lock row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f).padding(end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fingerprint,
+                                contentDescription = null,
+                                tint = AuroraRoyalViolet,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Biometric / PIN Lock",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Require device unlock on launch",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = isBiometricEnabled,
+                            onCheckedChange = { targetState ->
+                                if (targetState) {
+                                    onTriggerBiometricAuth(
+                                        {
+                                            onSetBiometricLock(true)
+                                            Toast.makeText(context, "Biometric Lock Activated!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        { err ->
+                                            onSetBiometricLock(false)
+                                            Toast.makeText(context, "Authentication Failed: $err", Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                } else {
+                                    onTriggerBiometricAuth(
+                                        {
+                                            onSetBiometricLock(false)
+                                            Toast.makeText(context, "Biometric verified. App lock disabled.", Toast.LENGTH_SHORT).show()
+                                        },
+                                        { err ->
+                                            Toast.makeText(context, "Authentication required to disable lock: $err", Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                }
+                            }
                         )
                     }
                 }
+            }
+        }
 
-                // Live Download Progress Bar
-                if (isDownloadingUpdate) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Column(modifier = Modifier.fillMaxWidth()) {
+        // 3. App Updates (Compact)
+        item(key = "settings_self_update") {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f).padding(end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = null,
+                                tint = AuroraRoyalViolet,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "App Updates",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "v$currentVersionName • Build $currentVersionCode • Offline-first",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { scanAndAutoPullUpdate() },
+                            enabled = !isScanningUpdate && !isDownloadingUpdate,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
+                        ) {
+                            if (isScanningUpdate) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Checking...", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            } else {
+                                Text("Check", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+                    }
+
+                    if (isDownloadingUpdate) {
+                        Spacer(modifier = Modifier.height(10.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Pulling latest Aurora Notes.apk release...",
+                                text = "Downloading Aurora Notes.apk...",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = AuroraRoyalViolet
@@ -386,992 +594,419 @@ fun SettingsScreen(
                                 color = AuroraRoyalViolet
                             )
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         LinearProgressIndicator(
                             progress = { downloadProgress / 100f },
                             color = AuroraRoyalViolet,
                             trackColor = AuroraRoyalViolet.copy(alpha = 0.18f),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
+                            modifier = Modifier.fillMaxWidth().height(5.dp)
                         )
                     }
-                }
 
-                // Scan Result Feedback Banner
-                when (val res = scanResult) {
-                    is UpdateScanResult.UpToDate -> {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF10B981).copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                    when (val res = scanResult) {
+                        is UpdateScanResult.UpToDate -> {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFF10B981).copy(alpha = 0.10f),
+                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = Color(0xFF10B981),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        text = "You are on the latest version (v${res.currentVersion})",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF10B981)
+                                Row(
+                                    modifier = Modifier.padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = Color(0xFF10B981),
+                                        modifier = Modifier.size(15.dp)
                                     )
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Latest GitHub Release: v${res.latestVersion} — No update needed.",
+                                        text = "Up to date (v${res.currentVersion})",
                                         fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF10B981)
                                     )
                                 }
                             }
                         }
-                    }
 
-                    is UpdateScanResult.UpdateAvailable -> {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = AuroraRoyalViolet.copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.45f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(
-                                    text = "Update Available: v${res.latestVersion} (Current: v${res.currentVersion})",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = AuroraRoyalViolet
-                                )
-                                if (res.releaseNotes.isNotBlank()) {
-                                    Spacer(modifier = Modifier.height(3.dp))
+                        is UpdateScanResult.UpdateAvailable -> {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = AuroraRoyalViolet.copy(alpha = 0.10f),
+                                border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.4f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
                                     Text(
-                                        text = res.releaseNotes.take(180),
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                                        text = "Update available: v${res.latestVersion}",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AuroraRoyalViolet
                                     )
-                                }
-
-                                if (downloadedApkFile != null && awaitingInstallPermission) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Button(
-                                        onClick = {
-                                            val file = downloadedApkFile
-                                            if (file != null) {
-                                                AppUpdateManager.installApkAndRestart(context, file)
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            text = "Install & Update Now",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
+                                    if (downloadedApkFile != null && awaitingInstallPermission) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Button(
+                                            onClick = {
+                                                downloadedApkFile?.let { AppUpdateManager.installApkAndRestart(context, it) }
+                                            },
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text("Install & Update Now", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
                                     }
                                 }
                             }
                         }
+
+                        is UpdateScanResult.Error -> {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = AuroraDangerRed.copy(alpha = 0.1f),
+                                border = BorderStroke(1.dp, AuroraDangerRed.copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = AuroraDangerRed,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(text = res.message, fontSize = 11.sp, color = AuroraDangerRed)
+                                }
+                            }
+                        }
+
+                        null -> {}
+                    }
+                }
+            }
+        }
+
+        // 4. Guides & Community (Combined compact card)
+        item(key = "settings_guides_community") {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = AuroraRoyalViolet,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(7.dp))
+                        Text(
+                            text = "Guides & Community",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
                     }
 
-                    is UpdateScanResult.Error -> {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = AuroraDangerRed.copy(alpha = 0.1f),
-                            border = BorderStroke(1.dp, AuroraDangerRed.copy(alpha = 0.4f)),
-                            modifier = Modifier.fillMaxWidth()
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onOpenWelcomeTour,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.45f)),
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Info,
-                                    contentDescription = null,
-                                    tint = AuroraDangerRed,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = res.message,
-                                    fontSize = 11.sp,
-                                    color = AuroraDangerRed
-                                )
-                            }
+                            Text("Tour", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = AuroraRoyalViolet, maxLines = 1)
+                        }
+
+                        OutlinedButton(
+                            onClick = onOpenWhatsNew,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.45f)),
+                            modifier = Modifier.weight(1.1f)
+                        ) {
+                            Text("What's New", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = AuroraRoyalViolet, maxLines = 1)
+                        }
+
+                        Button(
+                            onClick = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/GithubAuroraNotes"))
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "Could not open browser for community link", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                            modifier = Modifier.weight(1.1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Telegram", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Local Diagnostic Logs (Collapsed by default for clean Settings height)
+        item(key = "settings_logs") {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isLogsExpanded = !isLogsExpanded },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Terminal,
+                                contentDescription = null,
+                                tint = AuroraRoyalViolet,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(7.dp))
+                            Text(
+                                text = "Diagnostic Logs",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${logs.size} entries",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = if (isLogsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (isLogsExpanded) "Collapse logs" else "Expand logs",
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
 
-                    null -> {}
+                    AnimatedVisibility(visible = isLogsExpanded) {
+                        Column(modifier = Modifier.padding(top = 10.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FilterChip(
+                                    selected = selectedLevelFilter == null,
+                                    onClick = { selectedLevelFilter = null },
+                                    label = { Text("ALL (${logs.size})", fontSize = 11.sp) }
+                                )
+                                FilterChip(
+                                    selected = selectedLevelFilter == LogLevel.WARN,
+                                    onClick = { selectedLevelFilter = LogLevel.WARN },
+                                    label = { Text("WARN (${logs.count { it.level == LogLevel.WARN }})", fontSize = 11.sp) }
+                                )
+                                FilterChip(
+                                    selected = selectedLevelFilter == LogLevel.ERROR,
+                                    onClick = { selectedLevelFilter = LogLevel.ERROR },
+                                    label = { Text("ERROR (${logs.count { it.level == LogLevel.ERROR }})", fontSize = 11.sp) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(140.dp)
+                                    .background(Color(0xFF0F0B14), shape = RoundedCornerShape(10.dp))
+                                    .padding(8.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                if (filteredLogs.isEmpty()) {
+                                    Text(
+                                        text = "No warnings or errors recorded.",
+                                        color = Color(0xFF6B6577),
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp
+                                    )
+                                } else {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        filteredLogs.forEach { log ->
+                                            val levelColor = when (log.level) {
+                                                LogLevel.ERROR -> Color(0xFFFB7185)
+                                                LogLevel.WARN -> Color(0xFFFBBF24)
+                                                LogLevel.SECURITY -> Color(0xFFA78BFA)
+                                            }
+                                            Text(
+                                                text = "[${dateFormat.format(Date(log.timestamp))}] [${log.level.name}] [${log.category}] ${log.message}",
+                                                color = levelColor,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 10.sp,
+                                                lineHeight = 14.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val dump = onExportLogs()
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("Aurora Diagnostic Logs", dump)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Copied logs to clipboard", Toast.LENGTH_SHORT).show()
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Copy", fontSize = 11.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = onClearLogs,
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AuroraDangerRed),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Clear", fontSize = 11.sp)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val dump = onExportLogs()
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("aurora_diagnostic_logs.txt", dump)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Exported logs to clipboard", Toast.LENGTH_LONG).show()
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
+                                    modifier = Modifier.weight(1.1f)
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Export", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
                 }
+            }
+        }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = { scanAndAutoPullUpdate() },
-                    enabled = !isScanningUpdate && !isDownloadingUpdate,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
-                    modifier = Modifier.fillMaxWidth()
+        // 6. Danger Zone (Compact single row)
+        item(key = "settings_danger_zone") {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = AuroraDangerRed.copy(alpha = 0.08f)
+                ),
+                border = BorderStroke(1.dp, AuroraDangerRed.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (isScanningUpdate) {
-                        CircularProgressIndicator(
-                            color = Color.White,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(15.dp)
+                    Row(
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = AuroraDangerRed,
+                            modifier = Modifier.size(17.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Scanning Releases...", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.SystemUpdate,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Text(
+                                text = "Wipe All Data",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AuroraDangerRed
+                            )
+                            Text(
+                                text = "Requires biometric or PIN verification",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = { showWipeConfirmDialog = true },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
+                    ) {
                         Text(
-                            text = "Scan for Updates",
-                            fontSize = 12.sp,
+                            text = "Wipe",
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     }
                 }
             }
-        }
-        }
-
-        // 1. App Appearance & Theme Card
-        item(key = "settings_appearance") {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Palette,
-                            contentDescription = null,
-                            tint = AuroraRoyalViolet,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "App Appearance & Theme",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = AuroraRoyalViolet.copy(alpha = 0.14f)
-                    ) {
-                        Text(
-                            text = themeMode.uppercase(Locale.US),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AuroraRoyalViolet,
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    themeOptions.forEach { option ->
-                        val isSelected = themeMode.equals(option.id, ignoreCase = true)
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (isSelected) AuroraRoyalViolet.copy(alpha = 0.14f) else MaterialTheme.colorScheme.background,
-                            border = BorderStroke(
-                                width = if (isSelected) 1.5.dp else 1.dp,
-                                color = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onSelectThemeMode(option.id) }
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(10.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = option.icon,
-                                        contentDescription = option.label,
-                                        tint = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    if (isSelected) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Selected",
-                                            tint = AuroraRoyalViolet,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = option.label,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) AuroraRoyalViolet else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        }
-
-        // 1b. In-App Haptic Feedback Card
-        item(key = "settings_haptics") {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            tint = AuroraRoyalViolet,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = "TACTILE RESPONSE",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AuroraRoyalViolet
-                            )
-                            Text(
-                                text = "Haptic Feedback",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
-                    }
-
-                    Switch(
-                        checked = isHapticsEnabled,
-                        onCheckedChange = { enabled ->
-                            onSetHapticsEnabled(enabled)
-                            if (enabled) {
-                                HapticHelper.triggerHaptic(view = view, context = context, enabled = true, durationMs = 35L)
-                                Toast.makeText(context, "In-app haptic feedback enabled", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "In-app haptic feedback disabled", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = "Provides tactile vibration feedback when pressing navigation bar buttons, even if system touch vibration is muted.",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                        fontSize = 12.sp
-                    )
-                )
-
-                if (isHapticsEnabled) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = {
-                            HapticHelper.triggerHaptic(view = view, context = context, enabled = true, durationMs = 40L)
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.45f))
-                    ) {
-                        Text(
-                            text = "Test Haptic Pulse",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AuroraRoyalViolet
-                        )
-                    }
-                }
-            }
-        }
-        }
-
-        // 2. Biometric / PIN Lock Card
-        item(key = "settings_biometric") {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Fingerprint, contentDescription = null, tint = AuroraRoyalViolet, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = "NATIVE SECURITY",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AuroraRoyalViolet
-                            )
-                            Text(
-                                text = "Biometric / System PIN Lock",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
-                    }
-
-                    Switch(
-                        checked = isBiometricEnabled,
-                        onCheckedChange = { targetState ->
-                            if (targetState) {
-                                onTriggerBiometricAuth(
-                                    {
-                                        onSetBiometricLock(true)
-                                        Toast.makeText(context, "Biometric Lock Activated!", Toast.LENGTH_SHORT).show()
-                                    },
-                                    { err ->
-                                        onSetBiometricLock(false)
-                                        Toast.makeText(context, "Authentication Failed: $err", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            } else {
-                                // Require biometric authentication to disable app lock
-                                onTriggerBiometricAuth(
-                                    {
-                                        onSetBiometricLock(false)
-                                        Toast.makeText(context, "Biometric verified. App lock disabled.", Toast.LENGTH_SHORT).show()
-                                    },
-                                    { err ->
-                                        Toast.makeText(context, "Authentication required to disable lock: $err", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            }
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = "Require Android native fingerprint, face unlock, or system PIN to access your notes upon app launch.",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                        fontSize = 12.sp
-                    )
-                )
-            }
-        }
-        }
-
-        // 2b. Private External Storage & Optional Room Database Encryption Card
-        item(key = "settings_storage") {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Folder,
-                            contentDescription = null,
-                            tint = AuroraRoyalViolet,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = "ENCRYPTION",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AuroraRoyalViolet
-                            )
-                            Text(
-                                text = "Storage Encryption",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Text(
-                                text = "${storageStats.syncedFileCount} synced file(s) • ${storageStats.totalBytes} B on device",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = AuroraRoyalViolet
-                            )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF10B981).copy(alpha = 0.14f)
-                    ) {
-                        Text(
-                            text = "AES-256",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF10B981),
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.background,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Text(
-                            text = "Device Private External Storage Path",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AuroraRoyalViolet
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = storageStats.directoryPath.ifBlank {
-                                "/storage/emulated/0/Android/data/com.aurora.notes/files/aurora_private_notes"
-                            },
-                            fontSize = 10.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = AuroraRoyalViolet,
-                        modifier = Modifier
-                            .size(18.dp)
-                            .padding(top = 2.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Room Database & File Encryption",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Hardware-backed AndroidKeyStore AES-256-GCM encryption is enabled for all Room SQLite records and mirrored device storage files.",
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = AuroraRoyalViolet,
-                        modifier = Modifier
-                            .size(18.dp)
-                            .padding(top = 2.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Orphaned & Temp File Cleanup",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Orphaned note files, incomplete .tmp writes, and stale shared/update cache files are swept automatically on launch, resume, and every note change.",
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
-                        )
-                    }
-                }
-
-                if (!lastCleanupSummary.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = AuroraRoyalViolet.copy(alpha = 0.08f),
-                        border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.25f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = lastCleanupSummary,
-                            fontSize = 11.sp,
-                            color = AuroraRoyalViolet,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
-                        )
-                    }
-                }
-            }
-        }
-        }
-
-        // 3. Welcome Tour & What's New Guide Card
-        item(key = "settings_welcome") {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AuroraRoyalViolet, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = "OVERVIEW & RELEASE HIGHLIGHTS",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AuroraRoyalViolet
-                        )
-                        Text(
-                            text = "Welcome Guide & What's New",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Revisit the Aurora Notes feature walkthrough or inspect the latest release highlights including mandatory AES-256-GCM cryptography.",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                        fontSize = 12.sp
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Button(
-                        onClick = onOpenWelcomeTour,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
-                    ) {
-                        Text("Open Welcome Guide", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    }
-
-                    OutlinedButton(
-                        onClick = onOpenWhatsNew,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, AuroraRoyalViolet.copy(alpha = 0.5f))
-                    ) {
-                        Text("What's New", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AuroraRoyalViolet)
-                    }
-                }
-            }
-        }
-        }
-
-        // 4. Aurora Notes Community Card
-        item(key = "settings_community") {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = null,
-                            tint = AuroraRoyalViolet,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Aurora Notes Community",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = AuroraRoyalViolet.copy(alpha = 0.12f)
-                    ) {
-                        Text(
-                            text = "TELEGRAM",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AuroraRoyalViolet,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Join the official Aurora Notes community server on Telegram for user discussions, questions, feature proposals, and direct announcements.",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                        fontSize = 12.sp
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Button(
-                    onClick = {
-                        try {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/GithubAuroraNotes"))
-                            context.startActivity(intent)
-                        } catch (_: Exception) {
-                            Toast.makeText(context, "Could not open browser for community link", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Send,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Join Community Server", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                }
-            }
-        }
-        }
-
-        // 5. Local Diagnostic Logs Card
-        item(key = "settings_logs") {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Terminal, contentDescription = null, tint = AuroraRoyalViolet, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Local Diagnostic Logs",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-
-                    Text(
-                        text = "${logs.size}/250 entries",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                        )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = "Restricted to warnings and errors only. Logged purely inside device memory when an issue occurs.",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        fontSize = 11.sp
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    FilterChip(
-                        selected = selectedLevelFilter == null,
-                        onClick = { selectedLevelFilter = null },
-                        label = { Text("ALL (${logs.size})", fontSize = 11.sp) }
-                    )
-                    FilterChip(
-                        selected = selectedLevelFilter == LogLevel.WARN,
-                        onClick = { selectedLevelFilter = LogLevel.WARN },
-                        label = { Text("WARN (${logs.count { it.level == LogLevel.WARN }})", fontSize = 11.sp) }
-                    )
-                    FilterChip(
-                        selected = selectedLevelFilter == LogLevel.ERROR,
-                        onClick = { selectedLevelFilter = LogLevel.ERROR },
-                        label = { Text("ERROR (${logs.count { it.level == LogLevel.ERROR }})", fontSize = 11.sp) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp)
-                        .background(Color(0xFF0F0B14), shape = RoundedCornerShape(12.dp))
-                        .padding(10.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    if (filteredLogs.isEmpty()) {
-                        Text(
-                            text = "No warnings or errors recorded.",
-                            color = Color(0xFF6B6577),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp
-                        )
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            filteredLogs.forEach { log ->
-                                val levelColor = when (log.level) {
-                                    LogLevel.ERROR -> Color(0xFFFB7185)
-                                    LogLevel.WARN -> Color(0xFFFBBF24)
-                                    LogLevel.SECURITY -> Color(0xFFA78BFA)
-                                }
-                                Text(
-                                    text = "[${dateFormat.format(Date(log.timestamp))}] [${log.level.name}] [${log.category}] ${log.message}",
-                                    color = levelColor,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp,
-                                    lineHeight = 14.sp
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            val dump = onExportLogs()
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("Aurora Diagnostic Logs", dump)
-                            clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, "Copied logs to clipboard", Toast.LENGTH_SHORT).show()
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Copy", fontSize = 11.sp)
-                    }
-
-                    OutlinedButton(
-                        onClick = onClearLogs,
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AuroraDangerRed),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Clear", fontSize = 11.sp)
-                    }
-
-                    Button(
-                        onClick = {
-                            val dump = onExportLogs()
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("aurora_diagnostic_logs.txt", dump)
-                            clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, "Exported logs to clipboard", Toast.LENGTH_LONG).show()
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
-                        modifier = Modifier.weight(1.2f)
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Export .txt", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-        }
-
-        // 6. Danger Zone: Wipe All Application Data (Biometric Required)
-        item(key = "settings_danger_zone") {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = AuroraDangerRed.copy(alpha = 0.08f)
-            ),
-            border = BorderStroke(1.dp, AuroraDangerRed.copy(alpha = 0.45f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = AuroraDangerRed,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Wipe All Application Data",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = AuroraDangerRed
-                        )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = "Permanently delete all notes, custom category pins, and settings from local device storage. Biometric or device PIN verification is required.",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                        fontSize = 12.sp
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = { showWipeConfirmDialog = true },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AuroraDangerRed)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Fingerprint,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Wipe All Notes",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-            }
-        }
         }
     }
 }

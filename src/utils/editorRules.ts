@@ -547,4 +547,126 @@ export function cleanupOrphanedPrivateStorageEntries(
   };
 }
 
+export interface EditorHistoryState<T> {
+  past: T[];
+  present: T;
+  future: T[];
+  lastPushTimestamp: number;
+  maxDepth: number;
+}
+
+export function createEditorHistory<T>(
+  initial: T,
+  maxDepth: number = 500
+): EditorHistoryState<T> {
+  return {
+    past: [],
+    present: initial,
+    future: [],
+    lastPushTimestamp: 0,
+    maxDepth: Math.max(1, maxDepth),
+  };
+}
+
+export function pushEditorHistory<T>(
+  history: EditorHistoryState<T>,
+  nextSnapshot: T,
+  options: {
+    now?: number;
+    coalesceMs?: number;
+    forceNewEntry?: boolean;
+    isEqual?: (a: T, b: T) => boolean;
+  } = {}
+): EditorHistoryState<T> {
+  const {
+    now = Date.now(),
+    coalesceMs = 0,
+    forceNewEntry = false,
+    isEqual = (a, b) => a === b,
+  } = options;
+
+  if (isEqual(history.present, nextSnapshot)) {
+    return history;
+  }
+
+  // Only coalesce when an explicit positive coalesceMs window is requested
+  const canCoalesce =
+    coalesceMs > 0 &&
+    !forceNewEntry &&
+    history.past.length > 0 &&
+    history.future.length === 0 &&
+    history.lastPushTimestamp > 0 &&
+    now - history.lastPushTimestamp <= coalesceMs;
+
+  if (canCoalesce) {
+    return {
+      ...history,
+      present: nextSnapshot,
+      lastPushTimestamp: now,
+    };
+  }
+
+  const nextPast = [...history.past, history.present];
+  const trimmedPast =
+    nextPast.length > history.maxDepth
+      ? nextPast.slice(nextPast.length - history.maxDepth)
+      : nextPast;
+
+  return {
+    ...history,
+    past: trimmedPast,
+    present: nextSnapshot,
+    future: [],
+    lastPushTimestamp: now,
+  };
+}
+
+export function replacePresentEditorHistory<T>(
+  history: EditorHistoryState<T>,
+  updatedPresent: T
+): EditorHistoryState<T> {
+  return {
+    ...history,
+    present: updatedPresent,
+  };
+}
+
+export function undoEditorHistory<T>(
+  history: EditorHistoryState<T>
+): EditorHistoryState<T> {
+  if (history.past.length === 0) return history;
+  const previous = history.past[history.past.length - 1];
+  const nextPast = history.past.slice(0, -1);
+  return {
+    ...history,
+    past: nextPast,
+    present: previous,
+    future: [history.present, ...history.future],
+    lastPushTimestamp: 0,
+  };
+}
+
+export function redoEditorHistory<T>(
+  history: EditorHistoryState<T>
+): EditorHistoryState<T> {
+  if (history.future.length === 0) return history;
+  const [next, ...restFuture] = history.future;
+  return {
+    ...history,
+    past: [...history.past, history.present],
+    present: next,
+    future: restFuture,
+    lastPushTimestamp: 0,
+  };
+}
+
+export function canUndoEditorHistory<T>(history: EditorHistoryState<T>): boolean {
+  return history.past.length > 0;
+}
+
+export function canRedoEditorHistory<T>(history: EditorHistoryState<T>): boolean {
+  return history.future.length > 0;
+}
+
+
 

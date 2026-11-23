@@ -429,9 +429,11 @@ fun AuroraApp(
         }
 
         val slideDir = if (toTab >= fromTab) 1f else -1f
-        val progressVal = tabSlideProgress.value
 
+        // Read tabSlideProgress.value strictly inside offset/graphicsLayer lambdas so tab slides
+        // NEVER recompose AuroraApp or its 4 child screens per frame (keeps pill + slide at 120fps).
         fun computeTabOffsetPx(tabIndex: Int, widthPx: Float): Int {
+            val progressVal = tabSlideProgress.value
             val slideSpan = widthPx * 0.24f
             return when {
                 tabIndex == toTab -> {
@@ -451,6 +453,7 @@ fun AuroraApp(
         }
 
         fun computeTabAlpha(tabIndex: Int): Float {
+            val progressVal = tabSlideProgress.value
             return when {
                 tabIndex == toTab -> {
                     if (fromTab == toTab || progressVal >= 0.999f) 1f else progressVal.coerceIn(0f, 1f)
@@ -785,26 +788,26 @@ private fun WelcomeTourDialog(
 
     val titles = listOf(
         "Welcome to Aurora Notes",
-        "AES-256 Local Storage & Auto-Cleanup",
-        "Custom Tags & Fast Editor",
+        "Private & Encrypted Offline",
+        "Fast Editor with Undo & Redo",
         "Native Biometric Lock"
     )
     val subtitles = listOf(
-        "Tactile Minimalism Meets AES-256 Cryptography",
-        "Encrypted Offline Vault • Internet Only for Updates",
-        "Live Word Counter, Exact Timestamps & Tags",
+        "Tactile Minimalism & Fluid Navigation",
+        "Automatic AES-256 Protection • Zero Cloud Bloat",
+        "Undo/Redo, Rich Formatting, Checklists & Drag-to-Reorder",
         "Protected by Android Device Security"
     )
     val descriptions = listOf(
-        "Aurora Notes is crafted for distraction-free writing protected by mandatory hardware-backed AndroidKeyStore AES-256-GCM cryptography, fluid liquid navigation, and zero cloud bloat.",
-        "All notes, checklists, and tags are permanently encrypted at rest with AES-256-GCM in your Room SQLite database and private device storage, with automatic orphaned and .tmp file cleanup.",
-        "Track live word and letter counts on top of the editor, view exact hour and minute last-edited timestamps, and organize notes with custom tags.",
-        "Enable Biometric & App Lock in Settings to require your phone's native fingerprint, face unlock, or PIN whenever Aurora Notes opens."
+        "Aurora Notes is crafted for distraction-free writing with butter-smooth floating pill navigation, tactile haptics, and instant Masonry-to-Column view morphing.",
+        "Every note, checklist, and tag stays 100% offline on your device and is automatically protected with hardware-backed AES-256-GCM encryption—no setup or cloud account needed.",
+        "Write with confidence using top-bar Undo & Redo buttons, live word and letter counters, native text selection handles, inline checklists, and drag-to-reorder note organization.",
+        "Enable Biometric / System PIN Lock in Settings to require your phone's native fingerprint, face unlock, or PIN whenever Aurora Notes opens."
     )
     val icons = listOf(
         Icons.Default.AutoAwesome,
         Icons.Default.CheckCircle,
-        Icons.Default.Tag,
+        Icons.Default.Edit,
         Icons.Default.Lock
     )
 
@@ -972,28 +975,28 @@ private fun WhatsNewDialog(
     val features = remember {
         listOf(
             WhatsNewFeatureItem(
-                title = "Pinned & Unpinned Drag-to-Reorder",
-                badge = "REORDERING",
-                description = "Hold and drag notes with a subtle wobbly physics effect and instant drop-in locking. Reorder pinned notes among pinned notes and unpinned among unpinned notes in both Masonry and Single-Column views.",
+                title = "Note Editor Undo & Redo",
+                badge = "EDITOR",
+                description = "Added dedicated Undo and Redo buttons directly before the Save button in the top bar so you can step backward and forward through text edits, formatting, checklists, and images.",
                 icon = Icons.Default.Edit
             ),
             WhatsNewFeatureItem(
-                title = "Hold Selection Navbar & Batch Tagging",
-                badge = "MULTI-SELECT",
-                description = "Holding a note slides out the bottom navigation bar for the Selection Action Navbar. Selecting multiple notes replaces Share & Edit with a Tag button to group selected notes under a new or existing tag.",
+                title = "Silky-Smooth Navbar Pill Animation",
+                badge = "PERFORMANCE",
+                description = "Re-engineered the floating navigation pill with zero-recomposition GPU rendering and cached drawing so tab switches and hold-to-slide gestures stay locked at 60/120fps.",
+                icon = Icons.Default.AutoAwesome
+            ),
+            WhatsNewFeatureItem(
+                title = "Minimalist Settings Menu",
+                badge = "DESIGN",
+                description = "Decluttered Settings into compact grouped cards with collapsible Diagnostic Logs and removed the verbose encryption section while keeping automatic AES-256 protection active behind the scenes.",
                 icon = Icons.Default.CheckCircle
             ),
             WhatsNewFeatureItem(
-                title = "Text-Only Markdown (.MD) & Gallery PNG Export",
-                badge = "EXPORT & MEDIA",
-                description = "Export notes as clean text-only Markdown (.md) files without images (each selected note saved in its own .md file), or save full-length visual note cards with images (.png) directly to your Android Gallery.",
-                icon = Icons.Default.Image
-            ),
-            WhatsNewFeatureItem(
-                title = "Instant Image Notes & Clickable Previews",
-                badge = "PERFORMANCE",
-                description = "In-memory bitmap caching and subsampled decoding make opening notes with images instantaneous, while tapping any note card's preview image opens the Note Editor right away.",
-                icon = Icons.Default.AutoAwesome
+                title = "Native Selection, Smooth Keyboard & Exact Dates",
+                badge = "RELIABILITY",
+                description = "Restored native long-press text selection handles in the editor, eliminated keyboard animation lag, and ensured opening a note without editing never alters its last-edited date.",
+                icon = Icons.Default.Lock
             )
         )
     }

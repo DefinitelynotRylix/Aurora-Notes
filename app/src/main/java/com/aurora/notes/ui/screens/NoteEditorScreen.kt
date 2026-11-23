@@ -25,6 +25,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBox
@@ -398,6 +400,15 @@ data class StyledCharSpan(
     val isItalic: Boolean
 )
 
+private data class EditorUndoSnapshot(
+    val title: String,
+    val bodyText: String,
+    val selection: TextRange,
+    val spans: List<StyledCharSpan>,
+    val checklist: List<ChecklistItem>,
+    val images: List<NoteImage>
+)
+
 private val spanGson = Gson()
 
 private fun parseSpansJson(json: String, maxLen: Int): List<StyledCharSpan> {
@@ -750,6 +761,93 @@ fun NoteEditorScreen(
             isPinned != baselinePinned
     }
 
+    // Character-by-character / atomic-action Undo & Redo history stack
+    // Every single character, space, Enter, Backspace, or whole-word swipe/paste/suggestion edit
+    // produces its own discrete undo/redo step with zero time-based coalescing.
+    val undoStack = remember(note.id) { mutableStateListOf<EditorUndoSnapshot>() }
+    val redoStack = remember(note.id) { mutableStateListOf<EditorUndoSnapshot>() }
+    val historyMaxDepth = 500
+
+    fun captureCurrentSnapshot(): EditorUndoSnapshot = EditorUndoSnapshot(
+        title = title,
+        bodyText = bodyValue.text,
+        selection = bodyValue.selection,
+        spans = charSpans.toList(),
+        checklist = checklistItems.toList(),
+        images = noteImages.toList()
+    )
+
+    @Suppress("UNUSED_PARAMETER")
+    fun recordHistoryBeforeEdit(forceNew: Boolean = true) {
+        if (isReadOnly) return
+        val current = captureCurrentSnapshot()
+        if (undoStack.lastOrNull() != current) {
+            undoStack.add(current)
+            if (undoStack.size > historyMaxDepth) {
+                undoStack.removeAt(0)
+            }
+        }
+        redoStack.clear()
+    }
+
+    fun applyHistorySnapshot(snapshot: EditorUndoSnapshot) {
+        activeImageMenuId = null
+        title = snapshot.title
+        charSpans = snapshot.spans
+        val clampedSel = TextRange(
+            snapshot.selection.start.coerceIn(0, snapshot.bodyText.length),
+            snapshot.selection.end.coerceIn(0, snapshot.bodyText.length)
+        )
+        bodyValue = TextFieldValue(
+            text = snapshot.bodyText,
+            selection = clampedSel,
+            composition = null
+        )
+        checklistItems.clear()
+        checklistItems.addAll(snapshot.checklist)
+        noteImages.clear()
+        noteImages.addAll(snapshot.images)
+
+        val lineStart = findLineStart(snapshot.bodyText, clampedSel.start)
+        lastSyncedLineStart = lineStart
+        val parsed = getParsedLineAt(snapshot.bodyText, lineStart)
+        isCheckboxModeActive = parsed.hasCheckbox
+        isBulletModeActive = parsed.hasBullet
+
+        val cleanTitle = snapshot.title.trim()
+        val validChecklists = snapshot.checklist.filter { it.text.trim().isNotEmpty() }
+        val matchesBaseline = cleanTitle == baselineTitle &&
+            snapshot.bodyText == baselineContent &&
+            snapshot.spans == baselineSpans &&
+            validChecklists == baselineChecklists &&
+            snapshot.images == baselineImages &&
+            tags.toList() == baselineTags &&
+            isPinned == baselinePinned
+        hasUnsavedModifications = !matchesBaseline
+        isSavedClean = matchesBaseline && isExistingSavedNote
+        showSavedIndicator = false
+    }
+
+    fun performUndo() {
+        if (isReadOnly || undoStack.isEmpty()) return
+        val previous = undoStack.removeAt(undoStack.lastIndex)
+        redoStack.add(captureCurrentSnapshot())
+        if (redoStack.size > historyMaxDepth) {
+            redoStack.removeAt(0)
+        }
+        applyHistorySnapshot(previous)
+    }
+
+    fun performRedo() {
+        if (isReadOnly || redoStack.isEmpty()) return
+        val next = redoStack.removeAt(redoStack.lastIndex)
+        undoStack.add(captureCurrentSnapshot())
+        if (undoStack.size > historyMaxDepth) {
+            undoStack.removeAt(0)
+        }
+        applyHistorySnapshot(next)
+    }
+
     // Initialize active/inactive button states when opening the note
     LaunchedEffect(note.id) {
         val safeCursor = bodyValue.selection.start.coerceIn(0, bodyValue.text.length)
@@ -833,6 +931,7 @@ fun NoteEditorScreen(
         if (pickedUri != null && !isReadOnly) {
             val savedPath = PrivateStorageManager.saveLosslessNoteImage(context, pickedUri)
             if (savedPath != null) {
+                recordHistoryBeforeEdit(forceNew = true)
                 val newImg = NoteImage(
                     id = UUID.randomUUID().toString(),
                     uri = savedPath,
@@ -1042,6 +1141,7 @@ fun NoteEditorScreen(
                     onClick = {
                         val clean = newChecklistInput.trim()
                         if (clean.isNotEmpty()) {
+                            recordHistoryBeforeEdit(forceNew = true)
                             checklistItems.add(ChecklistItem(text = clean, completed = false))
                             newChecklistInput = ""
                             markNoteDirty()
@@ -1194,7 +1294,7 @@ fun NoteEditorScreen(
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         if (isReadOnly) {
                             if (onUnarchiveNote != null) {
@@ -1272,9 +1372,9 @@ fun NoteEditorScreen(
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Check,
@@ -1298,7 +1398,7 @@ fun NoteEditorScreen(
 
                             IconButton(
                                 onClick = { showShareDialog = true },
-                                modifier = Modifier.size(30.dp)
+                                modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Share,
@@ -1306,6 +1406,60 @@ fun NoteEditorScreen(
                                     tint = AuroraRoyalViolet,
                                     modifier = Modifier.size(16.dp)
                                 )
+                            }
+
+                            // Undo Button (right before Redo & Save)
+                            val canUndo = undoStack.isNotEmpty()
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.background,
+                                border = BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outline.copy(alpha = if (canUndo) 0.55f else 0.25f)
+                                ),
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clickable(enabled = canUndo) { performUndo() }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Undo,
+                                        contentDescription = "Undo",
+                                        modifier = Modifier.size(15.dp),
+                                        tint = if (canUndo) {
+                                            AuroraRoyalViolet
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.30f)
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Redo Button (right before Save)
+                            val canRedo = redoStack.isNotEmpty()
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.background,
+                                border = BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outline.copy(alpha = if (canRedo) 0.55f else 0.25f)
+                                ),
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clickable(enabled = canRedo) { performRedo() }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Redo,
+                                        contentDescription = "Redo",
+                                        modifier = Modifier.size(15.dp),
+                                        tint = if (canRedo) {
+                                            AuroraRoyalViolet
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.30f)
+                                        }
+                                    )
+                                }
                             }
 
                             // Checkmark Icon Button: saves note in place without popup, closes keyboard, stays in editor,
@@ -1378,6 +1532,7 @@ fun NoteEditorScreen(
                                     val nextBold = !isBoldActive
                                     isBoldActive = nextBold
                                     if (!bodyValue.selection.collapsed) {
+                                        recordHistoryBeforeEdit(forceNew = true)
                                         val s = bodyValue.selection.min.coerceIn(0, bodyValue.text.length)
                                         val e = bodyValue.selection.max.coerceIn(0, bodyValue.text.length)
                                         charSpans = applyStyleToSelectionRange(
@@ -1417,6 +1572,7 @@ fun NoteEditorScreen(
                                     val nextItalic = !isItalicActive
                                     isItalicActive = nextItalic
                                     if (!bodyValue.selection.collapsed) {
+                                        recordHistoryBeforeEdit(forceNew = true)
                                         val s = bodyValue.selection.min.coerceIn(0, bodyValue.text.length)
                                         val e = bodyValue.selection.max.coerceIn(0, bodyValue.text.length)
                                         charSpans = applyStyleToSelectionRange(
@@ -1463,6 +1619,7 @@ fun NoteEditorScreen(
                                     }
                                     activeSizeMode = nextMode
                                     if (!bodyValue.selection.collapsed) {
+                                        recordHistoryBeforeEdit(forceNew = true)
                                         val s = bodyValue.selection.min.coerceIn(0, bodyValue.text.length)
                                         val e = bodyValue.selection.max.coerceIn(0, bodyValue.text.length)
                                         charSpans = applyStyleToSelectionRange(
@@ -1488,6 +1645,7 @@ fun NoteEditorScreen(
                                     }
                                     activeSizeMode = nextMode
                                     if (!bodyValue.selection.collapsed) {
+                                        recordHistoryBeforeEdit(forceNew = true)
                                         val s = bodyValue.selection.min.coerceIn(0, bodyValue.text.length)
                                         val e = bodyValue.selection.max.coerceIn(0, bodyValue.text.length)
                                         charSpans = applyStyleToSelectionRange(
@@ -1512,6 +1670,7 @@ fun NoteEditorScreen(
                         val isCheckboxHighlighted = isCheckboxModeActive || activeLineParsed.hasCheckbox
 
                         fun applyLineFormatToggle(toggleBullet: Boolean, toggleCheckbox: Boolean) {
+                            recordHistoryBeforeEdit(forceNew = true)
                             if (noteImages.isNotEmpty()) {
                                 val markerRegex = Regex("\\n?\\[\\[AURORA_IMG:([^\\]]+)\\]\\]\\n?")
                                 val matches = markerRegex.findAll(bodyValue.text).toList()
@@ -1758,6 +1917,9 @@ fun NoteEditorScreen(
                     onValueChange = {
                         if (!isReadOnly) {
                             val didChange = it != title
+                            if (didChange) {
+                                recordHistoryBeforeEdit(forceNew = kotlin.math.abs(it.length - title.length) > 1)
+                            }
                             title = it
                             if (didChange) {
                                 markNoteDirty()
@@ -1838,6 +2000,7 @@ fun NoteEditorScreen(
                                     enabled = !isReadOnly,
                                     onCheckedChange = { checked ->
                                         if (!isReadOnly) {
+                                            recordHistoryBeforeEdit(forceNew = true)
                                             checklistItems[idx] = item.copy(completed = checked)
                                             markNoteDirty()
                                         }
@@ -1873,6 +2036,7 @@ fun NoteEditorScreen(
                                 if (!isReadOnly) {
                                     IconButton(
                                         onClick = {
+                                            recordHistoryBeforeEdit(forceNew = true)
                                             checklistItems.removeAt(idx)
                                             markNoteDirty()
                                         },
@@ -1967,6 +2131,7 @@ fun NoteEditorScreen(
                                 val parsed = getParsedLineAt(newText, tappedLineStart)
 
                                 if (!isReadOnly && parsed.hasCheckbox && tappedOffset in tappedLineStart..(tappedLineStart + 1)) {
+                                    recordHistoryBeforeEdit(forceNew = true)
                                     val isCurrentlyChecked = newText.startsWith(CHECKED_BOX_PREFIX, tappedLineStart)
                                     val replacementPrefix = if (isCurrentlyChecked) UNCHECKED_BOX_PREFIX else CHECKED_BOX_PREFIX
                                     val toggledText = newText.substring(0, tappedLineStart) +
@@ -2014,6 +2179,8 @@ fun NoteEditorScreen(
                             )
 
                             if (oldText != normalizedText) {
+                                val lenDiff = kotlin.math.abs(normalizedText.length - oldText.length)
+                                recordHistoryBeforeEdit(forceNew = lenDiff > 1 || normalizedText.endsWith("\n"))
                                 charSpans = applyTextEditToSpans(
                                     oldText = oldText,
                                     newText = normalizedText,
@@ -2083,6 +2250,7 @@ fun NoteEditorScreen(
                                 onToggleLineCheckbox = { tappedLineStart, parsed ->
                                     val curText = bodyValue.text
                                     if (tappedLineStart + 2 <= curText.length) {
+                                        recordHistoryBeforeEdit(forceNew = true)
                                         val isCurrentlyChecked = curText.startsWith(CHECKED_BOX_PREFIX, tappedLineStart)
                                         val replacementPrefix = if (isCurrentlyChecked) UNCHECKED_BOX_PREFIX else CHECKED_BOX_PREFIX
                                         val toggledText = curText.substring(0, tappedLineStart) +
@@ -2133,7 +2301,9 @@ fun NoteEditorScreen(
                     fun rebuildBodyWithSegments(
                         updatedSegments: List<String>,
                         activeSegIdx: Int,
-                        segSelection: TextRange
+                        segSelection: TextRange,
+                        forceHistoryEntry: Boolean = false,
+                        skipHistoryRecord: Boolean = false
                     ) {
                         val oldFull = bodyValue.text
                         val sb = StringBuilder()
@@ -2153,6 +2323,10 @@ fun NoteEditorScreen(
                         }
                         val full = sb.toString()
                         if (oldFull != full) {
+                            if (!skipHistoryRecord) {
+                                val lenDiff = kotlin.math.abs(full.length - oldFull.length)
+                                recordHistoryBeforeEdit(forceNew = forceHistoryEntry || lenDiff > 1)
+                            }
                             charSpans = applyTextEditToSpans(
                                 oldText = oldFull,
                                 newText = full,
@@ -2354,7 +2528,7 @@ fun NoteEditorScreen(
                                                     updatedList[segIdx] = toggledSeg
                                                 }
                                                 markNoteDirty()
-                                                rebuildBodyWithSegments(updatedList, segIdx, TextRange(nextCursor))
+                                                rebuildBodyWithSegments(updatedList, segIdx, TextRange(nextCursor), forceHistoryEntry = true)
                                             }
                                         }
                                     )
@@ -2454,6 +2628,7 @@ fun NoteEditorScreen(
                                                     shape = RoundedCornerShape(8.dp),
                                                     color = AuroraRoyalViolet.copy(alpha = 0.12f),
                                                     modifier = Modifier.clickable {
+                                                        recordHistoryBeforeEdit(forceNew = true)
                                                         noteImages[segIdx] = imgItem.copy(isExpanded = !imgItem.isExpanded)
                                                         markNoteDirty()
                                                     }
@@ -2483,6 +2658,7 @@ fun NoteEditorScreen(
                                                     shape = RoundedCornerShape(8.dp),
                                                     color = AuroraDangerRed.copy(alpha = 0.12f),
                                                     modifier = Modifier.clickable {
+                                                        recordHistoryBeforeEdit(forceNew = true)
                                                         val updatedSegments = textSegments.toMutableList()
                                                         val above = updatedSegments.getOrElse(segIdx) { "" }
                                                         val below = updatedSegments.getOrElse(segIdx + 1) { "" }
@@ -2498,7 +2674,7 @@ fun NoteEditorScreen(
                                                         noteImages.removeAt(segIdx)
                                                         activeImageMenuId = null
                                                         markNoteDirty()
-                                                        rebuildBodyWithSegments(updatedSegments, segIdx, TextRange(above.length))
+                                                        rebuildBodyWithSegments(updatedSegments, segIdx, TextRange(above.length), skipHistoryRecord = true)
                                                     }
                                                 ) {
                                                     Row(
