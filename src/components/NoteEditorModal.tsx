@@ -30,6 +30,7 @@ import {
   computeWordAndLetterCounts,
   createEditorHistory,
   pushEditorHistory,
+  breakEditorHistoryGroup,
   replacePresentEditorHistory,
   undoEditorHistory,
   redoEditorHistory,
@@ -49,7 +50,69 @@ interface EditorCaretBookmark {
 interface EditorHistorySnapshot {
   title: string;
   contentHtml: string;
+  plainText: string;
   caret?: EditorCaretBookmark | null;
+}
+
+function extractEditorPlainText(root: HTMLElement | null): string {
+  if (!root) return '';
+  const serializeNode = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return (node.nodeValue || '').replace(/\u00A0/g, ' ').replace(/\u200B/g, '');
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+    const el = node as HTMLElement;
+    if (el.classList.contains('aurora-image-block')) {
+      return `[IMG:${el.getAttribute('data-image-id') || ''}]`;
+    }
+    if (el.tagName === 'INPUT') {
+      const cb = el as HTMLInputElement;
+      return cb.checked || cb.getAttribute('data-checked') === 'true' ? '☑ ' : '☐ ';
+    }
+    if (el.tagName === 'BR') {
+      return '\n';
+    }
+    let out = '';
+    for (let i = 0; i < el.childNodes.length; i++) {
+      out += serializeNode(el.childNodes[i]);
+    }
+    return out;
+  };
+
+  const parts: string[] = [];
+  let inlineBuf = '';
+  const flushInline = () => {
+    if (inlineBuf.length > 0) {
+      parts.push(inlineBuf);
+      inlineBuf = '';
+    }
+  };
+
+  for (let i = 0; i < root.childNodes.length; i++) {
+    const child = root.childNodes[i];
+    if (
+      child.nodeType === Node.ELEMENT_NODE &&
+      ['DIV', 'P', 'H1', 'H2', 'H3', 'LI'].includes((child as HTMLElement).tagName)
+    ) {
+      flushInline();
+      const blockEl = child as HTMLElement;
+      if (blockEl.classList.contains('aurora-image-block')) {
+        parts.push(`[IMG:${blockEl.getAttribute('data-image-id') || ''}]`);
+      } else {
+        let blockText = serializeNode(blockEl);
+        if (blockText === '\n') {
+          blockText = '';
+        } else if (blockText.endsWith('\n') && blockEl.lastElementChild?.tagName === 'BR') {
+          blockText = blockText.slice(0, -1);
+        }
+        parts.push(blockText);
+      }
+    } else {
+      inlineBuf += serializeNode(child);
+    }
+  }
+  flushInline();
+  return parts.join('\n');
 }
 
 interface NoteEditorModalProps {
@@ -104,15 +167,16 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     setShowSavedIndicator(false);
   }, []);
 
-  // Character-by-character / atomic-action Undo & Redo history engine
-  // Every single character, space, Enter, Backspace, or whole-word paste/swipe edit
-  // gets its own discrete step with exact caret bookmark restoration.
+  // Word-aware, delimiter-boundary & paste-isolated Undo & Redo history engine:
+  // Typing a whole word continuously groups into one step; spaces, dots, question marks,
+  // punctuation, newlines, and pasted items each form discrete steps.
   const initialHistoryDepth = (note.content || '').length > 40_000 ? 120 : 500;
   const historyRef = useRef<EditorHistoryState<EditorHistorySnapshot>>(
     createEditorHistory<EditorHistorySnapshot>(
       {
         title: note.title,
         contentHtml: note.content || '',
+        plainText: '',
       },
       initialHistoryDepth
     )
@@ -120,7 +184,10 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   const baselineSnapshotRef = useRef<EditorHistorySnapshot>({
     title: note.title.trim(),
     contentHtml: note.content || '',
+    plainText: '',
   });
+  const isTitlePasteRef = useRef(false);
+  const isBodyPasteRef = useRef(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
@@ -235,18 +302,42 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     (
       nextTitle: string,
       nextHtml: string,
-      _forceNewEntry: boolean = true,
-      preferredField?: 'title' | 'body'
+      forceNewEntry: boolean = true,
+      preferredField?: 'title' | 'body',
+      options?: { isPaste?: boolean; plainText?: string }
     ) => {
       if (isReadOnly) return;
       const caret = captureCaretBookmark(preferredField);
+      const nextPlainText =
+        options?.plainText ??
+        (editorRef.current ? extractEditorPlainText(editorRef.current) : historyRef.current.present.plainText);
+      const prevSnapshot = historyRef.current.present;
+
+      const textEdit =
+        !forceNewEntry && preferredField === 'title'
+          ? {
+              oldText: prevSnapshot.title,
+              newText: nextTitle,
+              field: 'title',
+              isPaste: Boolean(options?.isPaste),
+            }
+          : !forceNewEntry && preferredField === 'body'
+          ? {
+              oldText: prevSnapshot.plainText,
+              newText: nextPlainText,
+              field: 'body',
+              isPaste: Boolean(options?.isPaste),
+            }
+          : undefined;
+
       historyRef.current = pushEditorHistory(
         historyRef.current,
-        { title: nextTitle, contentHtml: nextHtml, caret },
+        { title: nextTitle, contentHtml: nextHtml, plainText: nextPlainText, caret },
         {
           now: Date.now(),
           coalesceMs: 0,
-          forceNewEntry: true,
+          forceNewEntry,
+          textEdit,
           isEqual: (a, b) => a.title === b.title && a.contentHtml === b.contentHtml,
         }
       );
@@ -389,8 +480,20 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   // Populate editor initial content on mount & sync checkboxes, clickable links, and Undo/Redo baseline
   useEffect(() => {
     let initialHtml = note.content || '';
+    let initialPlainText = '';
     if (editorRef.current) {
       editorRef.current.innerHTML = initialHtml;
+      // Strip legacy vertical margin class from plain lines so single-Enter spacing stays tight
+      Array.from(editorRef.current.children).forEach((child) => {
+        if (
+          child instanceof HTMLElement &&
+          child.tagName === 'DIV' &&
+          !child.classList.contains('aurora-checklist-line') &&
+          !child.classList.contains('aurora-image-block')
+        ) {
+          child.classList.remove('my-1');
+        }
+      });
       syncBodyTextSnapshot(editorRef.current);
       linkifyDomContainer(editorRef.current);
 
@@ -399,16 +502,19 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         bindCheckboxBehavior(cb as HTMLInputElement);
       });
       initialHtml = editorRef.current.innerHTML;
+      initialPlainText = extractEditorPlainText(editorRef.current);
     }
     baselineSnapshotRef.current = {
       title: note.title.trim(),
       contentHtml: initialHtml,
+      plainText: initialPlainText,
     };
     const nextDepth = initialHtml.length > 40_000 ? 120 : 500;
     historyRef.current = createEditorHistory<EditorHistorySnapshot>(
       {
         title: note.title,
         contentHtml: initialHtml,
+        plainText: initialPlainText,
         caret: { field: 'body' },
       },
       nextDepth
@@ -613,10 +719,12 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       baselineSnapshotRef.current = {
         title: title.trim(),
         contentHtml: editorRef.current ? editorRef.current.innerHTML : updated.content,
+        plainText: editorRef.current ? extractEditorPlainText(editorRef.current) : '',
       };
       logger.security('NOTE', `Saved local note in editor: "${updated.title}" (ID: ${updated.id})`);
     }
 
+    historyRef.current = breakEditorHistoryGroup(historyRef.current);
     hasUnsavedChangesRef.current = false;
     setIsSavedClean(true);
     setShowSavedIndicator(true);
@@ -733,6 +841,8 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     };
     unwrapBlocks(temp);
 
+    temp.querySelectorAll('br').forEach((br) => br.remove());
+
     temp.querySelectorAll('span[data-aurora-style="true"]').forEach((spanEl) => {
       const visible = (spanEl.textContent || '').replace(/\u200B/g, '');
       if (visible.length === 0) {
@@ -784,7 +894,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
     if (!hasCheckbox && !hasBullet) {
       const plainLine = document.createElement('div');
-      plainLine.className = 'my-1 focus:outline-none min-h-[1.5em]';
+      plainLine.className = 'focus:outline-none min-h-[1.5em]';
       const frag = extractCleanInlineNodes(initialContent);
       populateLineTextContainer(plainLine, frag);
       return plainLine;
@@ -792,7 +902,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
     const line = document.createElement('div');
     line.className =
-      'aurora-checklist-line flex items-center gap-2 my-1.5 group';
+      'aurora-checklist-line flex items-center gap-2 my-0.5 group';
     line.setAttribute('data-checklist', hasCheckbox ? 'true' : 'false');
     line.setAttribute('data-bullet', hasBullet ? 'true' : 'false');
 
@@ -901,7 +1011,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       ) {
         if (!currentBlock) {
           const emptyLine = document.createElement('div');
-          emptyLine.className = 'my-1 focus:outline-none min-h-[1.5em]';
+          emptyLine.className = 'focus:outline-none min-h-[1.5em]';
           emptyLine.innerHTML = '<br>';
           root.replaceChild(emptyLine, node);
         } else {
@@ -925,7 +1035,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
       if (!currentBlock) {
         currentBlock = document.createElement('div');
-        currentBlock.className = 'my-1 focus:outline-none min-h-[1.5em]';
+        currentBlock.className = 'focus:outline-none min-h-[1.5em]';
         root.insertBefore(currentBlock, node);
       }
       currentBlock.appendChild(node);
@@ -1635,78 +1745,110 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     }
 
     // Pressing Enter / Send:
-    // Create a new line preserving active Bullet List, Checkbox, and inline Bold/Italic/H2/H1 styles!
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Deterministically insert EXACTLY ONE new row (never two) across plain text, bare/BR text,
+    // styled spans, checklists, and bullet lists while preserving the exact caret split point.
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       const root = editorRef.current;
       if (!root) return;
+      e.preventDefault();
+
+      // Remove any highlighted text before splitting the line
+      if (!range.collapsed) {
+        range.deleteContents();
+        range.collapse(true);
+      }
+
+      // Preserve exact caret position across normalizeEditorLines() via a temporary inline marker
+      const caretMarker = document.createElement('span');
+      caretMarker.setAttribute('data-aurora-caret-marker', '1');
+      if (root.contains(range.startContainer)) {
+        range.insertNode(caretMarker);
+      }
+
       normalizeEditorLines();
 
-      const liveSel = window.getSelection();
-      const liveRange = liveSel && liveSel.rangeCount > 0 ? liveSel.getRangeAt(0) : range;
-      const activeLine =
+      let liveRange = document.createRange();
+      if (caretMarker.parentNode) {
+        const markerParent = caretMarker.parentNode;
+        const markerIndex = Array.prototype.indexOf.call(markerParent.childNodes, caretMarker);
+        markerParent.removeChild(caretMarker);
+        liveRange.setStart(markerParent, markerIndex);
+        liveRange.collapse(true);
+      } else {
+        const liveSel = window.getSelection();
+        liveRange =
+          liveSel && liveSel.rangeCount > 0 ? liveSel.getRangeAt(0).cloneRange() : range.cloneRange();
+      }
+
+      let activeLine =
         resolveTopLevelLine(liveRange.startContainer, liveRange.startOffset) ||
         lastActiveLineRef.current ||
         (root.lastElementChild as HTMLElement | null);
+
+      if (!activeLine || activeLine.parentNode !== root) {
+        const firstLine = createFormattedLine({
+          hasCheckbox: false,
+          hasBullet: false,
+        });
+        root.appendChild(firstLine);
+        activeLine = firstLine;
+        liveRange.selectNodeContents(firstLine);
+        liveRange.collapse(false);
+      }
+
       const lineFlags = getLineFormattingFlags(activeLine);
       const continueCheckbox = isCurrentLineChecklist || lineFlags.hasCheckbox;
       const continueBullet = isBulletModeActive || lineFlags.hasBullet;
-      const hasActiveInlineStyle = isBoldActive || isItalicActive || textSizeMode !== 'small';
 
-      if (
-        continueCheckbox ||
-        continueBullet ||
-        hasActiveInlineStyle ||
-        (activeLine && activeLine.classList.contains('aurora-checklist-line'))
-      ) {
-        e.preventDefault();
-
-        // Extract any trailing text after the cursor to move onto the new line
-        let trailingFragment: DocumentFragment | undefined;
-        const textContainer =
-          (activeLine?.querySelector('.aurora-checklist-text') as HTMLElement | null) || activeLine;
-        if (textContainer && textContainer.contains(liveRange.startContainer)) {
-          const afterRange = liveRange.cloneRange();
-          afterRange.selectNodeContents(textContainer);
-          afterRange.setStart(liveRange.endContainer, liveRange.endOffset);
-          if ((afterRange.toString() || '').replace(/\u200B/g, '').length > 0) {
-            trailingFragment = afterRange.extractContents();
-            if (!(textContainer.textContent || '').replace(/\u200B/g, '').trim()) {
-              textContainer.textContent = '\u200B';
-            }
+      // Extract any trailing text after the cursor to move onto the new line
+      let trailingFragment: DocumentFragment | undefined;
+      const textContainer =
+        (activeLine.querySelector('.aurora-checklist-text') as HTMLElement | null) || activeLine;
+      if (textContainer && textContainer.contains(liveRange.startContainer)) {
+        const afterRange = liveRange.cloneRange();
+        afterRange.selectNodeContents(textContainer);
+        afterRange.setStart(liveRange.endContainer, liveRange.endOffset);
+        if ((afterRange.toString() || '').replace(/\u200B/g, '').length > 0) {
+          trailingFragment = afterRange.extractContents();
+        }
+        const remainingVisible = (textContainer.textContent || '').replace(/\u200B/g, '');
+        if (remainingVisible.length === 0) {
+          if (lineFlags.hasCheckbox || lineFlags.hasBullet) {
+            textContainer.textContent = '\u200B';
+          } else if (!textContainer.querySelector('br')) {
+            textContainer.innerHTML = '<br>';
           }
         }
-
-        const newLine = createFormattedLine({
-          initialContent: trailingFragment,
-          hasCheckbox: continueCheckbox,
-          checked: false,
-          hasBullet: continueBullet,
-        });
-
-        if (activeLine && activeLine.parentNode === root) {
-          if (activeLine.nextSibling) {
-            root.insertBefore(newLine, activeLine.nextSibling);
-          } else {
-            root.appendChild(newLine);
-          }
-        } else {
-          root.appendChild(newLine);
-        }
-
-        lastActiveLineRef.current = newLine;
-        const targetEditable =
-          (newLine.querySelector('.aurora-checklist-text') as HTMLElement | null) || newLine;
-        root.focus();
-        placeCaretInEditableTarget(targetEditable, true);
-
-        setIsCurrentLineChecklist(continueCheckbox);
-        setIsBulletModeActive(continueBullet);
-        markNoteDirty();
-        syncBodyTextSnapshot(root);
-        commitHistorySnapshot(title, root.innerHTML, true);
-        requestAnimationFrame(ensureCaretVisible);
-        return;
       }
+
+      const newLine = createFormattedLine({
+        initialContent: trailingFragment,
+        hasCheckbox: continueCheckbox,
+        checked: false,
+        hasBullet: continueBullet,
+      });
+
+      if (activeLine.nextSibling) {
+        root.insertBefore(newLine, activeLine.nextSibling);
+      } else {
+        root.appendChild(newLine);
+      }
+
+      lastActiveLineRef.current = newLine;
+      const targetEditable =
+        (newLine.querySelector('.aurora-checklist-text') as HTMLElement | null) || newLine;
+      root.focus();
+      placeCaretInEditableTarget(targetEditable, true);
+
+      setIsCurrentLineChecklist(continueCheckbox);
+      setIsBulletModeActive(continueBullet);
+      markNoteDirty();
+      syncBodyTextSnapshot(root);
+      commitHistorySnapshot(title, root.innerHTML, true, 'body', {
+        plainText: extractEditorPlainText(root),
+      });
+      requestAnimationFrame(ensureCaretVisible);
+      return;
     }
 
     requestAnimationFrame(() => {
@@ -1721,31 +1863,42 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
       return;
     }
     markNoteDirty();
+    isBodyPasteRef.current = true;
     const plainText = e.clipboardData?.getData('text/plain') || '';
     if (plainText && /((?:https?:\/\/|www\.)[^\s<>"']+)/i.test(plainText)) {
       e.preventDefault();
       const linkedHtml = convertPlainTextToLinkedHtml(plainText);
       document.execCommand('insertHTML', false, `${linkedHtml}&nbsp;`);
+      isBodyPasteRef.current = false;
       if (editorRef.current) {
         syncBodyTextSnapshot(editorRef.current);
-        commitHistorySnapshot(title, editorRef.current.innerHTML, true);
+        commitHistorySnapshot(title, editorRef.current.innerHTML, true, 'body', {
+          isPaste: true,
+          plainText: extractEditorPlainText(editorRef.current),
+        });
       }
       requestAnimationFrame(ensureCaretVisible);
     } else {
       setTimeout(() => {
+        isBodyPasteRef.current = false;
         if (editorRef.current) {
           const beforeLinkify = editorRef.current.innerHTML;
           linkifyDomContainer(editorRef.current);
           const afterLinkify = editorRef.current.innerHTML;
+          const nextPlain = extractEditorPlainText(editorRef.current);
           syncBodyTextSnapshot(editorRef.current);
           if (beforeLinkify !== afterLinkify && historyRef.current.present.contentHtml === beforeLinkify) {
             historyRef.current = replacePresentEditorHistory(historyRef.current, {
               ...historyRef.current.present,
               contentHtml: afterLinkify,
+              plainText: nextPlain,
               caret: captureCaretBookmark('body'),
             });
           } else {
-            commitHistorySnapshot(title, afterLinkify, true, 'body');
+            commitHistorySnapshot(title, afterLinkify, true, 'body', {
+              isPaste: true,
+              plainText: nextPlain,
+            });
           }
         }
       }, 0);
@@ -2101,16 +2254,29 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           aria-label="Note title"
           placeholder="Title"
           value={title}
+          onPaste={() => {
+            if (!isReadOnly) {
+              isTitlePasteRef.current = true;
+            }
+          }}
           onChange={(e) => {
             if (!isReadOnly) {
               const nextTitle = e.target.value;
+              const inputType = (e.nativeEvent as InputEvent | undefined)?.inputType || '';
+              const isPaste =
+                isTitlePasteRef.current ||
+                inputType === 'insertFromPaste' ||
+                inputType === 'insertFromDrop' ||
+                inputType === 'deleteByCut';
+              isTitlePasteRef.current = false;
               setTitle(nextTitle);
               markNoteDirty();
               commitHistorySnapshot(
                 nextTitle,
                 editorRef.current ? editorRef.current.innerHTML : note.content || '',
-                true,
-                'title'
+                false,
+                'title',
+                { isPaste }
               );
             }
           }}
@@ -2151,6 +2317,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
                       historyRef.current = replacePresentEditorHistory(historyRef.current, {
                         ...historyRef.current.present,
                         contentHtml: afterLinkify,
+                        plainText: extractEditorPlainText(editorRef.current),
                         caret: captureCaretBookmark('body'),
                       });
                     }
@@ -2164,8 +2331,17 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           onInput={
             isReadOnly
               ? undefined
-              : () => {
+              : (e) => {
                   markNoteDirty();
+                  const inputType = (e.nativeEvent as InputEvent | undefined)?.inputType || '';
+                  const isPaste =
+                    isBodyPasteRef.current ||
+                    inputType === 'insertFromPaste' ||
+                    inputType === 'insertFromDrop' ||
+                    inputType === 'deleteByCut';
+                  const isNewlineInput =
+                    inputType === 'insertParagraph' || inputType === 'insertLineBreak';
+                  isBodyPasteRef.current = false;
                   if (editorRef.current) {
                     if (isCurrentLineChecklist || isBulletModeActive) {
                       const sel = window.getSelection();
@@ -2192,7 +2368,16 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
                       }
                     }
                     syncBodyTextSnapshot(editorRef.current);
-                    commitHistorySnapshot(title, editorRef.current.innerHTML, true, 'body');
+                    commitHistorySnapshot(
+                      title,
+                      editorRef.current.innerHTML,
+                      isNewlineInput,
+                      'body',
+                      {
+                        isPaste,
+                        plainText: extractEditorPlainText(editorRef.current),
+                      }
+                    );
                   }
                   requestAnimationFrame(ensureCaretVisible);
                 }
@@ -2200,7 +2385,7 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
           onClick={handleEditorClick}
           aria-label="Note content editor"
           data-placeholder="Start typing your note here..."
-          className="w-full min-h-[360px] pb-36 text-sm sm:text-base leading-relaxed text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none bg-transparent font-normal select-text space-y-2 [&_a]:text-[#8B3DFF] dark:[&_a]:text-[#C296FD] [&_a]:underline [&_a]:font-semibold [&_a]:cursor-pointer [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:space-y-1 [&_b]:font-bold [&_strong]:font-bold [&_i]:italic [&_em]:italic empty:before:content-[attr(data-placeholder)] empty:before:text-[#797487]/50 empty:before:dark:text-[#A39BAC]/50"
+          className="w-full min-h-[360px] pb-36 text-sm sm:text-base leading-relaxed text-[#1E1A24] dark:text-[#F7EEFC] focus:outline-none bg-transparent font-normal select-text [&_a]:text-[#8B3DFF] dark:[&_a]:text-[#C296FD] [&_a]:underline [&_a]:font-semibold [&_a]:cursor-pointer [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:space-y-1 [&_b]:font-bold [&_strong]:font-bold [&_i]:italic [&_em]:italic empty:before:content-[attr(data-placeholder)] empty:before:text-[#797487]/50 empty:before:dark:text-[#A39BAC]/50"
         />
       </div>
 

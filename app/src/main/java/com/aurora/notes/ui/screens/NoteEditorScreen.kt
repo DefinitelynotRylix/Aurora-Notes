@@ -293,13 +293,40 @@ private fun normalizeCheckboxLinesAfterEdit(
         return newText to clampSelectionToMinusOneRule(newText, newSelection)
     }
 
+    // Normalize any CRLF (\r\n) or lone CR (\r) from IME / hardware keyboards into a single \n
+    // while keeping cursor and selection offsets exact so pressing Enter never creates two rows.
     var workingText = newText
-    var workingCursor = newSelection.start.coerceIn(0, workingText.length)
+    var workingSelStart = newSelection.start.coerceIn(0, workingText.length)
+    var workingSelEnd = newSelection.end.coerceIn(0, workingText.length)
+    if (workingText.indexOf('\r') != -1) {
+        val sb = StringBuilder(workingText.length)
+        var adjStart = workingSelStart
+        var adjEnd = workingSelEnd
+        var i = 0
+        while (i < workingText.length) {
+            val ch = workingText[i]
+            if (ch == '\r') {
+                if (i + 1 < workingText.length && workingText[i + 1] == '\n') {
+                    if (i < workingSelStart) adjStart--
+                    if (i < workingSelEnd) adjEnd--
+                } else {
+                    sb.append('\n')
+                }
+            } else {
+                sb.append(ch)
+            }
+            i++
+        }
+        workingText = sb.toString()
+        workingSelStart = adjStart.coerceIn(0, workingText.length)
+        workingSelEnd = adjEnd.coerceIn(0, workingText.length)
+    }
+    var workingCursor = workingSelStart.coerceIn(0, workingText.length)
 
     val oldNewlineCount = oldText.count { it == '\n' }
     val newNewlineCount = workingText.count { it == '\n' }
     val pressedEnter = newNewlineCount > oldNewlineCount ||
-        (workingCursor > 0 && workingText[workingCursor - 1] == '\n' && newText != oldText)
+        (workingCursor > 0 && workingText[workingCursor - 1] == '\n' && workingText != oldText)
 
     // Detect if the user pressed Enter / Send (even if the IME trimmed a trailing space or queued multiple newlines)
     if (pressedEnter) {
@@ -375,8 +402,8 @@ private fun normalizeCheckboxLinesAfterEdit(
     val finalString = if (modified) normalizedLines.joinToString("\n") else workingText
     val desiredRange = if (!modified && !newSelection.collapsed) {
         TextRange(
-            newSelection.start.coerceIn(0, finalString.length),
-            newSelection.end.coerceIn(0, finalString.length)
+            workingSelStart.coerceIn(0, finalString.length),
+            workingSelEnd.coerceIn(0, finalString.length)
         )
     } else {
         TextRange(workingCursor.coerceIn(0, finalString.length))
@@ -408,6 +435,148 @@ private data class EditorUndoSnapshot(
     val checklist: List<ChecklistItem>,
     val images: List<NoteImage>
 )
+
+private enum class EditorEditGroupKind {
+    WORD_INSERT,
+    WORD_DELETE,
+    ATOMIC
+}
+
+private data class EditorEditGroup(
+    val field: String,
+    val kind: EditorEditGroupKind,
+    val rangeStart: Int,
+    val rangeEnd: Int
+)
+
+private data class TextEditDiff(
+    val editStart: Int,
+    val deleted: String,
+    val inserted: String
+)
+
+private fun diffPlainTextEdit(oldText: String, newText: String): TextEditDiff {
+    val minLen = min(oldText.length, newText.length)
+    var prefixLen = 0
+    while (prefixLen < minLen && oldText[prefixLen] == newText[prefixLen]) {
+        prefixLen++
+    }
+    var suffixLen = 0
+    val maxSuffix = minLen - prefixLen
+    while (
+        suffixLen < maxSuffix &&
+        oldText[oldText.length - 1 - suffixLen] == newText[newText.length - 1 - suffixLen]
+    ) {
+        suffixLen++
+    }
+    return TextEditDiff(
+        editStart = prefixLen,
+        deleted = oldText.substring(prefixLen, oldText.length - suffixLen),
+        inserted = newText.substring(prefixLen, newText.length - suffixLen)
+    )
+}
+
+private fun isWordChar(ch: Char): Boolean {
+    return ch.isLetterOrDigit() || Character.getType(ch) == Character.NON_SPACING_MARK.toInt()
+}
+
+private fun isAllWordChars(text: String): Boolean {
+    if (text.isEmpty()) return false
+    for (i in text.indices) {
+        if (!isWordChar(text[i])) return false
+    }
+    return true
+}
+
+/**
+ * Evaluates whether a text change should coalesce into the current undo group:
+ * - Typing a whole word continuously (letters/digits) coalesces into one undo step.
+ * - Pasting (or any multi-character bulk insert) is an isolated atomic step so Undo removes only the pasted item.
+ * - Spaces, dots, question marks, punctuation, symbols, and newlines always start a separate undo step so Undo
+ *   removes them first and the word behind them next.
+ */
+private fun evaluateTextEditGrouping(
+    oldText: String,
+    newText: String,
+    field: String,
+    prevGroup: EditorEditGroup?,
+    forceNewEntry: Boolean = false
+): Pair<Boolean, EditorEditGroup> {
+    val diff = diffPlainTextEdit(oldText, newText)
+    val editStart = diff.editStart
+    val deleted = diff.deleted
+    val inserted = diff.inserted
+    val editEndAfter = editStart + inserted.length
+
+    if (forceNewEntry) {
+        return false to EditorEditGroup(field, EditorEditGroupKind.ATOMIC, editStart, editEndAfter)
+    }
+
+    // Pure insertion
+    if (deleted.isEmpty() && inserted.isNotEmpty()) {
+        // Multi-character insert (paste / swipe / suggestion): isolated atomic step
+        if (inserted.length > 1) {
+            return false to EditorEditGroup(field, EditorEditGroupKind.ATOMIC, editStart, editEndAfter)
+        }
+
+        // Single word character: coalesce with contiguous word typing in the same field
+        if (isAllWordChars(inserted)) {
+            val canCoalesce = prevGroup != null &&
+                prevGroup.field == field &&
+                prevGroup.kind == EditorEditGroupKind.WORD_INSERT &&
+                editStart == prevGroup.rangeEnd
+            return if (canCoalesce) {
+                true to EditorEditGroup(field, EditorEditGroupKind.WORD_INSERT, prevGroup!!.rangeStart, editEndAfter)
+            } else {
+                false to EditorEditGroup(field, EditorEditGroupKind.WORD_INSERT, editStart, editEndAfter)
+            }
+        }
+
+        // Space, dot, question mark, punctuation, newline, symbol -> discrete step
+        return false to EditorEditGroup(field, EditorEditGroupKind.ATOMIC, editStart, editEndAfter)
+    }
+
+    // Pure deletion
+    if (inserted.isEmpty() && deleted.isNotEmpty()) {
+        if (deleted.length > 1) {
+            return false to EditorEditGroup(field, EditorEditGroupKind.ATOMIC, editStart, editStart)
+        }
+
+        if (isAllWordChars(deleted)) {
+            val canCoalesce = prevGroup != null &&
+                prevGroup.field == field &&
+                prevGroup.kind == EditorEditGroupKind.WORD_DELETE &&
+                (editStart + deleted.length == prevGroup.rangeStart || editStart == prevGroup.rangeStart)
+            return if (canCoalesce) {
+                true to EditorEditGroup(field, EditorEditGroupKind.WORD_DELETE, editStart, editStart)
+            } else {
+                false to EditorEditGroup(field, EditorEditGroupKind.WORD_DELETE, editStart, editStart)
+            }
+        }
+
+        return false to EditorEditGroup(field, EditorEditGroupKind.ATOMIC, editStart, editStart)
+    }
+
+    // Replacement inside an active word (e.g. IME autocorrect / accent composition refining letters)
+    if (
+        prevGroup != null &&
+        prevGroup.field == field &&
+        prevGroup.kind == EditorEditGroupKind.WORD_INSERT &&
+        editStart >= prevGroup.rangeStart &&
+        editStart + deleted.length <= prevGroup.rangeEnd &&
+        isAllWordChars(inserted)
+    ) {
+        val delta = inserted.length - deleted.length
+        return true to EditorEditGroup(
+            field = field,
+            kind = EditorEditGroupKind.WORD_INSERT,
+            rangeStart = prevGroup.rangeStart,
+            rangeEnd = prevGroup.rangeEnd + delta
+        )
+    }
+
+    return false to EditorEditGroup(field, EditorEditGroupKind.ATOMIC, editStart, editEndAfter)
+}
 
 private val spanGson = Gson()
 
@@ -761,11 +930,12 @@ fun NoteEditorScreen(
             isPinned != baselinePinned
     }
 
-    // Character-by-character / atomic-action Undo & Redo history stack
-    // Every single character, space, Enter, Backspace, or whole-word swipe/paste/suggestion edit
-    // produces its own discrete undo/redo step with zero time-based coalescing.
+    // Word-aware, delimiter-boundary & paste-isolated Undo & Redo history stack:
+    // Typing a whole word continuously groups into one step; spaces, dots, question marks,
+    // punctuation, newlines, and pasted items each produce their own discrete undo/redo step.
     val undoStack = remember(note.id) { mutableStateListOf<EditorUndoSnapshot>() }
     val redoStack = remember(note.id) { mutableStateListOf<EditorUndoSnapshot>() }
+    var activeEditGroup by remember(note.id) { mutableStateOf<EditorEditGroup?>(null) }
     val historyMaxDepth = 500
 
     fun captureCurrentSnapshot(): EditorUndoSnapshot = EditorUndoSnapshot(
@@ -777,12 +947,9 @@ fun NoteEditorScreen(
         images = noteImages.toList()
     )
 
-    @Suppress("UNUSED_PARAMETER")
-    fun recordHistoryBeforeEdit(forceNew: Boolean = true) {
-        if (isReadOnly) return
-        val current = captureCurrentSnapshot()
-        if (undoStack.lastOrNull() != current) {
-            undoStack.add(current)
+    fun pushUndoSnapshot(snapshot: EditorUndoSnapshot) {
+        if (undoStack.lastOrNull() != snapshot) {
+            undoStack.add(snapshot)
             if (undoStack.size > historyMaxDepth) {
                 undoStack.removeAt(0)
             }
@@ -790,8 +957,91 @@ fun NoteEditorScreen(
         redoStack.clear()
     }
 
+    @Suppress("UNUSED_PARAMETER")
+    fun recordHistoryBeforeEdit(forceNew: Boolean = true) {
+        if (isReadOnly) return
+        pushUndoSnapshot(captureCurrentSnapshot())
+        activeEditGroup = null
+    }
+
+    fun recordTextEditBeforeChange(
+        field: String,
+        oldText: String,
+        newText: String,
+        wasComposing: Boolean = false
+    ) {
+        if (isReadOnly || oldText == newText) return
+        val prevGroup = if (redoStack.isEmpty()) activeEditGroup else null
+
+        // Handle IME word-suggestion commit that appends word suffix + trailing space/punctuation
+        // in one event (e.g. composing "hell" -> "hello "): coalesce the word completion, then push
+        // the completed word so Undo removes the space/punctuation first and the whole word next.
+        if (
+            wasComposing &&
+            prevGroup != null &&
+            prevGroup.field == field &&
+            prevGroup.kind == EditorEditGroupKind.WORD_INSERT &&
+            undoStack.isNotEmpty() &&
+            redoStack.isEmpty()
+        ) {
+            val diff = diffPlainTextEdit(oldText, newText)
+            if (
+                diff.deleted.isEmpty() &&
+                diff.inserted.length >= 2 &&
+                diff.editStart == prevGroup.rangeEnd &&
+                isAllWordChars(diff.inserted.dropLast(1)) &&
+                !isWordChar(diff.inserted.last())
+            ) {
+                val wordPart = diff.inserted.dropLast(1)
+                val completedText = oldText.substring(0, diff.editStart) + wordPart + oldText.substring(diff.editStart)
+                val wordEnd = diff.editStart + wordPart.length
+                val intermediateSnapshot = if (field == "body") {
+                    val intermediateSpans = applyTextEditToSpans(
+                        oldText = oldText,
+                        newText = completedText,
+                        oldSpans = charSpans,
+                        activeSizeMode = activeSizeMode,
+                        isBoldActive = isBoldActive,
+                        isItalicActive = isItalicActive
+                    )
+                    captureCurrentSnapshot().copy(
+                        bodyText = completedText,
+                        selection = TextRange(wordEnd.coerceIn(0, completedText.length)),
+                        spans = intermediateSpans
+                    )
+                } else {
+                    captureCurrentSnapshot().copy(title = completedText)
+                }
+                pushUndoSnapshot(intermediateSnapshot)
+                activeEditGroup = EditorEditGroup(
+                    field = field,
+                    kind = EditorEditGroupKind.ATOMIC,
+                    rangeStart = wordEnd,
+                    rangeEnd = wordEnd + 1
+                )
+                return
+            }
+        }
+
+        val (shouldCoalesce, nextGroup) = evaluateTextEditGrouping(
+            oldText = oldText,
+            newText = newText,
+            field = field,
+            prevGroup = prevGroup,
+            forceNewEntry = false
+        )
+
+        if (shouldCoalesce && undoStack.isNotEmpty() && redoStack.isEmpty()) {
+            activeEditGroup = nextGroup
+        } else {
+            pushUndoSnapshot(captureCurrentSnapshot())
+            activeEditGroup = nextGroup
+        }
+    }
+
     fun applyHistorySnapshot(snapshot: EditorUndoSnapshot) {
         activeImageMenuId = null
+        activeEditGroup = null
         title = snapshot.title
         charSpans = snapshot.spans
         val clampedSel = TextRange(
@@ -1064,6 +1314,7 @@ fun NoteEditorScreen(
             baselinePinned = isPinned
         }
 
+        activeEditGroup = null
         hasUnsavedModifications = false
         isSavedClean = true
         showSavedIndicator = true
@@ -1918,7 +2169,11 @@ fun NoteEditorScreen(
                         if (!isReadOnly) {
                             val didChange = it != title
                             if (didChange) {
-                                recordHistoryBeforeEdit(forceNew = kotlin.math.abs(it.length - title.length) > 1)
+                                recordTextEditBeforeChange(
+                                    field = "title",
+                                    oldText = title,
+                                    newText = it
+                                )
                             }
                             title = it
                             if (didChange) {
@@ -2179,8 +2434,12 @@ fun NoteEditorScreen(
                             )
 
                             if (oldText != normalizedText) {
-                                val lenDiff = kotlin.math.abs(normalizedText.length - oldText.length)
-                                recordHistoryBeforeEdit(forceNew = lenDiff > 1 || normalizedText.endsWith("\n"))
+                                recordTextEditBeforeChange(
+                                    field = "body",
+                                    oldText = oldText,
+                                    newText = normalizedText,
+                                    wasComposing = bodyValue.composition != null
+                                )
                                 charSpans = applyTextEditToSpans(
                                     oldText = oldText,
                                     newText = normalizedText,
@@ -2200,11 +2459,15 @@ fun NoteEditorScreen(
                                     isBulletModeActive = movedLineParsed.hasBullet
                                 }
                             }
-                            bodyValue = TextFieldValue(
-                                text = normalizedText,
-                                selection = clampedSelection,
-                                composition = if (normalizedText != newValue.text) null else newValue.composition
-                            )
+                            bodyValue = if (normalizedText == newValue.text && clampedSelection == newValue.selection) {
+                                newValue
+                            } else {
+                                TextFieldValue(
+                                    text = normalizedText,
+                                    selection = clampedSelection,
+                                    composition = if (normalizedText != newValue.text) null else newValue.composition
+                                )
+                            }
                         },
                         readOnly = isReadOnly,
                         singleLine = false,
@@ -2303,7 +2566,8 @@ fun NoteEditorScreen(
                         activeSegIdx: Int,
                         segSelection: TextRange,
                         forceHistoryEntry: Boolean = false,
-                        skipHistoryRecord: Boolean = false
+                        skipHistoryRecord: Boolean = false,
+                        wasComposing: Boolean = false
                     ) {
                         val oldFull = bodyValue.text
                         val sb = StringBuilder()
@@ -2324,8 +2588,16 @@ fun NoteEditorScreen(
                         val full = sb.toString()
                         if (oldFull != full) {
                             if (!skipHistoryRecord) {
-                                val lenDiff = kotlin.math.abs(full.length - oldFull.length)
-                                recordHistoryBeforeEdit(forceNew = forceHistoryEntry || lenDiff > 1)
+                                if (forceHistoryEntry) {
+                                    recordHistoryBeforeEdit(forceNew = true)
+                                } else {
+                                    recordTextEditBeforeChange(
+                                        field = "body",
+                                        oldText = oldFull,
+                                        newText = full,
+                                        wasComposing = wasComposing
+                                    )
+                                }
                             }
                             charSpans = applyTextEditToSpans(
                                 oldText = oldFull,
@@ -2438,17 +2710,27 @@ fun NoteEditorScreen(
                                             bodyValue = bodyValue.copy(selection = TextRange(globalStart, globalEnd))
                                         }
                                     } else {
+                                        val segWasComposing = segFieldValue.composition != null
                                         lastSyncedLineStart = segStartOffset + findLineStart(normSeg, clampedSegSel.start)
-                                        segFieldValue = TextFieldValue(
-                                            text = normSeg,
-                                            selection = clampedSegSel,
-                                            composition = if (normSeg != newSegVal.text) null else newSegVal.composition
-                                        )
+                                        segFieldValue = if (normSeg == newSegVal.text && clampedSegSel == newSegVal.selection) {
+                                            newSegVal
+                                        } else {
+                                            TextFieldValue(
+                                                text = normSeg,
+                                                selection = clampedSegSel,
+                                                composition = if (normSeg != newSegVal.text) null else newSegVal.composition
+                                            )
+                                        }
                                         val updatedList = textSegments.toMutableList()
                                         if (segIdx < updatedList.size) {
                                             updatedList[segIdx] = normSeg
                                         }
-                                        rebuildBodyWithSegments(updatedList, segIdx, clampedSegSel)
+                                        rebuildBodyWithSegments(
+                                            updatedList,
+                                            segIdx,
+                                            clampedSegSel,
+                                            wasComposing = segWasComposing
+                                        )
                                     }
                                 },
                                 readOnly = isReadOnly,

@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.aurora.notes.model.Note
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +32,17 @@ interface NoteDao {
 
     @Update
     suspend fun update(note: Note)
+
+    @Query("UPDATE notes SET sortOrder = :sortOrder WHERE id = :id")
+    suspend fun updateSortOrder(id: String, sortOrder: Int)
+
+    @Transaction
+    suspend fun updateSortOrders(ids: List<String>, sortOrders: List<Int>) {
+        val count = minOf(ids.size, sortOrders.size)
+        for (i in 0 until count) {
+            updateSortOrder(ids[i], sortOrders[i])
+        }
+    }
 
     @Query("UPDATE notes SET isArchived = 1, isPinned = 0, updatedAt = :timestamp WHERE id = :id")
     suspend fun archiveNote(id: String, timestamp: Long)

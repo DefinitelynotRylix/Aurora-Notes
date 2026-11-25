@@ -1,7 +1,7 @@
 package com.aurora.notes.ui.components
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -33,8 +34,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -44,7 +45,14 @@ import kotlin.math.sin
  * Smoothly morphs notes between a 2-column Masonry Staggered Grid (`isGridView = true`)
  * and a Full-Width Single Column layout (`isGridView = false`), with interactive
  * Hold-to-Elevate, subtle wobbly physics, neighbor hover interaction, and Drag-to-Reorder
- * that works in both Masonry and Single Column modes.
+ * that works in both Masonry and Single Column modes at 60/120fps.
+ *
+ * Performance architecture:
+ * - Grid <-> Column morph measures cards ONCE at target width and animates coordinates + subtle
+ *   GPU scale strictly inside placement (`layout {}`) and `placeRelativeWithLayer {}` (0 per-frame
+ *   child re-measurements, 0 recompositions).
+ * - Drag wobble, elevation, and drop-back settle read animation state strictly in placement /
+ *   graphicsLayer and NEVER mutate Compose snapshot state inside the measure/layout block.
  */
 @Composable
 fun MorphingNotesGrid(
@@ -60,19 +68,8 @@ fun MorphingNotesGrid(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val expandProgress by animateFloatAsState(
-        targetValue = if (isGridView) 0f else 1f,
-        animationSpec = tween(
-            durationMillis = 320,
-            easing = FastOutSlowInEasing
-        ),
-        label = "morphing_notes_grid_progress"
-    )
-
     val scrollState = rememberScrollState()
-    val smoothedHeights = remember { HashMap<String, Float>() }
     val coroutineScope = rememberCoroutineScope()
-    var previousCount by remember { mutableIntStateOf(-1) }
     val haptic = LocalHapticFeedback.current
 
     val currentItemIds by rememberUpdatedState(itemIds)
@@ -93,13 +90,28 @@ fun MorphingNotesGrid(
     var dragDeltaX by remember { mutableFloatStateOf(0f) }
     var dragDeltaY by remember { mutableFloatStateOf(0f) }
 
-    // Animated positions and bounds per note ID so cards smoothly glide into new slots
+    var dropStartX by remember { mutableFloatStateOf(0f) }
+    var dropStartY by remember { mutableFloatStateOf(0f) }
+
+    // Placement-only refs (never cause recomposition or child re-measure)
     val animXMap = remember { HashMap<String, Float>() }
     val animYMap = remember { HashMap<String, Float>() }
     val slotBoundsMap = remember { HashMap<Int, Rect>() }
     val cardBoundsMap = remember { HashMap<String, Rect>() }
 
-    var isAnyCardGliding by remember { mutableStateOf(false) }
+    // GPU-only Grid <-> Column FLIP morph state
+    val morphAnim = remember { Animatable(1f) }
+    val morphStartPosMap = remember { HashMap<String, Offset>() }
+    var lastGridViewMode by remember { mutableStateOf(isGridView) }
+    var morphActive by remember { mutableStateOf(false) }
+    var previousLayoutHeight by remember { mutableIntStateOf(0) }
+    var morphStartLayoutHeight by remember { mutableIntStateOf(0) }
+    var previousCount by remember { mutableIntStateOf(-1) }
+
+    // Smooth GPU elevation & drop-back settle animatables (read strictly in placement / graphicsLayer)
+    val dragElevationAnim = remember { Animatable(0f) }
+    val dropSettleAnim = remember { Animatable(1f) }
+    var dropSettleJob by remember { mutableStateOf<Job?>(null) }
     var wobbleTimeMs by remember { mutableLongStateOf(0L) }
 
     // Sync liveOrderIds ONLY when itemIds changes from upstream (never overwrite with stale itemIds on drag end!)
@@ -113,19 +125,46 @@ fun MorphingNotesGrid(
             animXMap.keys.retainAll(validSet)
             animYMap.keys.retainAll(validSet)
             cardBoundsMap.keys.retainAll(validSet)
-            smoothedHeights.keys.retainAll(validSet)
+            morphStartPosMap.keys.retainAll(validSet)
         }
     }
 
-    val dragElevation by animateFloatAsState(
-        targetValue = if (draggedNoteId != null) 1f else 0f,
-        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
-        label = "drag_elevation_progress"
-    )
+    // Trigger zero-reflow GPU morph when switching between Masonry Grid and Single Column
+    LaunchedEffect(isGridView) {
+        if (isGridView != lastGridViewMode) {
+            morphStartPosMap.clear()
+            for ((id, rect) in cardBoundsMap) {
+                morphStartPosMap[id] = Offset(rect.left, rect.top)
+            }
+            morphStartLayoutHeight = previousLayoutHeight
+            lastGridViewMode = isGridView
+            morphActive = true
+            morphAnim.snapTo(0f)
+            morphAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 240,
+                    easing = FastOutSlowInEasing
+                )
+            )
+            morphStartPosMap.clear()
+            morphActive = false
+        }
+    }
 
-    val isFrameLoopActive = draggedNoteId != null || droppingNoteId != null || isAnyCardGliding
-    LaunchedEffect(isFrameLoopActive) {
-        if (isFrameLoopActive) {
+    // Smooth GPU elevation on hold / release without recomposing children
+    LaunchedEffect(draggedNoteId != null) {
+        val target = if (draggedNoteId != null) 1f else 0f
+        dragElevationAnim.animateTo(
+            targetValue = target,
+            animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)
+        )
+    }
+
+    // Frame clock active ONLY while actively dragging a card (stopped immediately on drop)
+    val isDragClockActive = draggedNoteId != null
+    LaunchedEffect(isDragClockActive) {
+        if (isDragClockActive) {
             val startNs = System.nanoTime()
             while (true) {
                 withFrameNanos { nowNs ->
@@ -146,6 +185,9 @@ fun MorphingNotesGrid(
                     }
                     val hitId = hitEntry?.key ?: return@detectDragGesturesAfterLongPress
                     val hitRect = hitEntry.value
+
+                    dropSettleJob?.cancel()
+                    dropSettleJob = null
 
                     if (liveOrderIds.size != currentItemIds.size || liveOrderIds.toSet() != currentItemIds.toSet()) {
                         liveOrderIds.clear()
@@ -194,7 +236,7 @@ fun MorphingNotesGrid(
                                 right = rect.right + rect.width * 0.08f,
                                 bottom = rect.bottom + rect.height * 0.08f
                             )
-                            if (expandedRect.contains(androidx.compose.ui.geometry.Offset(centerX, centerY))) {
+                            if (expandedRect.contains(Offset(centerX, centerY))) {
                                 val dist = hypot(centerX - rect.center.x, centerY - rect.center.y)
                                 if (dist < bestDist) {
                                     bestDist = dist
@@ -235,12 +277,10 @@ fun MorphingNotesGrid(
                             if (liveOrderIds.toList() != initialOrderOnDragStart.toList()) {
                                 liveOrderIds.clear()
                                 liveOrderIds.addAll(initialOrderOnDragStart)
-                                isAnyCardGliding = true
                             }
                         } else if (bestSlotIdx >= 0 && bestSlotIdx != currentSlotIdx) {
                             liveOrderIds.removeAt(currentSlotIdx)
                             liveOrderIds.add(bestSlotIdx, activeId)
-                            isAnyCardGliding = true
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         }
                     }
@@ -251,6 +291,8 @@ fun MorphingNotesGrid(
                         val finalOrder = liveOrderIds.toList()
                         val initialOrder = initialOrderOnDragStart.toList()
                         val didReorder = dragMoved && finalOrder.size == initialOrder.size && finalOrder != initialOrder
+                        val releaseX = dragStartX + dragDeltaX
+                        val releaseY = dragStartY + dragDeltaY
 
                         draggedNoteId = null
                         if (didReorder) {
@@ -264,18 +306,29 @@ fun MorphingNotesGrid(
                                 }
                             }
                             droppingNoteId = null
-                            isAnyCardGliding = false
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             currentOnReorderNotes?.invoke(finalOrder)
-                        } else {
-                            // Returned to original slot (or was just a hold without reorder)
-                            animXMap[finishedId] = dragStartX + dragDeltaX
-                            animYMap[finishedId] = dragStartY + dragDeltaY
+                        } else if (dragMoved) {
+                            // Smooth GPU-driven drop-back into original slot (no layout invalidation or measure spike)
+                            dropStartX = releaseX
+                            dropStartY = releaseY
                             droppingNoteId = finishedId
-                            isAnyCardGliding = true
-                            if (!dragMoved) {
-                                currentOnReleaseWithoutDrag?.invoke(finishedId)
+                            dropSettleJob?.cancel()
+                            dropSettleJob = coroutineScope.launch {
+                                dropSettleAnim.snapTo(0f)
+                                dropSettleAnim.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = tween(
+                                        durationMillis = 175,
+                                        easing = FastOutSlowInEasing
+                                    )
+                                )
+                                droppingNoteId = null
                             }
+                        } else {
+                            // Released in place without dragging: zero glide needed, just settle elevation cleanly
+                            droppingNoteId = null
+                            currentOnReleaseWithoutDrag?.invoke(finishedId)
                         }
                     }
                     dragMoved = false
@@ -285,16 +338,33 @@ fun MorphingNotesGrid(
                 onDragCancel = {
                     val cancelledId = draggedNoteId
                     if (cancelledId != null) {
+                        val releaseX = dragStartX + dragDeltaX
+                        val releaseY = dragStartY + dragDeltaY
                         if (initialOrderOnDragStart.isNotEmpty() && liveOrderIds.toList() != initialOrderOnDragStart.toList()) {
                             liveOrderIds.clear()
                             liveOrderIds.addAll(initialOrderOnDragStart)
                         }
-                        animXMap[cancelledId] = dragStartX + dragDeltaX
-                        animYMap[cancelledId] = dragStartY + dragDeltaY
-                        droppingNoteId = cancelledId
-                        isAnyCardGliding = true
+                        draggedNoteId = null
+                        if (dragMoved) {
+                            dropStartX = releaseX
+                            dropStartY = releaseY
+                            droppingNoteId = cancelledId
+                            dropSettleJob?.cancel()
+                            dropSettleJob = coroutineScope.launch {
+                                dropSettleAnim.snapTo(0f)
+                                dropSettleAnim.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = tween(
+                                        durationMillis = 175,
+                                        easing = FastOutSlowInEasing
+                                    )
+                                )
+                                droppingNoteId = null
+                            }
+                        } else {
+                            droppingNoteId = null
+                        }
                     }
-                    draggedNoteId = null
                     dragMoved = false
                     dragDeltaX = 0f
                     dragDeltaY = 0f
@@ -318,18 +388,15 @@ fun MorphingNotesGrid(
                 .fillMaxWidth()
                 .then(dragGestureModifier)
         ) { measurables, constraints ->
-            // Read wobbleTimeMs to re-layout/re-place smoothly during active drag or settle
-            val currentWobbleMs = wobbleTimeMs
-
+            // MEASURE PHASE: Runs ONLY when data, grid mode, or slot order changes (NEVER per animation frame!)
             if (measurables.isEmpty()) {
-                smoothedHeights.clear()
                 previousCount = 0
+                previousLayoutHeight = 0
                 return@Layout layout(constraints.maxWidth, 0) {}
             }
 
             if (previousCount != measurables.size) {
                 previousCount = measurables.size
-                smoothedHeights.clear()
                 if (measurables.size <= 2 && scrollState.value > 0) {
                     coroutineScope.launch {
                         scrollState.scrollTo(0)
@@ -342,16 +409,9 @@ fun MorphingNotesGrid(
             val vGap = verticalSpacing.roundToPx()
 
             val gridItemWidth = ((totalWidth - hGap) / 2).coerceAtLeast(1)
-            val colItemWidth = totalWidth
+            val targetItemWidth = if (isGridView) gridItemWidth else totalWidth
 
-            val p = expandProgress.coerceIn(0f, 1f)
-            val isMorphAnimating = p > 0.001f && p < 0.999f
-
-            val currentItemWidth = (gridItemWidth + (colItemWidth - gridItemWidth) * p)
-                .roundToInt()
-                .coerceIn(gridItemWidth, colItemWidth)
-
-            val itemConstraints = Constraints.fixedWidth(currentItemWidth)
+            val itemConstraints = Constraints.fixedWidth(targetItemWidth)
             val placeables = measurables.map { measurable ->
                 measurable.measure(itemConstraints)
             }
@@ -373,211 +433,209 @@ fun MorphingNotesGrid(
                 ids
             }
 
-            val effectiveHeightsByOrigIdx = IntArray(placeables.size)
-            for (i in placeables.indices) {
-                val id = ids[i]
-                val targetH = placeables[i].height.toFloat()
-                val prevH = smoothedHeights[id]
-                val nextH = if (!isMorphAnimating || prevH == null || abs(targetH - prevH) < 1f) {
-                    targetH
-                } else {
-                    prevH + (targetH - prevH) * 0.35f
-                }
-                smoothedHeights[id] = nextH
-                effectiveHeightsByOrigIdx[i] = nextH.roundToInt()
-            }
-
-            // 1. Compute 2-column Masonry Grid positions for each slot in effectiveOrderIds
-            val colHeights = IntArray(2) { 0 }
-            val slotGridX = IntArray(effectiveOrderIds.size)
-            val slotGridY = IntArray(effectiveOrderIds.size)
-            for (slotIdx in effectiveOrderIds.indices) {
-                val origIdx = idToOrigIndex[effectiveOrderIds[slotIdx]] ?: slotIdx
-                val itemH = effectiveHeightsByOrigIdx[origIdx]
-                val lane = if (colHeights[0] <= colHeights[1]) 0 else 1
-                slotGridX[slotIdx] = if (lane == 0) 0 else (totalWidth - gridItemWidth)
-                slotGridY[slotIdx] = colHeights[lane]
-                colHeights[lane] += itemH + vGap
-            }
-            val gridTotalHeight = max(0, max(colHeights[0], colHeights[1]) - vGap)
-
-            // 2. Compute Single-Column vertical stack positions for each slot in effectiveOrderIds
-            var runningY = 0
-            val slotColX = IntArray(effectiveOrderIds.size)
-            val slotColY = IntArray(effectiveOrderIds.size)
-            for (slotIdx in effectiveOrderIds.indices) {
-                val origIdx = idToOrigIndex[effectiveOrderIds[slotIdx]] ?: slotIdx
-                val itemH = effectiveHeightsByOrigIdx[origIdx]
-                slotColX[slotIdx] = 0
-                slotColY[slotIdx] = runningY
-                runningY += itemH + vGap
-            }
-            val colTotalHeight = max(0, runningY - vGap)
-
-            // 3. Interpolated target (slotX, slotY) for each slot
+            // Compute target coordinates for the active layout mode (2-column Masonry or Single Column)
             val slotTargetX = IntArray(effectiveOrderIds.size)
             val slotTargetY = IntArray(effectiveOrderIds.size)
             slotBoundsMap.clear()
 
-            for (slotIdx in effectiveOrderIds.indices) {
-                val origIdx = idToOrigIndex[effectiveOrderIds[slotIdx]] ?: slotIdx
-                val itemH = effectiveHeightsByOrigIdx[origIdx]
-                val x = (slotGridX[slotIdx] + (slotColX[slotIdx] - slotGridX[slotIdx]) * p).roundToInt()
-                val rawY = (slotGridY[slotIdx] + (slotColY[slotIdx] - slotGridY[slotIdx]) * p).roundToInt()
-                val y = if (slotIdx == 0) 0 else if (slotIdx == 1 && p <= 0.001f) 0 else rawY
-                slotTargetX[slotIdx] = x
-                slotTargetY[slotIdx] = y
-                slotBoundsMap[slotIdx] = Rect(
-                    left = x.toFloat(),
-                    top = y.toFloat(),
-                    right = (x + currentItemWidth).toFloat(),
-                    bottom = (y + itemH).toFloat()
-                )
-            }
-
-            val interpolatedTotalHeight = (gridTotalHeight + (colTotalHeight - gridTotalHeight) * p)
-                .roundToInt()
-                .coerceAtLeast(0)
-
-            val layoutHeight = max(interpolatedTotalHeight, constraints.minHeight)
-
-            // Update animated positions per note ID
-            var stillGliding = false
-            val activeDragId = draggedNoteId
-            val activeDropId = droppingNoteId
-
-            for (slotIdx in effectiveOrderIds.indices) {
-                val id = effectiveOrderIds[slotIdx]
-                val tx = slotTargetX[slotIdx].toFloat()
-                val ty = slotTargetY[slotIdx].toFloat()
-
-                if (id == activeDragId) {
-                    animXMap[id] = dragStartX + dragDeltaX
-                    animYMap[id] = dragStartY + dragDeltaY
-                } else {
-                    val prevX = animXMap[id]
-                    val prevY = animYMap[id]
-                    if (prevX == null || prevY == null || (activeDragId == null && activeDropId == null && !isAnyCardGliding)) {
-                        animXMap[id] = tx
-                        animYMap[id] = ty
-                    } else {
-                        val dx = tx - prevX
-                        val dy = ty - prevY
-                        if (hypot(dx, dy) > 0.75f) {
-                            stillGliding = true
-                            animXMap[id] = prevX + dx * 0.28f
-                            animYMap[id] = prevY + dy * 0.28f
-                        } else {
-                            animXMap[id] = tx
-                            animYMap[id] = ty
-                        }
-                    }
+            val targetTotalHeight: Int = if (isGridView) {
+                val colHeights = IntArray(2) { 0 }
+                for (slotIdx in effectiveOrderIds.indices) {
+                    val origIdx = idToOrigIndex[effectiveOrderIds[slotIdx]] ?: slotIdx
+                    val itemH = placeables[origIdx].height
+                    val lane = if (colHeights[0] <= colHeights[1]) 0 else 1
+                    val x = if (lane == 0) 0 else (totalWidth - gridItemWidth)
+                    val y = if (slotIdx == 0 || slotIdx == 1) 0 else colHeights[lane]
+                    slotTargetX[slotIdx] = x
+                    slotTargetY[slotIdx] = y
+                    slotBoundsMap[slotIdx] = Rect(
+                        left = x.toFloat(),
+                        top = y.toFloat(),
+                        right = (x + targetItemWidth).toFloat(),
+                        bottom = (y + itemH).toFloat()
+                    )
+                    colHeights[lane] = y + itemH + vGap
                 }
-            }
-
-            if (!stillGliding && activeDragId == null) {
-                if (isAnyCardGliding) isAnyCardGliding = false
-                if (droppingNoteId != null) droppingNoteId = null
-            }
-
-            // Compute dragged card center for neighbor hover interaction
-            val dragCenterX: Float
-            val dragCenterY: Float
-            if (activeDragId != null) {
-                val dOrigIdx = idToOrigIndex[activeDragId] ?: 0
-                val dH = effectiveHeightsByOrigIdx[dOrigIdx]
-                dragCenterX = (dragStartX + dragDeltaX) + currentItemWidth * 0.5f
-                dragCenterY = (dragStartY + dragDeltaY) + dH * 0.5f
+                max(0, max(colHeights[0], colHeights[1]) - vGap)
             } else {
-                dragCenterX = -10000f
-                dragCenterY = -10000f
+                var runningY = 0
+                for (slotIdx in effectiveOrderIds.indices) {
+                    val origIdx = idToOrigIndex[effectiveOrderIds[slotIdx]] ?: slotIdx
+                    val itemH = placeables[origIdx].height
+                    slotTargetX[slotIdx] = 0
+                    slotTargetY[slotIdx] = runningY
+                    slotBoundsMap[slotIdx] = Rect(
+                        left = 0f,
+                        top = runningY.toFloat(),
+                        right = targetItemWidth.toFloat(),
+                        bottom = (runningY + itemH).toFloat()
+                    )
+                    runningY += itemH + vGap
+                }
+                max(0, runningY - vGap)
             }
 
-            val phaseRad = (currentWobbleMs.toDouble() / 1000.0 * 16.5).toFloat()
+            previousLayoutHeight = targetTotalHeight
+            val effectiveHeight = if (morphActive) {
+                max(targetTotalHeight, morphStartLayoutHeight)
+            } else {
+                targetTotalHeight
+            }
+            val layoutHeight = max(effectiveHeight, constraints.minHeight)
 
+            // PLACEMENT PHASE: Reads animation values here so Compose skips re-measure & recomposition at 120fps
             layout(totalWidth, layoutHeight) {
+                val activeDragId = draggedNoteId
+                val activeDropId = droppingNoteId
+                val morphP = if (morphActive) morphAnim.value.coerceIn(0f, 1f) else 1f
+                val isMorphRunning = morphActive && morphP < 0.999f
+                val dropP = if (activeDropId != null) dropSettleAnim.value.coerceIn(0f, 1f) else 1f
+                val currentWobbleMs = if (activeDragId != null) wobbleTimeMs else 0L
+                val phaseRad = (currentWobbleMs.toDouble() / 1000.0 * 16.5).toFloat()
+
+                val dragCenterX: Float
+                val dragCenterY: Float
+                if (activeDragId != null) {
+                    val dOrigIdx = idToOrigIndex[activeDragId] ?: 0
+                    val dH = placeables[dOrigIdx].height
+                    dragCenterX = (dragStartX + dragDeltaX) + targetItemWidth * 0.5f
+                    dragCenterY = (dragStartY + dragDeltaY) + dH * 0.5f
+                } else {
+                    dragCenterX = -10000f
+                    dragCenterY = -10000f
+                }
+
                 for (slotIdx in effectiveOrderIds.indices) {
                     val id = effectiveOrderIds[slotIdx]
                     val origIdx = idToOrigIndex[id] ?: slotIdx
                     val placeable = placeables[origIdx]
-                    val itemH = effectiveHeightsByOrigIdx[origIdx]
+                    val itemH = placeable.height
+                    val tx = slotTargetX[slotIdx].toFloat()
+                    val ty = slotTargetY[slotIdx].toFloat()
 
-                    val drawX = (animXMap[id] ?: slotTargetX[slotIdx].toFloat()).roundToInt()
-                    val drawY = (animYMap[id] ?: slotTargetY[slotIdx].toFloat()).roundToInt()
+                    val drawXf: Float
+                    val drawYf: Float
+
+                    when {
+                        id == activeDragId -> {
+                            drawXf = dragStartX + dragDeltaX
+                            drawYf = dragStartY + dragDeltaY
+                        }
+                        id == activeDropId -> {
+                            drawXf = dropStartX + (tx - dropStartX) * dropP
+                            drawYf = dropStartY + (ty - dropStartY) * dropP
+                        }
+                        isMorphRunning -> {
+                            val startPos = morphStartPosMap[id]
+                            if (startPos != null) {
+                                drawXf = startPos.x + (tx - startPos.x) * morphP
+                                drawYf = startPos.y + (ty - startPos.y) * morphP
+                            } else {
+                                drawXf = tx
+                                drawYf = ty
+                            }
+                        }
+                        activeDragId != null -> {
+                            val prevX = animXMap[id] ?: tx
+                            val prevY = animYMap[id] ?: ty
+                            val dx = tx - prevX
+                            val dy = ty - prevY
+                            if (hypot(dx, dy) > 0.75f) {
+                                drawXf = prevX + dx * 0.30f
+                                drawYf = prevY + dy * 0.30f
+                            } else {
+                                drawXf = tx
+                                drawYf = ty
+                            }
+                        }
+                        else -> {
+                            drawXf = tx
+                            drawYf = ty
+                        }
+                    }
+
+                    animXMap[id] = drawXf
+                    animYMap[id] = drawYf
+                    val drawX = drawXf.roundToInt()
+                    val drawY = drawYf.roundToInt()
 
                     cardBoundsMap[id] = Rect(
-                        left = drawX.toFloat(),
-                        top = drawY.toFloat(),
-                        right = (drawX + currentItemWidth).toFloat(),
-                        bottom = (drawY + itemH).toFloat()
+                        left = drawXf,
+                        top = drawYf,
+                        right = drawXf + targetItemWidth.toFloat(),
+                        bottom = drawYf + itemH.toFloat()
                     )
 
-                    if (id == activeDragId) {
-                        // Held / dragged card: elevates from its place with a gentle wobbly oscillation
-                        val elev = dragElevation.coerceIn(0f, 1f)
-                        val scale = 1f + 0.045f * elev
-                        val wobbleDeg = sin(phaseRad) * 1.15f * elev
-                        placeable.placeRelativeWithLayer(
-                            x = drawX,
-                            y = drawY,
-                            zIndex = 30f
-                        ) {
-                            scaleX = scale
-                            scaleY = scale
-                            rotationZ = wobbleDeg
-                            shadowElevation = 22f * elev
+                    when {
+                        id == activeDragId -> {
+                            placeable.placeRelativeWithLayer(
+                                x = drawX,
+                                y = drawY,
+                                zIndex = 30f
+                            ) {
+                                val elev = dragElevationAnim.value.coerceIn(0f, 1f)
+                                val scale = 1f + 0.045f * elev
+                                scaleX = scale
+                                scaleY = scale
+                                rotationZ = sin(phaseRad) * 1.15f * elev
+                                shadowElevation = 22f * elev
+                            }
                         }
-                    } else if (id == activeDropId) {
-                        // Dropping card locking smoothly into its target slot
-                        val distRemaining = hypot(
-                            slotTargetX[slotIdx].toFloat() - drawX.toFloat(),
-                            slotTargetY[slotIdx].toFloat() - drawY.toFloat()
-                        )
-                        val settleFactor = (distRemaining / 42f).coerceIn(0f, 1f)
-                        val scale = 1f + 0.03f * settleFactor
-                        val wobbleDeg = sin(phaseRad * 1.2f) * 0.7f * settleFactor
-                        placeable.placeRelativeWithLayer(
-                            x = drawX,
-                            y = drawY,
-                            zIndex = 15f
-                        ) {
-                            scaleX = scale
-                            scaleY = scale
-                            rotationZ = wobbleDeg
+                        id == activeDropId -> {
+                            placeable.placeRelativeWithLayer(
+                                x = drawX,
+                                y = drawY,
+                                zIndex = 15f
+                            ) {
+                                val settle = 1f - dropP
+                                val scale = 1f + 0.03f * settle
+                                scaleX = scale
+                                scaleY = scale
+                                shadowElevation = 14f * settle
+                            }
                         }
-                    } else if (activeDragId != null || stillGliding) {
-                        // Neighbor notes in the same group react with a subtle sympathetic wobble when hovered near or gliding to a new slot
-                        val isSameGroupAsDragged = activeDragId != null &&
-                            ((id in currentLockedItemIds) == (activeDragId in currentLockedItemIds))
-                        val cardCenterX = drawX + currentItemWidth * 0.5f
-                        val cardCenterY = drawY + itemH * 0.5f
-                        val distToDragged = hypot(dragCenterX - cardCenterX, dragCenterY - cardCenterY)
-                        val hoverProximity = if (isSameGroupAsDragged) {
-                            (1f - (distToDragged / (currentItemWidth * 1.15f))).coerceIn(0f, 1f)
-                        } else {
-                            0f
+                        isMorphRunning -> {
+                            placeable.placeRelativeWithLayer(
+                                x = drawX,
+                                y = drawY,
+                                zIndex = (effectiveOrderIds.size - slotIdx).toFloat() * 0.01f
+                            ) {
+                                val scale = 0.94f + 0.06f * morphP
+                                scaleX = scale
+                                scaleY = scale
+                                alpha = 0.88f + 0.12f * morphP
+                            }
                         }
+                        activeDragId != null -> {
+                            val isSameGroupAsDragged =
+                                (id in currentLockedItemIds) == (activeDragId in currentLockedItemIds)
+                            val cardCenterX = drawXf + targetItemWidth * 0.5f
+                            val cardCenterY = drawYf + itemH * 0.5f
+                            val distToDragged = hypot(dragCenterX - cardCenterX, dragCenterY - cardCenterY)
+                            val hoverProximity = if (isSameGroupAsDragged) {
+                                (1f - (distToDragged / (targetItemWidth * 1.15f))).coerceIn(0f, 1f)
+                            } else {
+                                0f
+                            }
+                            val glideDist = hypot(tx - drawXf, ty - drawYf)
+                            val glideFactor = (glideDist / 40f).coerceIn(0f, 1f)
+                            val wobbleIntensity = max(hoverProximity * 0.85f, glideFactor * 1.0f)
+                            val neighborWobbleDeg = sin(phaseRad * 1.25f + origIdx * 1.7f) * wobbleIntensity
+                            val neighborScale = 1f - (hoverProximity * 0.015f)
 
-                        val glideDist = hypot(
-                            slotTargetX[slotIdx].toFloat() - drawX.toFloat(),
-                            slotTargetY[slotIdx].toFloat() - drawY.toFloat()
-                        )
-                        val glideFactor = (glideDist / 40f).coerceIn(0f, 1f)
-                        val wobbleIntensity = max(hoverProximity * 0.85f, glideFactor * 1.0f)
-                        val neighborWobbleDeg = sin(phaseRad * 1.25f + origIdx * 1.7f) * wobbleIntensity
-                        val neighborScale = 1f - (hoverProximity * 0.015f)
-
-                        placeable.placeRelativeWithLayer(
-                            x = drawX,
-                            y = drawY,
-                            zIndex = if (glideFactor > 0.05f) 5f else 0f
-                        ) {
-                            scaleX = neighborScale
-                            scaleY = neighborScale
-                            rotationZ = neighborWobbleDeg
+                            placeable.placeRelativeWithLayer(
+                                x = drawX,
+                                y = drawY,
+                                zIndex = if (glideFactor > 0.05f) 5f else 0f
+                            ) {
+                                scaleX = neighborScale
+                                scaleY = neighborScale
+                                rotationZ = neighborWobbleDeg
+                            }
                         }
-                    } else {
-                        placeable.placeRelative(drawX, drawY)
+                        else -> {
+                            placeable.placeRelative(drawX, drawY)
+                        }
                     }
                 }
             }

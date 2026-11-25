@@ -248,7 +248,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!trackRef.current || isSelectionMode || isNavTransitionPending) return;
+    if (!trackRef.current || isSelectionMode) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const rect = trackRef.current.getBoundingClientRect();
     const relX = e.clientX - rect.left;

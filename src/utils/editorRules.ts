@@ -547,12 +547,235 @@ export function cleanupOrphanedPrivateStorageEntries(
   };
 }
 
+export type EditorEditGroupKind = 'word-insert' | 'word-delete' | 'atomic';
+
+export interface EditorEditGroup {
+  field: string;
+  kind: EditorEditGroupKind;
+  rangeStart: number;
+  rangeEnd: number;
+}
+
+export interface TextEditDiff {
+  editStart: number;
+  deleted: string;
+  inserted: string;
+}
+
+export function diffPlainTextEdit(oldText: string, newText: string): TextEditDiff {
+  const minLen = Math.min(oldText.length, newText.length);
+  let prefixLen = 0;
+  while (prefixLen < minLen && oldText.charCodeAt(prefixLen) === newText.charCodeAt(prefixLen)) {
+    prefixLen++;
+  }
+  let suffixLen = 0;
+  const maxSuffix = minLen - prefixLen;
+  while (
+    suffixLen < maxSuffix &&
+    oldText.charCodeAt(oldText.length - 1 - suffixLen) ===
+      newText.charCodeAt(newText.length - 1 - suffixLen)
+  ) {
+    suffixLen++;
+  }
+  return {
+    editStart: prefixLen,
+    deleted: oldText.slice(prefixLen, oldText.length - suffixLen),
+    inserted: newText.slice(prefixLen, newText.length - suffixLen),
+  };
+}
+
+export function isWordCharacter(str: string): boolean {
+  if (!str) return false;
+  return /^[\p{L}\p{N}\p{M}]+$/u.test(str);
+}
+
+/**
+ * Evaluates how a plain-text edit should be grouped in the undo/redo stack:
+ * - Typing a whole word continuously (letters/digits) coalesces into one undo step so Undo deletes the whole word.
+ * - Pasting (or any multi-character bulk insert) is always an isolated atomic step so Undo erases only the pasted item.
+ * - Spaces, dots, question marks, punctuation, symbols, and newlines always start a separate undo step so Undo
+ *   removes them first and the word behind them next.
+ */
+export function evaluateTextEditGrouping(params: {
+  oldText: string;
+  newText: string;
+  field: string;
+  prevGroup: EditorEditGroup | null;
+  isPaste?: boolean;
+  forceNewEntry?: boolean;
+}): {
+  shouldCoalesce: boolean;
+  nextGroup: EditorEditGroup;
+} {
+  const { oldText, newText, field, prevGroup, isPaste = false, forceNewEntry = false } = params;
+  const { editStart, deleted, inserted } = diffPlainTextEdit(oldText, newText);
+  const editEndAfter = editStart + inserted.length;
+
+  if (isPaste || forceNewEntry) {
+    return {
+      shouldCoalesce: false,
+      nextGroup: {
+        field,
+        kind: 'atomic',
+        rangeStart: editStart,
+        rangeEnd: editEndAfter,
+      },
+    };
+  }
+
+  // Pure insertion
+  if (deleted.length === 0 && inserted.length > 0) {
+    // Multi-character insert (e.g. paste/drop/swipe/suggestion): standalone atomic step
+    if (inserted.length > 1) {
+      return {
+        shouldCoalesce: false,
+        nextGroup: {
+          field,
+          kind: 'atomic',
+          rangeStart: editStart,
+          rangeEnd: editEndAfter,
+        },
+      };
+    }
+
+    // Single word character: coalesce with contiguous word typing in the same field
+    if (isWordCharacter(inserted)) {
+      const canCoalesce =
+        prevGroup !== null &&
+        prevGroup.field === field &&
+        prevGroup.kind === 'word-insert' &&
+        editStart === prevGroup.rangeEnd;
+
+      if (canCoalesce) {
+        return {
+          shouldCoalesce: true,
+          nextGroup: {
+            field,
+            kind: 'word-insert',
+            rangeStart: prevGroup.rangeStart,
+            rangeEnd: editEndAfter,
+          },
+        };
+      }
+
+      return {
+        shouldCoalesce: false,
+        nextGroup: {
+          field,
+          kind: 'word-insert',
+          rangeStart: editStart,
+          rangeEnd: editEndAfter,
+        },
+      };
+    }
+
+    // Space, dot, question mark, punctuation, newline, etc. -> discrete step
+    return {
+      shouldCoalesce: false,
+      nextGroup: {
+        field,
+        kind: 'atomic',
+        rangeStart: editStart,
+        rangeEnd: editEndAfter,
+      },
+    };
+  }
+
+  // Pure deletion
+  if (inserted.length === 0 && deleted.length > 0) {
+    if (deleted.length > 1) {
+      return {
+        shouldCoalesce: false,
+        nextGroup: {
+          field,
+          kind: 'atomic',
+          rangeStart: editStart,
+          rangeEnd: editStart,
+        },
+      };
+    }
+
+    if (isWordCharacter(deleted)) {
+      const canCoalesce =
+        prevGroup !== null &&
+        prevGroup.field === field &&
+        prevGroup.kind === 'word-delete' &&
+        (editStart + deleted.length === prevGroup.rangeStart || editStart === prevGroup.rangeStart);
+
+      if (canCoalesce) {
+        return {
+          shouldCoalesce: true,
+          nextGroup: {
+            field,
+            kind: 'word-delete',
+            rangeStart: editStart,
+            rangeEnd: editStart,
+          },
+        };
+      }
+
+      return {
+        shouldCoalesce: false,
+        nextGroup: {
+          field,
+          kind: 'word-delete',
+          rangeStart: editStart,
+          rangeEnd: editStart,
+        },
+      };
+    }
+
+    // Deleting space, punctuation, newline -> discrete step
+    return {
+      shouldCoalesce: false,
+      nextGroup: {
+        field,
+        kind: 'atomic',
+        rangeStart: editStart,
+        rangeEnd: editStart,
+      },
+    };
+  }
+
+  // Replacement inside an active word (e.g. IME composition/autocorrect refining letters)
+  if (
+    prevGroup !== null &&
+    prevGroup.field === field &&
+    prevGroup.kind === 'word-insert' &&
+    editStart >= prevGroup.rangeStart &&
+    editStart + deleted.length <= prevGroup.rangeEnd &&
+    isWordCharacter(inserted)
+  ) {
+    const delta = inserted.length - deleted.length;
+    return {
+      shouldCoalesce: true,
+      nextGroup: {
+        field,
+        kind: 'word-insert',
+        rangeStart: prevGroup.rangeStart,
+        rangeEnd: prevGroup.rangeEnd + delta,
+      },
+    };
+  }
+
+  return {
+    shouldCoalesce: false,
+    nextGroup: {
+      field,
+      kind: 'atomic',
+      rangeStart: editStart,
+      rangeEnd: editEndAfter,
+    },
+  };
+}
+
 export interface EditorHistoryState<T> {
   past: T[];
   present: T;
   future: T[];
   lastPushTimestamp: number;
   maxDepth: number;
+  lastEditGroup?: EditorEditGroup | null;
 }
 
 export function createEditorHistory<T>(
@@ -565,6 +788,17 @@ export function createEditorHistory<T>(
     future: [],
     lastPushTimestamp: 0,
     maxDepth: Math.max(1, maxDepth),
+    lastEditGroup: null,
+  };
+}
+
+export function breakEditorHistoryGroup<T>(
+  history: EditorHistoryState<T>
+): EditorHistoryState<T> {
+  if (!history.lastEditGroup) return history;
+  return {
+    ...history,
+    lastEditGroup: null,
   };
 }
 
@@ -576,6 +810,12 @@ export function pushEditorHistory<T>(
     coalesceMs?: number;
     forceNewEntry?: boolean;
     isEqual?: (a: T, b: T) => boolean;
+    textEdit?: {
+      oldText: string;
+      newText: string;
+      field: string;
+      isPaste?: boolean;
+    };
   } = {}
 ): EditorHistoryState<T> {
   const {
@@ -583,13 +823,49 @@ export function pushEditorHistory<T>(
     coalesceMs = 0,
     forceNewEntry = false,
     isEqual = (a, b) => a === b,
+    textEdit,
   } = options;
 
   if (isEqual(history.present, nextSnapshot)) {
     return history;
   }
 
-  // Only coalesce when an explicit positive coalesceMs window is requested
+  if (textEdit) {
+    const { shouldCoalesce, nextGroup } = evaluateTextEditGrouping({
+      oldText: textEdit.oldText,
+      newText: textEdit.newText,
+      field: textEdit.field,
+      prevGroup: history.future.length === 0 ? (history.lastEditGroup ?? null) : null,
+      isPaste: textEdit.isPaste,
+      forceNewEntry,
+    });
+
+    if (shouldCoalesce && history.past.length > 0 && history.future.length === 0) {
+      return {
+        ...history,
+        present: nextSnapshot,
+        lastPushTimestamp: now,
+        lastEditGroup: nextGroup,
+      };
+    }
+
+    const nextPast = [...history.past, history.present];
+    const trimmedPast =
+      nextPast.length > history.maxDepth
+        ? nextPast.slice(nextPast.length - history.maxDepth)
+        : nextPast;
+
+    return {
+      ...history,
+      past: trimmedPast,
+      present: nextSnapshot,
+      future: [],
+      lastPushTimestamp: now,
+      lastEditGroup: nextGroup,
+    };
+  }
+
+  // Legacy path when no textEdit metadata is supplied
   const canCoalesce =
     coalesceMs > 0 &&
     !forceNewEntry &&
@@ -603,6 +879,7 @@ export function pushEditorHistory<T>(
       ...history,
       present: nextSnapshot,
       lastPushTimestamp: now,
+      lastEditGroup: null,
     };
   }
 
@@ -618,6 +895,7 @@ export function pushEditorHistory<T>(
     present: nextSnapshot,
     future: [],
     lastPushTimestamp: now,
+    lastEditGroup: null,
   };
 }
 
@@ -643,6 +921,7 @@ export function undoEditorHistory<T>(
     present: previous,
     future: [history.present, ...history.future],
     lastPushTimestamp: 0,
+    lastEditGroup: null,
   };
 }
 
@@ -657,6 +936,7 @@ export function redoEditorHistory<T>(
     present: next,
     future: restFuture,
     lastPushTimestamp: 0,
+    lastEditGroup: null,
   };
 }
 
@@ -668,5 +948,36 @@ export function canRedoEditorHistory<T>(history: EditorHistoryState<T>): boolean
   return history.future.length > 0;
 }
 
-
-
+/**
+ * Normalizes CRLF (`\r\n`) and lone CR (`\r`) line endings into single `\n` newlines
+ * while adjusting the cursor offset so pressing Enter never produces two rows.
+ */
+export function normalizeLineEndingsWithCursor(
+  text: string,
+  cursorOffset: number
+): { text: string; cursorOffset: number } {
+  const safeCursor = Math.max(0, Math.min(cursorOffset, text.length));
+  if (!text.includes('\r')) {
+    return { text, cursorOffset: safeCursor };
+  }
+  let out = '';
+  let nextCursor = safeCursor;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '\r') {
+      if (i + 1 < text.length && text[i + 1] === '\n') {
+        if (i < safeCursor) {
+          nextCursor -= 1;
+        }
+        continue;
+      }
+      out += '\n';
+    } else {
+      out += ch;
+    }
+  }
+  return {
+    text: out,
+    cursorOffset: Math.max(0, Math.min(nextCursor, out.length)),
+  };
+}

@@ -478,10 +478,6 @@ fun FloatingPillNavigationBar(
 
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
-                            if (currentIsTransitionPending) {
-                                // Respect button wait time while far menus are loading/transitioning
-                                return@awaitEachGesture
-                            }
 
                             val trackWidthPx = size.width.toFloat().coerceAtLeast(1f)
                             val tabWidthPx = trackWidthPx / items.size.toFloat()

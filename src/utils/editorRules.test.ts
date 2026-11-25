@@ -221,6 +221,7 @@ test('cleanupOrphanedPrivateStorageEntries removes orphaned note files, empty fi
 import {
   createEditorHistory,
   pushEditorHistory,
+  breakEditorHistoryGroup,
   undoEditorHistory,
   redoEditorHistory,
   canUndoEditorHistory,
@@ -239,7 +240,7 @@ test('hitting Enter repeatedly (10+ times) with checkbox and bullet active never
   }
 });
 
-test('EditorHistory records character-by-character typing without coalescing, preserves spaces and newlines, and deletes whole-word entries in one step', () => {
+test('EditorHistory legacy push without textEdit preserves discrete steps and redo behavior', () => {
   type Snap = { title: string; body: string };
   const eq = (a: Snap, b: Snap) => a.title === b.title && a.body === b.body;
   let h = createEditorHistory<Snap>({ title: '', body: '' });
@@ -248,54 +249,212 @@ test('EditorHistory records character-by-character typing without coalescing, pr
   assert.equal(canRedoEditorHistory(h), false);
   assert.equal(h.maxDepth, 500);
 
-  // 1. Type letters one by one rapidly (10ms apart) -> each letter is its own undo step
   h = pushEditorHistory(h, { title: '', body: 'H' }, { now: 1000, isEqual: eq });
   h = pushEditorHistory(h, { title: '', body: 'Hi' }, { now: 1010, isEqual: eq });
-  // 2. Type a Space -> distinct undo step
   h = pushEditorHistory(h, { title: '', body: 'Hi ' }, { now: 1020, isEqual: eq });
-  // 3. Insert a whole word at once (swipe/suggestion/paste) -> single undo step
-  h = pushEditorHistory(h, { title: '', body: 'Hi world' }, { now: 1030, isEqual: eq });
-  // 4. Press Enter (newline) -> distinct undo step
-  h = pushEditorHistory(h, { title: '', body: 'Hi world\n' }, { now: 1040, isEqual: eq });
-  // 5. Type another letter
-  h = pushEditorHistory(h, { title: '', body: 'Hi world\nA' }, { now: 1050, isEqual: eq });
 
-  assert.equal(h.past.length, 6);
-
-  // Undo step-by-step: removes 'A', then Enter, then whole word 'world', then Space, then 'i', then 'H'
-  h = undoEditorHistory(h);
-  assert.equal(h.present.body, 'Hi world\n');
-  h = undoEditorHistory(h);
-  assert.equal(h.present.body, 'Hi world');
-  h = undoEditorHistory(h);
-  assert.equal(h.present.body, 'Hi ');
+  assert.equal(h.past.length, 3);
   h = undoEditorHistory(h);
   assert.equal(h.present.body, 'Hi');
-  h = undoEditorHistory(h);
-  assert.equal(h.present.body, 'H');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hi ');
+
+  const beforeNoop = h;
+  h = pushEditorHistory(h, { title: '', body: 'Hi ' }, { now: 1060, isEqual: eq });
+  assert.equal(h, beforeNoop);
+});
+
+test('EditorHistory groups a whole word typed in one go so Undo deletes the whole word and Redo restores it', () => {
+  type Snap = { title: string; body: string };
+  const eq = (a: Snap, b: Snap) => a.title === b.title && a.body === b.body;
+  const typeChar = (h: ReturnType<typeof createEditorHistory<Snap>>, ch: string) => {
+    const oldText = h.present.body;
+    const newText = oldText + ch;
+    return pushEditorHistory(
+      h,
+      { title: h.present.title, body: newText },
+      { isEqual: eq, textEdit: { oldText, newText, field: 'body' } }
+    );
+  };
+
+  let h = createEditorHistory<Snap>({ title: '', body: '' });
+  for (const ch of 'Hello') {
+    h = typeChar(h, ch);
+  }
+  assert.equal(h.present.body, 'Hello');
+  assert.equal(h.past.length, 1);
+
+  // One Undo deletes the whole word "Hello"
   h = undoEditorHistory(h);
   assert.equal(h.present.body, '');
   assert.equal(canUndoEditorHistory(h), false);
 
-  // Redo step-by-step: restores 'H', 'Hi', 'Hi ', 'Hi world', 'Hi world\n', 'Hi world\nA'
+  // One Redo restores the whole word "Hello"
   h = redoEditorHistory(h);
-  assert.equal(h.present.body, 'H');
-  h = redoEditorHistory(h);
-  assert.equal(h.present.body, 'Hi');
-  h = redoEditorHistory(h);
-  assert.equal(h.present.body, 'Hi ');
-  h = redoEditorHistory(h);
-  assert.equal(h.present.body, 'Hi world');
-  h = redoEditorHistory(h);
-  assert.equal(h.present.body, 'Hi world\n');
-  h = redoEditorHistory(h);
-  assert.equal(h.present.body, 'Hi world\nA');
+  assert.equal(h.present.body, 'Hello');
   assert.equal(canRedoEditorHistory(h), false);
+});
 
-  // Duplicate no-op snapshot is ignored
-  const beforeNoop = h;
-  h = pushEditorHistory(h, { title: '', body: 'Hi world\nA' }, { now: 1060, isEqual: eq });
-  assert.equal(h, beforeNoop);
+test('EditorHistory deletes space, dot, question mark, and punctuation first, then the word behind it next', () => {
+  type Snap = { title: string; body: string };
+  const eq = (a: Snap, b: Snap) => a.title === b.title && a.body === b.body;
+  const typeChar = (h: ReturnType<typeof createEditorHistory<Snap>>, ch: string) => {
+    const oldText = h.present.body;
+    const newText = oldText + ch;
+    return pushEditorHistory(
+      h,
+      { title: h.present.title, body: newText },
+      { isEqual: eq, textEdit: { oldText, newText, field: 'body' } }
+    );
+  };
+
+  let h = createEditorHistory<Snap>({ title: '', body: '' });
+  // Type "Hello" + "," + " " + "árvíz" + "?" + "."
+  for (const ch of 'Hello, árvíz?.') {
+    h = typeChar(h, ch);
+  }
+  assert.equal(h.present.body, 'Hello, árvíz?.');
+
+  // Undo step by step: ".", "?", "árvíz", " ", ",", "Hello"
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello, árvíz?');
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello, árvíz');
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello, ');
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello,');
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello');
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, '');
+
+  // Redo step by step brings each unit back in exact order
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello,');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello, ');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello, árvíz');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello, árvíz?');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello, árvíz?.');
+});
+
+test('EditorHistory isolates pasted items so Undo erases only the pasted item and Redo restores it', () => {
+  type Snap = { title: string; body: string };
+  const eq = (a: Snap, b: Snap) => a.title === b.title && a.body === b.body;
+  const typeChar = (h: ReturnType<typeof createEditorHistory<Snap>>, ch: string) => {
+    const oldText = h.present.body;
+    const newText = oldText + ch;
+    return pushEditorHistory(
+      h,
+      { title: h.present.title, body: newText },
+      { isEqual: eq, textEdit: { oldText, newText, field: 'body' } }
+    );
+  };
+  const pasteText = (h: ReturnType<typeof createEditorHistory<Snap>>, pasted: string) => {
+    const oldText = h.present.body;
+    const newText = oldText + pasted;
+    return pushEditorHistory(
+      h,
+      { title: h.present.title, body: newText },
+      { isEqual: eq, textEdit: { oldText, newText, field: 'body', isPaste: true } }
+    );
+  };
+
+  let h = createEditorHistory<Snap>({ title: '', body: '' });
+  // Type "Hello"
+  for (const ch of 'Hello') {
+    h = typeChar(h, ch);
+  }
+  // Paste "World 123!" directly adjacent without a space
+  h = pasteText(h, 'World 123!');
+  assert.equal(h.present.body, 'HelloWorld 123!');
+
+  // Type "s" right after the paste -> must NOT merge into the pasted item
+  h = typeChar(h, 's');
+  assert.equal(h.present.body, 'HelloWorld 123!s');
+
+  // 1st Undo removes "s"
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'HelloWorld 123!');
+
+  // 2nd Undo removes ONLY the pasted item "World 123!"
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'Hello');
+
+  // Redo brings back ONLY the pasted item
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'HelloWorld 123!');
+
+  // Pasting a single character also stays isolated from the word behind it
+  let h2 = createEditorHistory<Snap>({ title: '', body: '' });
+  for (const ch of 'Note') {
+    h2 = typeChar(h2, ch);
+  }
+  h2 = pasteText(h2, 'X');
+  assert.equal(h2.present.body, 'NoteX');
+  h2 = undoEditorHistory(h2);
+  assert.equal(h2.present.body, 'Note');
+  h2 = redoEditorHistory(h2);
+  assert.equal(h2.present.body, 'NoteX');
+});
+
+test('EditorHistory breaks word grouping on cursor jump, field switch, newline, save, and separates backspace deletes', () => {
+  type Snap = { title: string; body: string };
+  const eq = (a: Snap, b: Snap) => a.title === b.title && a.body === b.body;
+  let h = createEditorHistory<Snap>({ title: '', body: '' });
+
+  // Type "world" in body
+  for (const ch of 'world') {
+    const oldText = h.present.body;
+    const newText = oldText + ch;
+    h = pushEditorHistory(h, { title: '', body: newText }, {
+      isEqual: eq,
+      textEdit: { oldText, newText, field: 'body' },
+    });
+  }
+  // Jump cursor to index 0 and type "my" -> does not coalesce with "world"
+  for (let i = 0; i < 'my'.length; i++) {
+    const ch = 'my'[i];
+    const oldText = h.present.body;
+    const newText = oldText.slice(0, i) + ch + oldText.slice(i);
+    h = pushEditorHistory(h, { title: '', body: newText }, {
+      isEqual: eq,
+      textEdit: { oldText, newText, field: 'body' },
+    });
+  }
+  assert.equal(h.present.body, 'myworld');
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'world');
+  h = redoEditorHistory(h);
+  assert.equal(h.present.body, 'myworld');
+
+  // Save breaks active typing group
+  h = breakEditorHistoryGroup(h);
+  h = pushEditorHistory(h, { title: '', body: 'myworlds' }, {
+    isEqual: eq,
+    textEdit: { oldText: 'myworld', newText: 'myworlds', field: 'body' },
+  });
+  h = undoEditorHistory(h);
+  assert.equal(h.present.body, 'myworld');
+
+  // Switch to title field -> separate group
+  h = pushEditorHistory(h, { title: 'A', body: 'myworld' }, {
+    isEqual: eq,
+    textEdit: { oldText: '', newText: 'A', field: 'title' },
+  });
+  h = pushEditorHistory(h, { title: 'AB', body: 'myworld' }, {
+    isEqual: eq,
+    textEdit: { oldText: 'A', newText: 'AB', field: 'title' },
+  });
+  h = undoEditorHistory(h);
+  assert.equal(h.present.title, '');
+  assert.equal(h.present.body, 'myworld');
 });
 
 test('EditorHistory clears redo stack on new branch and enforces maxDepth cap', () => {
@@ -321,3 +480,40 @@ test('EditorHistory clears redo stack on new branch and enforces maxDepth cap', 
   assert.equal(h.past[0].body, 'ac');
 });
 
+import { normalizeLineEndingsWithCursor } from './editorRules';
+
+test('pressing Enter on plain text inserts exactly one newline row and Undo removes it cleanly', () => {
+  const step1 = handleEnterKeyWithActiveModes('Line 1', 6, false, false);
+  assert.equal(step1.text, 'Line 1\n');
+  assert.equal(step1.cursorOffset, 7);
+  assert.equal(step1.text.split('\n').length, 2);
+
+  const step2 = handleEnterKeyWithActiveModes('Line 1\nLine 2', 13, false, false);
+  assert.equal(step2.text, 'Line 1\nLine 2\n');
+  assert.equal(step2.cursorOffset, 14);
+  assert.equal(step2.text.split('\n').length, 3);
+
+  // Mid-line split inserts exactly one row break
+  const mid = handleEnterKeyWithActiveModes('HelloWorld', 5, false, false);
+  assert.equal(mid.text, 'Hello\nWorld');
+  assert.equal(mid.cursorOffset, 6);
+  assert.equal(mid.text.split('\n').length, 2);
+});
+
+test('normalizeLineEndingsWithCursor converts CRLF and CR into single LF with exact cursor adjustment', () => {
+  const crlf = normalizeLineEndingsWithCursor('Hello\r\nWorld', 7);
+  assert.equal(crlf.text, 'Hello\nWorld');
+  assert.equal(crlf.cursorOffset, 6);
+
+  const crlfEnd = normalizeLineEndingsWithCursor('Line1\r\n\r\nLine2', 14);
+  assert.equal(crlfEnd.text, 'Line1\n\nLine2');
+  assert.equal(crlfEnd.cursorOffset, 12);
+
+  const loneCr = normalizeLineEndingsWithCursor('A\rB', 2);
+  assert.equal(loneCr.text, 'A\nB');
+  assert.equal(loneCr.cursorOffset, 2);
+
+  const clean = normalizeLineEndingsWithCursor('Plain\nText', 6);
+  assert.equal(clean.text, 'Plain\nText');
+  assert.equal(clean.cursorOffset, 6);
+});

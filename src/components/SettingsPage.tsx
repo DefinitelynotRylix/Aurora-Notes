@@ -456,7 +456,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="min-w-0">
               <div className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC]">App Updates</div>
               <div className="text-[11px] text-[#797487] dark:text-[#A39BAC] truncate">
-                v{installedVersion} • Build {installedBuildCode} • Offline-first
+                v{installedVersion} • Build {installedBuildCode}
               </div>
             </div>
           </div>

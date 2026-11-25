@@ -547,7 +547,7 @@ fun SettingsScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "v$currentVersionName • Build $currentVersionCode • Offline-first",
+                                    text = "v$currentVersionName • Build $currentVersionCode",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                 )

@@ -6,7 +6,9 @@ import com.aurora.notes.util.LocalLogger
 import com.aurora.notes.util.PrivateStorageManager
 import com.aurora.notes.util.PrivateStorageStats
 import com.aurora.notes.util.StorageCleanupReport
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
 class AuroraRepository(
@@ -19,15 +21,15 @@ class AuroraRepository(
 
     val activeNotes: Flow<List<Note>> = noteDao.getActiveNotes().map { list ->
         list.map { PrivateStorageManager.decryptNoteFromRoom(it) }
-    }
+    }.flowOn(Dispatchers.IO)
 
     val archivedNotes: Flow<List<Note>> = noteDao.getArchivedNotes().map { list ->
         list.map { PrivateStorageManager.decryptNoteFromRoom(it) }
-    }
+    }.flowOn(Dispatchers.IO)
 
     val trashedNotes: Flow<List<Note>> = noteDao.getTrashedNotes().map { list ->
         list.map { PrivateStorageManager.decryptNoteFromRoom(it) }
-    }
+    }.flowOn(Dispatchers.IO)
 
     suspend fun saveNote(note: Note) {
         if (note.isArchived) return
@@ -91,21 +93,11 @@ class AuroraRepository(
 
     suspend fun reorderNotes(orderedNotes: List<Note>) {
         if (orderedNotes.isEmpty()) return
-        val plainNotes = orderedNotes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
-        val roomEntities = plainNotes.map { plain ->
-            PrivateStorageManager.encryptNoteForRoom(
-                note = plain,
-                encryptionEnabled = isDatabaseEncryptionEnabled
-            )
-        }
-        noteDao.insertAll(roomEntities)
-        plainNotes.forEach { plain ->
-            PrivateStorageManager.writeNoteToPrivateStorage(
-                context = context,
-                note = plain,
-                encryptFileContent = isDatabaseEncryptionEnabled
-            )
-        }
+        // Update only the integer sortOrder column in a single SQLite transaction so dropping
+        // a reordered note never triggers full-table AES-256 re-encryption or disk file rewrites.
+        val ids = orderedNotes.map { it.id }
+        val orders = orderedNotes.map { it.sortOrder }
+        noteDao.updateSortOrders(ids, orders)
     }
 
     suspend fun toggleChecklistItem(noteId: String, itemId: String) {

@@ -70,13 +70,11 @@ export default function App() {
     }
   };
 
-  // Active navigation tab & directional slide tracking with button wait time for far menus
+  // Active navigation tab & directional slide tracking (instant, zero wait time)
   const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
-  const [pendingNavTab, setPendingNavTab] = useState<ActiveTab>('notes');
-  const [isNavTransitionPending, setIsNavTransitionPending] = useState(false);
   const [slideDirection, setSlideDirection] = useState<number>(1);
-  const navWaitTimerRef = useRef<number | null>(null);
-  const navLeadInTimerRef = useRef<number | null>(null);
+  const pendingNavTab = activeTab;
+  const isNavTransitionPending = false;
 
   const TAB_ORDER: Record<ActiveTab, number> = {
     notes: 0,
@@ -86,32 +84,10 @@ export default function App() {
   };
 
   const handleSelectNavTab = (nextTab: ActiveTab) => {
-    if (nextTab === activeTab || isNavTransitionPending) return;
-    if (navWaitTimerRef.current !== null) window.clearTimeout(navWaitTimerRef.current);
-    if (navLeadInTimerRef.current !== null) window.clearTimeout(navLeadInTimerRef.current);
-
-    const distance = Math.abs(TAB_ORDER[nextTab] - TAB_ORDER[activeTab]);
-    const leadInDelayMs = distance >= 2 ? 30 : 0;
-    const totalWaitMs = distance >= 2 ? 260 : 180;
-
-    setIsNavTransitionPending(true);
-    setPendingNavTab(nextTab);
+    if (nextTab === activeTab) return;
     setSlideDirection(TAB_ORDER[nextTab] >= TAB_ORDER[activeTab] ? 1 : -1);
     setSelectedNoteIds([]);
-
-    if (leadInDelayMs === 0) {
-      setActiveTab(nextTab);
-    } else {
-      navLeadInTimerRef.current = window.setTimeout(() => {
-        setActiveTab(nextTab);
-        navLeadInTimerRef.current = null;
-      }, leadInDelayMs);
-    }
-
-    navWaitTimerRef.current = window.setTimeout(() => {
-      setIsNavTransitionPending(false);
-      navWaitTimerRef.current = null;
-    }, totalWaitMs);
+    setActiveTab(nextTab);
   };
 
   // Custom user tags - starts completely empty in the base app
@@ -368,32 +344,27 @@ export default function App() {
   };
 
   // Save notes locally (Always-Encrypted Room DB + Private External Storage mirror + Automatic Orphan Cleanup)
+  // Persistence runs once asynchronously after paint so drag-drop and edits never cause a main-thread I/O spike.
   const persistNotes = (updated: Note[]) => {
     setNotes(updated);
-    try {
-      const serialized = JSON.stringify(updated);
-      const payload = encryptStoragePayload(serialized);
-      localStorage.setItem(STORAGE_NOTES_KEY, payload);
-      syncNotesToPrivateExternalStorage(updated, true);
-    } catch (e) {
-      console.error('Failed to save notes locally', e);
-      logger.error('STORAGE', 'Failed to save notes to localStorage', String(e));
-    }
   };
 
   const handleCleanUpOrphanedFiles = () => {
     syncNotesToPrivateExternalStorage(notes, true);
   };
 
-  // Run automatic private storage encryption sync & orphan/temp cleanup on startup, visibility resume, and periodic interval
+  // Run automatic encrypted storage sync & orphan/temp cleanup deferred off the animation frame
   useEffect(() => {
-    try {
-      const serialized = JSON.stringify(notes);
-      localStorage.setItem(STORAGE_NOTES_KEY, encryptStoragePayload(serialized));
-    } catch {
-      // ignore
-    }
-    syncNotesToPrivateExternalStorage(notes, true);
+    const persistTimer = window.setTimeout(() => {
+      try {
+        const serialized = JSON.stringify(notes);
+        localStorage.setItem(STORAGE_NOTES_KEY, encryptStoragePayload(serialized));
+      } catch (e) {
+        console.error('Failed to save notes locally', e);
+        logger.error('STORAGE', 'Failed to save notes to localStorage', String(e));
+      }
+      syncNotesToPrivateExternalStorage(notes, true);
+    }, 0);
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -406,6 +377,7 @@ export default function App() {
     }, 3 * 60 * 1000);
 
     return () => {
+      window.clearTimeout(persistTimer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.clearInterval(intervalId);
     };

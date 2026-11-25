@@ -207,30 +207,11 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setSelectedTab(tab: Int) {
-        val current = _selectedTab.value
-        if (tab == current && _pendingNavTab.value == tab) return
+        if (tab == _selectedTab.value && _pendingNavTab.value == tab) return
         navTransitionJob?.cancel()
-        _isNavTransitionPending.value = true
         _pendingNavTab.value = tab
-
-        val distance = kotlin.math.abs(tab - current)
-        // Slightly reduced button wait time so far menus (Notes <-> Settings, Archive <-> Settings)
-        // remain responsive while still loading and animating cleanly without lag
-        val leadInDelayMs = if (distance >= 2) 30L else 0L
-        val totalWaitMs = if (distance >= 2) 260L else 180L
-
-        if (leadInDelayMs == 0L) {
-            _selectedTab.value = tab
-        }
-
-        navTransitionJob = viewModelScope.launch {
-            if (leadInDelayMs > 0L) {
-                kotlinx.coroutines.delay(leadInDelayMs)
-                _selectedTab.value = tab
-            }
-            kotlinx.coroutines.delay(totalWaitMs - leadInDelayMs)
-            _isNavTransitionPending.value = false
-        }
+        _selectedTab.value = tab
+        _isNavTransitionPending.value = false
     }
 
     fun toggleGridView() {
@@ -384,7 +365,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         val pinnedQueue = ArrayDeque(pinnedOrderedIds.mapNotNull { byId[it] })
         val unpinnedQueue = ArrayDeque(unpinnedOrderedIds.mapNotNull { byId[it] })
 
-        val finalOrdered = sourceList.map { note ->
+        val changedSortNotes = sourceList.map { note ->
             if (note.isPinned && note.id in visiblePinnedSet && pinnedQueue.isNotEmpty()) {
                 pinnedQueue.removeFirst()
             } else if (!note.isPinned && note.id in visibleUnpinnedSet && unpinnedQueue.isNotEmpty()) {
@@ -392,13 +373,15 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 note
             }
-        }.mapIndexed { globalIdx, note ->
-            note.copy(sortOrder = globalIdx + 1)
+        }.mapIndexedNotNull { globalIdx, note ->
+            val nextOrder = globalIdx + 1
+            if (note.sortOrder != nextOrder) note.copy(sortOrder = nextOrder) else null
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.reorderNotes(finalOrdered)
-            _storageStats.value = repository.getStorageStats()
+        if (changedSortNotes.isNotEmpty()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                repository.reorderNotes(changedSortNotes)
+            }
         }
     }
 

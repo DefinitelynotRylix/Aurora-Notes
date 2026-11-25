@@ -400,10 +400,9 @@ fun AuroraApp(
             }
         }
 
-        // Pre-warm all 4 menus shortly after initial launch so jumping to Settings/Archive/Trash has 0ms cold-composition lag
+        // Pre-warm all 4 menus right after initial frame so jumping to Settings/Archive/Trash is instant and smooth
         var areTabsPrewarmed by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
-            kotlinx.coroutines.delay(180L)
             areTabsPrewarmed = true
         }
 
@@ -420,7 +419,7 @@ fun AuroraApp(
                 tabSlideProgress.animateTo(
                     targetValue = 1f,
                     animationSpec = tween(
-                        durationMillis = 210,
+                        durationMillis = 180,
                         easing = FastOutSlowInEasing
                     )
                 )
