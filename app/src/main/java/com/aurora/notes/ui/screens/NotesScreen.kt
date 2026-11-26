@@ -101,7 +101,7 @@ fun NotesScreen(
     val selectedNoteIds = remember { mutableStateListOf<String>() }
     val isSelectionMode = selectedNoteIds.isNotEmpty()
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
-    var heldNoteWasAlreadySelected by remember { mutableStateOf(false) }
+    var lastHoldEndTimeMs by remember { mutableLongStateOf(0L) }
 
     // Share dialog state
     var notesToShare by remember { mutableStateOf<List<Note>>(emptyList()) }
@@ -823,23 +823,20 @@ fun NotesScreen(
                 verticalSpacing = 10.dp,
                 contentPadding = PaddingValues(bottom = 96.dp),
                 itemIds = noteIds,
-                lockedItemIds = pinnedNoteIds,
+                lockedItemIds = if (isArchiveTab) emptySet() else pinnedNoteIds,
                 onHoldNote = { heldId ->
-                    if (heldId in selectedNoteIds) {
-                        heldNoteWasAlreadySelected = true
-                    } else {
-                        heldNoteWasAlreadySelected = false
+                    if (heldId !in selectedNoteIds) {
                         selectedNoteIds.add(heldId)
                     }
                 },
                 onReleaseHoldWithoutDrag = { heldId ->
-                    if (heldNoteWasAlreadySelected) {
-                        selectedNoteIds.remove(heldId)
-                        heldNoteWasAlreadySelected = false
+                    lastHoldEndTimeMs = System.currentTimeMillis()
+                    if (heldId !in selectedNoteIds) {
+                        selectedNoteIds.add(heldId)
                     }
                 },
                 onReorderNotes = { newOrderIds ->
-                    heldNoteWasAlreadySelected = false
+                    lastHoldEndTimeMs = System.currentTimeMillis()
                     selectedNoteIds.clear()
                     optimisticOrderedIds = newOrderIds
                     onReorderNotes(newOrderIds)
@@ -856,14 +853,16 @@ fun NotesScreen(
                             isSelectionMode = isSelectionMode,
                             isSelected = isNoteSelected,
                             onClick = {
-                                if (isSelectionMode) {
-                                    if (isNoteSelected) {
-                                        selectedNoteIds.remove(note.id)
+                                if (System.currentTimeMillis() - lastHoldEndTimeMs >= 280L) {
+                                    if (isSelectionMode) {
+                                        if (isNoteSelected) {
+                                            selectedNoteIds.remove(note.id)
+                                        } else {
+                                            selectedNoteIds.add(note.id)
+                                        }
                                     } else {
-                                        selectedNoteIds.add(note.id)
+                                        onSelectNote(note)
                                     }
-                                } else {
-                                    onSelectNote(note)
                                 }
                             },
                             onLongClick = null,

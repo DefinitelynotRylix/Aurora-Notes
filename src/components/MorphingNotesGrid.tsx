@@ -1,4 +1,10 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  computeDropGlowRipple,
+  computeFlipMorphTransform,
+  DropGlowRippleSample,
+  FlipRect,
+} from '../utils/editorRules';
 
 interface MorphingNotesGridProps {
   isGridView: boolean;
@@ -21,20 +27,20 @@ interface RectBox {
   cy: number;
 }
 
-const easeFastOutSlowIn = (t: number): number =>
-  t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
 
 /**
  * Smoothly morphs child note cards between a 2-column Masonry Grid (`isGridView = true`)
  * and a Full-Width Single Column layout (`isGridView = false`), with interactive
- * Hold-to-Elevate, subtle wobbly physics, neighbor hover interaction, and Drag-to-Reorder
- * in both Masonry and Single Column view modes.
+ * Hold-to-Elevate, subtle wobbly physics, neighbor hover interaction, luminous drop corner
+ * glow rippling to nearby notes, and Drag-to-Reorder in both Masonry and Single Column modes.
  *
  * Performance architecture:
- * - Grid <-> Column morph renders ONCE at target width and animates transforms purely in
- *   requestAnimationFrame DOM mutations (zero per-frame React re-renders, zero width reflows).
- * - Drag wobble, neighbor hover reaction, slot swap glides, and drop-back settle mutate
- *   GPU transforms directly on DOM refs (zero React re-renders during drag or drop).
+ * - Grid <-> Column morph renders ONCE at target width and runs a true top-left FLIP
+ *   scaleX/scaleY + translate3d GPU animation in requestAnimationFrame (zero width snap,
+ *   zero per-frame React re-renders).
+ * - Drag wobble, neighbor hover reaction, slot swap glides, smooth drop settle, and
+ *   luminous corner glow waves mutate GPU transforms & overlays directly on DOM refs.
  */
 export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
   isGridView,
@@ -47,6 +53,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const glowOverlayRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const [measureVersion, setMeasureVersion] = useState<number>(0);
   const [isDragActive, setIsDragActive] = useState<boolean>(false);
@@ -91,12 +98,13 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
   const isMorphAnimatingRef = useRef<boolean>(false);
 
   const animPosRef = useRef<Record<string, { x: number; y: number }>>({});
-  const morphStartPosRef = useRef<Record<string, { x: number; y: number }>>({});
+  const morphStartRectsRef = useRef<Record<string, FlipRect>>({});
   const targetSlotsByIdRef = useRef<Record<string, RectBox>>({});
   const slotBoundsRef = useRef<RectBox[]>([]);
   const cardBoundsRef = useRef<Record<string, RectBox>>({});
   const lastGridViewRef = useRef<boolean>(isGridView);
   const lastTotalHeightRef = useRef<number>(0);
+  const lastDragRotRef = useRef<number>(0);
 
   const morphRafRef = useRef<number | null>(null);
   const dragRafRef = useRef<number | null>(null);
@@ -127,12 +135,72 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
     elevationStartTime: 0,
   });
 
-  const suppressNextClickRef = useRef<boolean>(false);
+  // Time-windowed click suppression so releasing a long-press NEVER fires card onClick
+  const suppressNextClickUntilRef = useRef<number>(0);
 
-  // Sync liveOrderRef when upstream item order changes (outside active drag)
-  if (!draggedIdRef.current) {
+  // Sync liveOrderRef when upstream item order changes (outside active drag or drop glide)
+  if (!draggedIdRef.current && !droppingIdRef.current) {
     liveOrderRef.current = resolvedIds;
   }
+
+  const clearAllGlowOverlays = () => {
+    const overlays = glowOverlayRefs.current;
+    for (const id of Object.keys(overlays)) {
+      const overlay = overlays[id];
+      if (!overlay) continue;
+      overlay.style.opacity = '0';
+      overlay.style.background = 'none';
+      overlay.style.boxShadow = 'none';
+      overlay.dataset.glowIntensity = '0';
+    }
+  };
+
+  const applyCornerGlowToOverlay = (
+    id: string,
+    sample: DropGlowRippleSample,
+    isDroppedCard: boolean
+  ) => {
+    const overlay = glowOverlayRefs.current[id];
+    if (!overlay) return;
+    if (sample.intensity <= 0.01) {
+      overlay.style.opacity = '0';
+      overlay.style.background = 'none';
+      overlay.style.boxShadow = 'none';
+      overlay.dataset.glowIntensity = '0';
+      return;
+    }
+
+    const a = sample.intensity;
+    const cornerAlpha = isDroppedCard ? 0.68 : 0.56;
+    const midAlpha = isDroppedCard ? 0.28 : 0.22;
+    const tl = (a * sample.cornerWeights.topLeft * cornerAlpha).toFixed(3);
+    const tr = (a * sample.cornerWeights.topRight * cornerAlpha).toFixed(3);
+    const bl = (a * sample.cornerWeights.bottomLeft * cornerAlpha).toFixed(3);
+    const br = (a * sample.cornerWeights.bottomRight * cornerAlpha).toFixed(3);
+
+    const tlMid = (a * sample.cornerWeights.topLeft * midAlpha).toFixed(3);
+    const trMid = (a * sample.cornerWeights.topRight * midAlpha).toFixed(3);
+    const blMid = (a * sample.cornerWeights.bottomLeft * midAlpha).toFixed(3);
+    const brMid = (a * sample.cornerWeights.bottomRight * midAlpha).toFixed(3);
+
+    const rx = isDroppedCard ? '108px' : '92px';
+    const ry = isDroppedCard ? '76px' : '64px';
+    overlay.style.opacity = '1';
+    overlay.dataset.glowIntensity = a.toFixed(3);
+    overlay.style.background = [
+      `radial-gradient(${rx} ${ry} at 0% 0%, rgba(233, 213, 255, ${tl}) 0%, rgba(139, 92, 246, ${tlMid}) 38%, rgba(139, 92, 246, 0) 74%)`,
+      `radial-gradient(${rx} ${ry} at 100% 0%, rgba(233, 213, 255, ${tr}) 0%, rgba(139, 92, 246, ${trMid}) 38%, rgba(139, 92, 246, 0) 74%)`,
+      `radial-gradient(${rx} ${ry} at 0% 100%, rgba(233, 213, 255, ${bl}) 0%, rgba(139, 92, 246, ${blMid}) 38%, rgba(139, 92, 246, 0) 74%)`,
+      `radial-gradient(${rx} ${ry} at 100% 100%, rgba(233, 213, 255, ${br}) 0%, rgba(139, 92, 246, ${brMid}) 38%, rgba(139, 92, 246, 0) 74%)`,
+    ].join(', ');
+
+    const outerBlur = (isDroppedCard ? 26 : 16) * a;
+    const outerSpread = (isDroppedCard ? 2.5 : 1.0) * a;
+    const ringAlpha = (a * (isDroppedCard ? 0.85 : 0.48)).toFixed(3);
+    const haloAlpha = (a * (isDroppedCard ? 0.50 : 0.28)).toFixed(3);
+    const insetAlpha = (a * (isDroppedCard ? 0.36 : 0.22)).toFixed(3);
+    overlay.style.boxShadow = `0 0 ${outerBlur.toFixed(1)}px ${outerSpread.toFixed(1)}px rgba(139, 92, 246, ${haloAlpha}), inset 0 0 0 1.5px rgba(216, 180, 254, ${ringAlpha}), inset 0 0 ${(12 * a).toFixed(1)}px rgba(196, 181, 253, ${insetAlpha})`;
+  };
 
   // Compute slot layout for a given order & view mode using cached card heights
   const computeLayout = (
@@ -236,6 +304,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
       if (!box || !el) continue;
       animPosRef.current[id] = { x: box.left, y: box.top };
       cardBoundsRef.current[id] = box;
+      el.style.transformOrigin = '';
       el.style.transform = `translate3d(${box.left.toFixed(2)}px, ${box.top.toFixed(2)}px, 0)`;
       el.style.zIndex = '1';
       el.style.opacity = '1';
@@ -287,18 +356,38 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
     };
   }, [items.length, containerWidth, resolvedIds]);
 
-  // Pure GPU FLIP morph when toggling Grid <-> Column (1 React render, 0 per-frame setState)
+  // True GPU FLIP morph when toggling Grid <-> Column (smooth scaleX/scaleY + translate3d, zero width pop!)
   useLayoutEffect(() => {
     if (containerWidth <= 0) return;
 
     const didModeChange = lastGridViewRef.current !== isGridView;
-    const prevPositions: Record<string, { x: number; y: number }> = {};
+    const prevRects: Record<string, FlipRect> = {};
+    const prevTotalHeight = lastTotalHeightRef.current;
+
     if (didModeChange) {
       resolvedIds.forEach((id) => {
-        const pos = animPosRef.current[id];
-        if (pos) prevPositions[id] = { x: pos.x, y: pos.y };
+        const bounds = cardBoundsRef.current[id];
+        if (bounds && bounds.width > 0 && bounds.height > 0) {
+          prevRects[id] = {
+            left: bounds.left,
+            top: bounds.top,
+            width: bounds.width,
+            height: bounds.height,
+          };
+        } else {
+          const pos = animPosRef.current[id];
+          const oldSlot = targetSlotsByIdRef.current[id];
+          if (pos && oldSlot) {
+            prevRects[id] = {
+              left: pos.x,
+              top: pos.y,
+              width: oldSlot.width,
+              height: oldSlot.height,
+            };
+          }
+        }
       });
-      morphStartPosRef.current = prevPositions;
+      morphStartRectsRef.current = prevRects;
       lastGridViewRef.current = isGridView;
     }
 
@@ -313,53 +402,61 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
       return;
     }
 
-    if (didModeChange && Object.keys(prevPositions).length > 0) {
+    if (didModeChange && Object.keys(prevRects).length > 0) {
       if (morphRafRef.current !== null) {
         cancelAnimationFrame(morphRafRef.current);
       }
+      clearAllGlowOverlays();
       isMorphAnimatingRef.current = true;
-      const startHeight = Math.max(lastTotalHeightRef.current, layout.totalHeight);
-      if (containerRef.current) {
-        containerRef.current.style.height = `${Math.round(startHeight)}px`;
-      }
 
-      const durationMs = 240;
+      const startHeight = prevTotalHeight > 0 ? prevTotalHeight : layout.totalHeight;
+      const targetHeight = layout.totalHeight;
+      const durationMs = 340;
       const startTime = performance.now();
 
       const applyMorphFrame = (p: number) => {
-        const scale = 0.94 + 0.06 * p;
-        const opacity = 0.9 + 0.1 * p;
+        if (containerRef.current) {
+          const h = startHeight + (targetHeight - startHeight) * p;
+          containerRef.current.style.height = `${Math.round(h)}px`;
+        }
         for (let i = 0; i < order.length; i++) {
           const id = order[i];
           const target = layout.byId[id];
           const el = itemRefs.current[id];
           if (!target || !el) continue;
-          const start = prevPositions[id] ?? { x: target.left, y: target.top };
-          const x = start.x + (target.left - start.x) * p;
-          const y = start.y + (target.top - start.y) * p;
-          animPosRef.current[id] = { x, y };
+          const startRect = prevRects[id] ?? {
+            left: target.left,
+            top: target.top,
+            width: target.width,
+            height: target.height,
+          };
+          const flip = computeFlipMorphTransform(startRect, target, p);
+          animPosRef.current[id] = { x: flip.x, y: flip.y };
           cardBoundsRef.current[id] = {
             ...target,
-            left: x,
-            top: y,
-            right: x + target.width,
-            bottom: y + target.height,
-            cx: x + target.width * 0.5,
-            cy: y + target.height * 0.5,
+            left: flip.x,
+            top: flip.y,
+            width: target.width * flip.scaleX,
+            height: target.height * flip.scaleY,
+            right: flip.x + target.width * flip.scaleX,
+            bottom: flip.y + target.height * flip.scaleY,
+            cx: flip.x + target.width * flip.scaleX * 0.5,
+            cy: flip.y + target.height * flip.scaleY * 0.5,
           };
-          el.style.willChange = 'transform, opacity';
-          el.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) scale(${scale.toFixed(4)})`;
-          el.style.opacity = opacity.toFixed(3);
+          el.style.willChange = 'transform';
+          el.style.transformOrigin = '0 0';
+          el.style.transform = `translate3d(${flip.x.toFixed(2)}px, ${flip.y.toFixed(2)}px, 0) scale(${flip.scaleX.toFixed(4)}, ${flip.scaleY.toFixed(4)})`;
+          el.style.opacity = '1';
           el.style.zIndex = String(order.length - i);
         }
       };
 
-      // Immediately place cards at start coordinates BEFORE browser paints the resized cards
+      // Place cards at exact visual start geometry BEFORE browser paints the resized cards
       applyMorphFrame(0);
 
       const step = (now: number) => {
         const rawT = Math.min(1, Math.max(0, (now - startTime) / durationMs));
-        const eased = easeFastOutSlowIn(rawT);
+        const eased = easeOutCubic(rawT);
         applyMorphFrame(eased);
 
         if (rawT < 1) {
@@ -442,7 +539,9 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
           };
           const scale = 1 + 0.045 * elev;
           const rot = Math.sin(phase) * 1.15 * elev;
+          lastDragRotRef.current = rot;
           el.style.willChange = 'transform';
+          el.style.transformOrigin = '';
           el.style.zIndex = '30';
           el.style.transform = `translate3d(${dragX.toFixed(2)}px, ${dragY.toFixed(2)}px, 0) scale(${scale.toFixed(4)}) rotate(${rot.toFixed(2)}deg)`;
           el.style.filter = 'drop-shadow(0 16px 28px rgba(89, 37, 220, 0.26))';
@@ -479,6 +578,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
           const scale = 1 - hoverProximity * 0.015;
 
           el.style.willChange = 'transform';
+          el.style.transformOrigin = '';
           el.style.zIndex = glideFactor > 0.05 ? '5' : '1';
           el.style.filter = 'none';
           el.style.transform = `translate3d(${drawX.toFixed(2)}px, ${drawY.toFixed(2)}px, 0) scale(${scale.toFixed(4)}) rotate(${rot.toFixed(2)}deg)`;
@@ -489,6 +589,146 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
     };
 
     dragRafRef.current = requestAnimationFrame(tick);
+  };
+
+  /**
+   * Unified silky drop settle (280ms cubic ease-out) + luminous 4-corner glow on the
+   * dropped card that radiates outward across nearby notes (740ms) with facing-corner
+   * illumination and a subtle sympathetic wave nudge.
+   */
+  const runDropAndGlowAnimation = (
+    activeId: string,
+    targetOrder: string[],
+    releaseRot: number,
+    startPositions: Record<string, { x: number; y: number }>,
+    withCornerGlow: boolean
+  ) => {
+    const layout = computeLayout(targetOrder, containerWidth, isGridView);
+    slotBoundsRef.current = layout.slots;
+    targetSlotsByIdRef.current = layout.byId;
+
+    const droppedTarget = layout.byId[activeId];
+    const droppedCx = droppedTarget ? droppedTarget.cx : 0;
+    const droppedCy = droppedTarget ? droppedTarget.cy : 0;
+    const maxGlowRadius = Math.max(360, containerWidth * 1.15);
+
+    droppingIdRef.current = activeId;
+    const startHeight = lastTotalHeightRef.current || layout.totalHeight;
+    const targetHeight = layout.totalHeight;
+    const startTime = performance.now();
+    const settleDurationMs = withCornerGlow ? 280 : 165;
+    const totalDurationMs = withCornerGlow ? 740 : 165;
+
+    if (dropRafRef.current !== null) {
+      cancelAnimationFrame(dropRafRef.current);
+      dropRafRef.current = null;
+    }
+
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const settleRaw = Math.min(1, Math.max(0, elapsed / settleDurationMs));
+      const settleP = easeOutCubic(settleRaw);
+      const settleRem = 1 - settleP;
+
+      if (containerRef.current) {
+        const h = startHeight + (targetHeight - startHeight) * settleP;
+        containerRef.current.style.height = `${Math.round(h)}px`;
+      }
+
+      for (let i = 0; i < targetOrder.length; i++) {
+        const id = targetOrder[i];
+        const el = itemRefs.current[id];
+        const target = layout.byId[id];
+        if (!el || !target) continue;
+
+        const s = startPositions[id] ?? { x: target.left, y: target.top };
+        const baseX = s.x + (target.left - s.x) * settleP;
+        const baseY = s.y + (target.top - s.y) * settleP;
+
+        const isDropped = id === activeId;
+        const dxFromDropped = target.cx - droppedCx;
+        const dyFromDropped = target.cy - droppedCy;
+
+        const glowSample = withCornerGlow
+          ? computeDropGlowRipple(
+              elapsed,
+              totalDurationMs,
+              isDropped,
+              dxFromDropped,
+              dyFromDropped,
+              maxGlowRadius
+            )
+          : {
+              intensity: 0,
+              waveOffsetPx: 0,
+              scaleBoost: 0,
+              cornerWeights: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+            };
+
+        applyCornerGlowToOverlay(id, glowSample, isDropped);
+
+        if (isDropped) {
+          // Smooth cushioned touchdown from elevated drag scale to 1.0
+          const cushion = Math.sin(settleP * Math.PI) * 0.008;
+          const scale = 1 + 0.045 * settleRem - cushion;
+          const rot = releaseRot * settleRem;
+          animPosRef.current[id] = { x: baseX, y: baseY };
+          cardBoundsRef.current[id] = {
+            ...target,
+            left: baseX,
+            top: baseY,
+            right: baseX + target.width,
+            bottom: baseY + target.height,
+            cx: baseX + target.width * 0.5,
+            cy: baseY + target.height * 0.5,
+          };
+          el.style.willChange = 'transform';
+          el.style.transformOrigin = '';
+          el.style.zIndex = settleRaw < 0.95 ? '20' : '8';
+          el.style.transform = `translate3d(${baseX.toFixed(2)}px, ${baseY.toFixed(2)}px, 0) scale(${scale.toFixed(4)}) rotate(${rot.toFixed(2)}deg)`;
+          const shadowStrength = Math.max(settleRem * 0.24, glowSample.intensity * 0.28);
+          el.style.filter =
+            shadowStrength > 0.02
+              ? `drop-shadow(0 ${(10 * settleRem + 4 * glowSample.intensity).toFixed(1)}px ${(20 * Math.max(settleRem, glowSample.intensity)).toFixed(1)}px rgba(124, 58, 237, ${shadowStrength.toFixed(3)}))`
+              : 'none';
+        } else {
+          // Nearby cards gently respond to the outward drop wave
+          const dist = Math.max(1, Math.hypot(dxFromDropped, dyFromDropped));
+          const pushX = (dxFromDropped / dist) * glowSample.waveOffsetPx;
+          const pushY = (dyFromDropped / dist) * glowSample.waveOffsetPx;
+          const drawX = baseX + pushX;
+          const drawY = baseY + pushY;
+          const scale = 1 + glowSample.scaleBoost;
+
+          animPosRef.current[id] = { x: baseX, y: baseY };
+          cardBoundsRef.current[id] = {
+            ...target,
+            left: baseX,
+            top: baseY,
+            right: baseX + target.width,
+            bottom: baseY + target.height,
+            cx: baseX + target.width * 0.5,
+            cy: baseY + target.height * 0.5,
+          };
+          el.style.willChange = 'transform';
+          el.style.transformOrigin = '';
+          el.style.zIndex = glowSample.intensity > 0.05 ? '3' : '1';
+          el.style.filter = 'none';
+          el.style.transform = `translate3d(${drawX.toFixed(2)}px, ${drawY.toFixed(2)}px, 0) scale(${scale.toFixed(4)})`;
+        }
+      }
+
+      if (elapsed < totalDurationMs) {
+        dropRafRef.current = requestAnimationFrame(step);
+      } else {
+        dropRafRef.current = null;
+        droppingIdRef.current = null;
+        clearAllGlowOverlays();
+        applySettledPositions(targetOrder, layout.byId, layout.totalHeight);
+      }
+    };
+
+    dropRafRef.current = requestAnimationFrame(step);
   };
 
   const cancelPendingHold = () => {
@@ -509,8 +749,12 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
       dragRafRef.current = null;
     }
 
+    // Suppress any trailing click synthesized by the browser right after pointerup
+    suppressNextClickUntilRef.current = performance.now() + 180;
+
     const finalX = dragStateRef.current.startX + dragStateRef.current.deltaX;
     const finalY = dragStateRef.current.startY + dragStateRef.current.deltaY;
+    const releaseRot = lastDragRotRef.current;
     const didMove = dragStateRef.current.moved;
 
     const finalOrder = [...liveOrderRef.current];
@@ -522,86 +766,42 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
       finalOrder.some((id, idx) => id !== initialOrder[idx]);
 
     draggedIdRef.current = null;
+    lastDragRotRef.current = 0;
     setIsDragActive(false);
 
-    if (orderChanged) {
-      // Snap all cards directly into their new locked slot positions with zero jump-back
-      const layout = computeLayout(finalOrder, containerWidth, isGridView);
-      slotBoundsRef.current = layout.slots;
-      targetSlotsByIdRef.current = layout.byId;
-      droppingIdRef.current = null;
-      applySettledPositions(finalOrder, layout.byId, layout.totalHeight);
-      callbacksRef.current.onReorderNotes?.(finalOrder);
-    } else if (didMove) {
-      // Smooth pure-DOM drop-back into original slot (zero React re-renders, zero lag spike!)
-      const restoreOrder = [...initialOrder];
-      liveOrderRef.current = restoreOrder;
-      const layout = computeLayout(restoreOrder, containerWidth, isGridView);
-      slotBoundsRef.current = layout.slots;
-      targetSlotsByIdRef.current = layout.byId;
-
+    const captureStartPositions = (order: string[]) => {
       const startPositions: Record<string, { x: number; y: number }> = {};
-      restoreOrder.forEach((id) => {
+      order.forEach((id) => {
         if (id === activeId) {
           startPositions[id] = { x: finalX, y: finalY };
         } else {
           const cur = animPosRef.current[id] ?? {
-            x: layout.byId[id]?.left ?? 0,
-            y: layout.byId[id]?.top ?? 0,
+            x: targetSlotsByIdRef.current[id]?.left ?? 0,
+            y: targetSlotsByIdRef.current[id]?.top ?? 0,
           };
           startPositions[id] = { x: cur.x, y: cur.y };
         }
       });
+      return startPositions;
+    };
 
-      droppingIdRef.current = activeId;
-      const startTime = performance.now();
-      const durationMs = 175;
-
-      const settleStep = (now: number) => {
-        const rawT = Math.min(1, Math.max(0, (now - startTime) / durationMs));
-        const eased = easeFastOutSlowIn(rawT);
-        const rem = 1 - eased;
-
-        for (let i = 0; i < restoreOrder.length; i++) {
-          const id = restoreOrder[i];
-          const el = itemRefs.current[id];
-          const target = layout.byId[id];
-          if (!el || !target) continue;
-          const s = startPositions[id] ?? { x: target.left, y: target.top };
-          const x = s.x + (target.left - s.x) * eased;
-          const y = s.y + (target.top - s.y) * eased;
-          animPosRef.current[id] = { x, y };
-          if (id === activeId) {
-            const scale = 1 + 0.04 * rem;
-            el.style.zIndex = '15';
-            el.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) scale(${scale.toFixed(4)})`;
-            el.style.filter =
-              rem > 0.05
-                ? `drop-shadow(0 ${(12 * rem).toFixed(1)}px ${(20 * rem).toFixed(1)}px rgba(89, 37, 220, ${(0.22 * rem).toFixed(3)}))`
-                : 'none';
-          } else {
-            el.style.zIndex = '1';
-            el.style.filter = 'none';
-            el.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
-          }
-        }
-
-        if (rawT < 1) {
-          dropRafRef.current = requestAnimationFrame(settleStep);
-        } else {
-          dropRafRef.current = null;
-          droppingIdRef.current = null;
-          applySettledPositions(restoreOrder, layout.byId, layout.totalHeight);
-        }
-      };
-
-      if (dropRafRef.current !== null) cancelAnimationFrame(dropRafRef.current);
-      dropRafRef.current = requestAnimationFrame(settleStep);
+    if (orderChanged) {
+      // Smooth glide into new locked slot + radiant corner glow rippling to nearby notes (zero jump-back!)
+      const startPositions = captureStartPositions(finalOrder);
+      liveOrderRef.current = finalOrder;
+      runDropAndGlowAnimation(activeId, finalOrder, releaseRot, startPositions, true);
+      callbacksRef.current.onReorderNotes?.(finalOrder);
+    } else if (didMove) {
+      // Smooth glide back to original slot + radiant corner glow rippling to nearby notes
+      const restoreOrder = [...initialOrder];
+      const startPositions = captureStartPositions(restoreOrder);
+      liveOrderRef.current = restoreOrder;
+      runDropAndGlowAnimation(activeId, restoreOrder, releaseRot, startPositions, true);
     } else {
-      // Released in place without dragging: settle immediately with zero lag
-      droppingIdRef.current = null;
-      const layout = computeLayout(liveOrderRef.current, containerWidth, isGridView);
-      applySettledPositions(liveOrderRef.current, layout.byId, layout.totalHeight);
+      // Held and released without dragging: ALWAYS keep selected & smoothly ease elevation back down
+      const stayOrder = [...liveOrderRef.current];
+      const startPositions = captureStartPositions(stayOrder);
+      runDropAndGlowAnimation(activeId, stayOrder, releaseRot, startPositions, false);
       if (!cancelled) {
         callbacksRef.current.onReleaseHoldWithoutDrag?.(activeId);
       }
@@ -652,11 +852,20 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
         height: `${Math.round(lastTotalHeightRef.current || 148)}px`,
         touchAction: isDragActive ? 'none' : 'pan-y',
       }}
+      onClickCapture={(e) => {
+        if (performance.now() < suppressNextClickUntilRef.current) {
+          e.stopPropagation();
+          e.preventDefault();
+          if (!draggedIdRef.current) {
+            suppressNextClickUntilRef.current = 0;
+          }
+        }
+      }}
       onPointerMove={(e) => {
         if (pointerDownInfoRef.current && !draggedIdRef.current) {
-          const dx = Math.abs(e.clientX - pointerDownInfoRef.current.startClientX);
-          const dy = Math.abs(e.clientY - pointerDownInfoRef.current.startClientY);
-          if (dx > 10 || dy > 10) {
+          const dx = e.clientX - pointerDownInfoRef.current.startClientX;
+          const dy = e.clientY - pointerDownInfoRef.current.startClientY;
+          if (Math.hypot(dx, dy) > 18) {
             cancelPendingHold();
           }
           return;
@@ -674,7 +883,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
         dragStateRef.current.deltaX = deltaX;
         dragStateRef.current.deltaY = deltaY;
 
-        if (!dragStateRef.current.moved && Math.hypot(deltaX, deltaY) > 8) {
+        if (!dragStateRef.current.moved && Math.hypot(deltaX, deltaY) > 14) {
           dragStateRef.current.moved = true;
         }
 
@@ -813,13 +1022,14 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
 
               holdTimerRef.current = window.setTimeout(() => {
                 holdTimerRef.current = null;
-                suppressNextClickRef.current = true;
+                suppressNextClickUntilRef.current = performance.now() + 600;
 
                 if (dropRafRef.current !== null) {
                   cancelAnimationFrame(dropRafRef.current);
                   dropRafRef.current = null;
                 }
                 droppingIdRef.current = null;
+                clearAllGlowOverlays();
 
                 if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
                   try {
@@ -848,6 +1058,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
                   elevationStartTime: performance.now(),
                 };
                 draggedIdRef.current = id;
+                lastDragRotRef.current = 0;
                 setIsDragActive(true);
                 startDragAnimationLoop();
 
@@ -860,13 +1071,15 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
                 } catch {
                   // ignore
                 }
-              }, 380);
+              }, 320);
             }}
             onClickCapture={(e) => {
-              if (suppressNextClickRef.current) {
+              if (performance.now() < suppressNextClickUntilRef.current) {
                 e.stopPropagation();
                 e.preventDefault();
-                suppressNextClickRef.current = false;
+                if (!draggedIdRef.current) {
+                  suppressNextClickUntilRef.current = 0;
+                }
               }
             }}
             style={{
@@ -878,6 +1091,16 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
             }}
           >
             {child}
+            <div
+              ref={(el) => {
+                glowOverlayRefs.current[id] = el;
+              }}
+              data-drop-glow-overlay={id}
+              data-glow-intensity="0"
+              aria-hidden="true"
+              className="pointer-events-none absolute -inset-[2px] rounded-xl sm:rounded-2xl z-20"
+              style={{ opacity: 0 }}
+            />
           </div>
         );
       })}

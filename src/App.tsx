@@ -20,6 +20,8 @@ import {
   encryptStoragePayload,
   decryptStoragePayload,
   cleanupOrphanedPrivateStorageEntries,
+  applyArchivePreservingPin,
+  applyUnarchivePreservingPin,
 } from './utils/editorRules';
 import { FileText, Plus, Fingerprint, Smartphone, X, Archive, Tag, Pin, Check } from 'lucide-react';
 
@@ -522,49 +524,39 @@ export default function App() {
     persistNotes(updatedNotes);
   };
 
-  // Archive single note (makes it read-only and moves to Archive menu)
+  // Archive single note (makes it read-only and preserves pin state for when it is restored)
   const handleArchiveNote = (id: string, e?: React.MouseEvent) => {
     if (e && typeof e.stopPropagation === 'function') {
       e.stopPropagation();
     }
-    const updated = notes.map((n) =>
-      n.id === id ? { ...n, isArchived: true, isPinned: false } : n
-    );
+    const updated = applyArchivePreservingPin(notes, [id]);
     persistNotes(updated);
     setSelectedNoteIds((prev) => prev.filter((item) => item !== id));
     logger.security('ARCHIVE', `Archived note (ID: ${id})`);
   };
 
-  // Batch Archive selected notes
+  // Batch Archive selected notes (preserves each note's pin state for restoration)
   const handleArchiveNotesBatch = (ids: string[]) => {
-    const idSet = new Set(ids);
-    const updated = notes.map((n) =>
-      idSet.has(n.id) ? { ...n, isArchived: true, isPinned: false } : n
-    );
+    const updated = applyArchivePreservingPin(notes, ids);
     persistNotes(updated);
     setSelectedNoteIds([]);
     logger.security('ARCHIVE', `Batch archived ${ids.length} selected notes`);
   };
 
-  // Restore (Unarchive) single note back to Notes menu
+  // Restore (Unarchive) single note back to Notes menu keeping its pin intact
   const handleUnarchiveNote = (id: string, e?: React.MouseEvent) => {
     if (e && typeof e.stopPropagation === 'function') {
       e.stopPropagation();
     }
-    const updated = notes.map((n) =>
-      n.id === id ? { ...n, isArchived: false } : n
-    );
+    const updated = applyUnarchivePreservingPin(notes, [id]);
     persistNotes(updated);
     setSelectedNoteIds((prev) => prev.filter((item) => item !== id));
     logger.security('ARCHIVE', `Restored note from Archive (ID: ${id})`);
   };
 
-  // Batch Restore (Unarchive) selected notes back to Notes menu
+  // Batch Restore (Unarchive) selected notes back to Notes menu keeping pins intact
   const handleUnarchiveNotesBatch = (ids: string[]) => {
-    const idSet = new Set(ids);
-    const updated = notes.map((n) =>
-      idSet.has(n.id) ? { ...n, isArchived: false } : n
-    );
+    const updated = applyUnarchivePreservingPin(notes, ids);
     persistNotes(updated);
     setSelectedNoteIds([]);
     logger.security('ARCHIVE', `Batch restored ${ids.length} archived notes`);
@@ -594,34 +586,22 @@ export default function App() {
     logger.security('TRASH', `Batch moved ${ids.length} selected notes to Trash`);
   };
 
-  const heldNoteWasSelectedRef = useRef<boolean>(false);
-
   const handleToggleNoteSelection = (noteId: string) => {
     setSelectedNoteIds((prev) =>
       prev.includes(noteId) ? prev.filter((id) => id !== noteId) : [...prev, noteId]
     );
   };
 
+  // Holding down on a note ALWAYS selects it (never toggles off on hold-release)
   const handleHoldNoteStart = (noteId: string) => {
-    setSelectedNoteIds((prev) => {
-      if (prev.includes(noteId)) {
-        heldNoteWasSelectedRef.current = true;
-        return prev;
-      }
-      heldNoteWasSelectedRef.current = false;
-      return [...prev, noteId];
-    });
+    setSelectedNoteIds((prev) => (prev.includes(noteId) ? prev : [...prev, noteId]));
   };
 
   const handleHoldNoteReleaseWithoutDrag = (noteId: string) => {
-    if (heldNoteWasSelectedRef.current) {
-      heldNoteWasSelectedRef.current = false;
-      setSelectedNoteIds((prev) => prev.filter((id) => id !== noteId));
-    }
+    setSelectedNoteIds((prev) => (prev.includes(noteId) ? prev : [...prev, noteId]));
   };
 
   const handleReorderNotes = (orderedVisibleIds: string[]) => {
-    heldNoteWasSelectedRef.current = false;
     setSelectedNoteIds([]);
     const byId = new Map<string, Note>(notes.map((n) => [n.id, n]));
 
@@ -1094,7 +1074,11 @@ export default function App() {
                   <MorphingNotesGrid
                     isGridView={isGridView}
                     itemIds={currentTabNotes.map((n) => n.id)}
-                    lockedItemIds={currentTabNotes.filter((n) => n.isPinned).map((n) => n.id)}
+                    lockedItemIds={
+                      activeTab === 'archive'
+                        ? []
+                        : currentTabNotes.filter((n) => n.isPinned).map((n) => n.id)
+                    }
                     onHoldNote={handleHoldNoteStart}
                     onReleaseHoldWithoutDrag={handleHoldNoteReleaseWithoutDrag}
                     onReorderNotes={handleReorderNotes}

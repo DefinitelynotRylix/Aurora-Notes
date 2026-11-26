@@ -1,9 +1,13 @@
 package com.aurora.notes.ui.components
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,34 +29,114 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
+
+private val SmoothDecelEasing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+private val AuroraGlowCore = Color(0xFFD8B4FE)
+private val AuroraGlowMid = Color(0xFF8B5CF6)
+
+private data class CornerGlowSample(
+    val intensity: Float,
+    val waveOffsetPx: Float,
+    val scaleBoost: Float,
+    val tl: Float,
+    val tr: Float,
+    val bl: Float,
+    val br: Float
+)
+
+private fun computeCornerGlowSample(
+    progress: Float,
+    isDroppedCard: Boolean,
+    dxFromDropped: Float,
+    dyFromDropped: Float,
+    maxRadiusPx: Float
+): CornerGlowSample {
+    if (progress <= 0f || progress >= 1f) {
+        return CornerGlowSample(0f, 0f, 0f, 0f, 0f, 0f, 0f)
+    }
+
+    if (isDroppedCard) {
+        val rise = (progress / 0.22f).coerceIn(0f, 1f)
+        val fall = if (progress <= 0.22f) 1f else (1f - (progress - 0.22f) / 0.78f).coerceIn(0f, 1f).pow(1.75f)
+        val intensity = (rise * fall).coerceIn(0f, 1f)
+        return CornerGlowSample(intensity, 0f, 0f, 1f, 1f, 1f, 1f)
+    }
+
+    val safeRadius = max(1f, maxRadiusPx)
+    val dist = hypot(dxFromDropped, dyFromDropped)
+    if (dist >= safeRadius) {
+        return CornerGlowSample(0f, 0f, 0f, 0f, 0f, 0f, 0f)
+    }
+
+    val proximity = (1f - dist / safeRadius).pow(1.2f)
+    val waveDelay = (dist / safeRadius) * 0.22f
+    if (progress <= waveDelay) {
+        return CornerGlowSample(0f, 0f, 0f, 0f, 0f, 0f, 0f)
+    }
+
+    val localT = ((progress - waveDelay) / max(0.01f, 1f - waveDelay)).coerceIn(0f, 1f)
+    val wave = (sin(localT * PI).toFloat() * (1f - localT).pow(0.45f)).coerceAtLeast(0f)
+    val intensity = (wave * proximity * 0.92f).coerceIn(0f, 1f)
+
+    val ux = -dxFromDropped / max(1f, dist)
+    val uy = -dyFromDropped / max(1f, dist)
+    val invSqrt2 = 1f / sqrt(2f)
+    fun weightCorner(cxSign: Float, cySign: Float): Float {
+        val dot = (cxSign * ux + cySign * uy) * invSqrt2
+        return (0.56f + dot * 0.48f).coerceIn(0.22f, 1f)
+    }
+
+    return CornerGlowSample(
+        intensity = intensity,
+        waveOffsetPx = wave * proximity * 4.5f,
+        scaleBoost = wave * proximity * 0.016f,
+        tl = weightCorner(-1f, -1f),
+        tr = weightCorner(1f, -1f),
+        bl = weightCorner(-1f, 1f),
+        br = weightCorner(1f, 1f)
+    )
+}
 
 /**
  * Smoothly morphs notes between a 2-column Masonry Staggered Grid (`isGridView = true`)
- * and a Full-Width Single Column layout (`isGridView = false`), with interactive
- * Hold-to-Elevate, subtle wobbly physics, neighbor hover interaction, and Drag-to-Reorder
- * that works in both Masonry and Single Column modes at 60/120fps.
+ * and a Full-Width Single Column layout (`isGridView = false`), with reliable Hold-to-Select,
+ * Hold-to-Elevate, subtle wobbly physics, smooth Drag-to-Reorder, and a luminous 4-corner
+ * drop glow wave that radiates across nearby notes at 60/120fps.
  *
  * Performance architecture:
- * - Grid <-> Column morph measures cards ONCE at target width and animates coordinates + subtle
- *   GPU scale strictly inside placement (`layout {}`) and `placeRelativeWithLayer {}` (0 per-frame
- *   child re-measurements, 0 recompositions).
- * - Drag wobble, elevation, and drop-back settle read animation state strictly in placement /
- *   graphicsLayer and NEVER mutate Compose snapshot state inside the measure/layout block.
+ * - Grid <-> Column morph captures prior full bounds synchronously before layout and runs a
+ *   true top-left FLIP scaleX/scaleY + translation GPU transition inside placement (0 width snap,
+ *   0 per-frame re-measurements).
+ * - Custom `awaitEachGesture` long-press handling explicitly consumes the release UP pointer event
+ *   so `NoteCard.clickable` never cancels or toggles off a long-press selection.
+ * - Smooth drop settle and radiant corner glow run entirely in placement/graphicsLayer + drawWithContent.
  */
 @Composable
 fun MorphingNotesGrid(
@@ -71,6 +155,7 @@ fun MorphingNotesGrid(
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
 
     val currentItemIds by rememberUpdatedState(itemIds)
     val currentLockedItemIds by rememberUpdatedState(lockedItemIds)
@@ -89,34 +174,54 @@ fun MorphingNotesGrid(
     var dragStartY by remember { mutableFloatStateOf(0f) }
     var dragDeltaX by remember { mutableFloatStateOf(0f) }
     var dragDeltaY by remember { mutableFloatStateOf(0f) }
-
-    var dropStartX by remember { mutableFloatStateOf(0f) }
-    var dropStartY by remember { mutableFloatStateOf(0f) }
+    var dropStartRotation by remember { mutableFloatStateOf(0f) }
 
     // Placement-only refs (never cause recomposition or child re-measure)
     val animXMap = remember { HashMap<String, Float>() }
     val animYMap = remember { HashMap<String, Float>() }
+    val dropStartPosMap = remember { HashMap<String, Offset>() }
     val slotBoundsMap = remember { HashMap<Int, Rect>() }
     val cardBoundsMap = remember { HashMap<String, Rect>() }
 
-    // GPU-only Grid <-> Column FLIP morph state
+    // True GPU FLIP Grid <-> Column morph state (captured synchronously before Layout measures)
     val morphAnim = remember { Animatable(1f) }
-    val morphStartPosMap = remember { HashMap<String, Offset>() }
+    val morphStartRectMap = remember { HashMap<String, Rect>() }
     var lastGridViewMode by remember { mutableStateOf(isGridView) }
     var morphActive by remember { mutableStateOf(false) }
+    var morphNeedsSnap by remember { mutableStateOf(false) }
     var previousLayoutHeight by remember { mutableIntStateOf(0) }
     var morphStartLayoutHeight by remember { mutableIntStateOf(0) }
     var previousCount by remember { mutableIntStateOf(-1) }
 
-    // Smooth GPU elevation & drop-back settle animatables (read strictly in placement / graphicsLayer)
+    // Capture old full card bounds BEFORE Layout measures at the new mode so Frame 0 has ZERO snap
+    if (isGridView != lastGridViewMode) {
+        morphStartRectMap.clear()
+        for ((id, rect) in cardBoundsMap) {
+            if (rect.width > 0f && rect.height > 0f) {
+                morphStartRectMap[id] = rect
+            }
+        }
+        morphStartLayoutHeight = previousLayoutHeight
+        lastGridViewMode = isGridView
+        if (morphStartRectMap.isNotEmpty()) {
+            morphActive = true
+            morphNeedsSnap = true
+        }
+    }
+
+    // Smooth GPU elevation, drop settle, and luminous corner glow wave animatables
     val dragElevationAnim = remember { Animatable(0f) }
     val dropSettleAnim = remember { Animatable(1f) }
+    val dropGlowAnim = remember { Animatable(1f) }
+    var glowOriginId by remember { mutableStateOf<String?>(null) }
     var dropSettleJob by remember { mutableStateOf<Job?>(null) }
+    var dropGlowJob by remember { mutableStateOf<Job?>(null) }
     var wobbleTimeMs by remember { mutableLongStateOf(0L) }
+    var currentDragRotDeg by remember { mutableFloatStateOf(0f) }
 
-    // Sync liveOrderIds ONLY when itemIds changes from upstream (never overwrite with stale itemIds on drag end!)
+    // Sync liveOrderIds ONLY when itemIds changes outside active drag or drop settle
     LaunchedEffect(itemIds) {
-        if (draggedNoteId == null) {
+        if (draggedNoteId == null && droppingNoteId == null) {
             if (liveOrderIds.toList() != itemIds) {
                 liveOrderIds.clear()
                 liveOrderIds.addAll(itemIds)
@@ -125,29 +230,23 @@ fun MorphingNotesGrid(
             animXMap.keys.retainAll(validSet)
             animYMap.keys.retainAll(validSet)
             cardBoundsMap.keys.retainAll(validSet)
-            morphStartPosMap.keys.retainAll(validSet)
+            morphStartRectMap.keys.retainAll(validSet)
         }
     }
 
-    // Trigger zero-reflow GPU morph when switching between Masonry Grid and Single Column
+    // Run true FLIP morph animation whenever Grid <-> Column toggles
     LaunchedEffect(isGridView) {
-        if (isGridView != lastGridViewMode) {
-            morphStartPosMap.clear()
-            for ((id, rect) in cardBoundsMap) {
-                morphStartPosMap[id] = Offset(rect.left, rect.top)
-            }
-            morphStartLayoutHeight = previousLayoutHeight
-            lastGridViewMode = isGridView
-            morphActive = true
+        if (morphActive) {
             morphAnim.snapTo(0f)
+            morphNeedsSnap = false
             morphAnim.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(
-                    durationMillis = 240,
-                    easing = FastOutSlowInEasing
+                    durationMillis = 340,
+                    easing = SmoothDecelEasing
                 )
             )
-            morphStartPosMap.clear()
+            morphStartRectMap.clear()
             morphActive = false
         }
     }
@@ -176,55 +275,150 @@ fun MorphingNotesGrid(
         }
     }
 
+    fun launchSmoothDrop(
+        droppedId: String,
+        targetOrder: List<String>,
+        releaseX: Float,
+        releaseY: Float,
+        releaseRot: Float,
+        withCornerGlow: Boolean
+    ) {
+        dropStartPosMap.clear()
+        for (id in targetOrder) {
+            if (id == droppedId) {
+                dropStartPosMap[id] = Offset(releaseX, releaseY)
+            } else {
+                val curX = animXMap[id] ?: cardBoundsMap[id]?.left ?: 0f
+                val curY = animYMap[id] ?: cardBoundsMap[id]?.top ?: 0f
+                dropStartPosMap[id] = Offset(curX, curY)
+            }
+        }
+        dropStartRotation = releaseRot
+        droppingNoteId = droppedId
+
+        dropSettleJob?.cancel()
+        dropSettleJob = coroutineScope.launch {
+            dropSettleAnim.snapTo(0f)
+            dropSettleAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = if (withCornerGlow) 280 else 160,
+                    easing = SmoothDecelEasing
+                )
+            )
+            droppingNoteId = null
+            dropStartPosMap.clear()
+            // Sync any upstream list updates once drop settle finishes
+            if (draggedNoteId == null && liveOrderIds.toList() != currentItemIds) {
+                liveOrderIds.clear()
+                liveOrderIds.addAll(currentItemIds)
+            }
+        }
+
+        dropGlowJob?.cancel()
+        if (withCornerGlow) {
+            glowOriginId = droppedId
+            dropGlowJob = coroutineScope.launch {
+                dropGlowAnim.snapTo(0f)
+                dropGlowAnim.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(
+                        durationMillis = 740,
+                        easing = LinearEasing
+                    )
+                )
+                glowOriginId = null
+            }
+        } else {
+            glowOriginId = null
+        }
+    }
+
     val dragGestureModifier = if (itemIds.isNotEmpty() && (onHoldNote != null || onReorderNotes != null)) {
         Modifier.pointerInput(itemIds.size, isGridView) {
-            detectDragGesturesAfterLongPress(
-                onDragStart = { downOffset ->
-                    val hitEntry = cardBoundsMap.entries.firstOrNull { (_, rect) ->
-                        rect.contains(downOffset)
+            val hitPadPx = 6.dp.toPx()
+            val dragMoveSlopPx = 16.dp.toPx()
+
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val hitEntry = cardBoundsMap.entries.firstOrNull { (_, rect) ->
+                    rect.contains(down.position)
+                } ?: cardBoundsMap.entries.firstOrNull { (_, rect) ->
+                    Rect(
+                        left = rect.left - hitPadPx,
+                        top = rect.top - hitPadPx,
+                        right = rect.right + hitPadPx,
+                        bottom = rect.bottom + hitPadPx
+                    ).contains(down.position)
+                } ?: return@awaitEachGesture
+
+                val longPress = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+                // Consume the long-press change immediately so child clickables cancel their press state
+                longPress.consume()
+
+                val hitId = hitEntry.key
+                val hitRect = cardBoundsMap[hitId] ?: hitEntry.value
+
+                dropSettleJob?.cancel()
+                dropSettleJob = null
+                dropGlowJob?.cancel()
+                dropGlowJob = null
+                glowOriginId = null
+
+                if (liveOrderIds.size != currentItemIds.size || liveOrderIds.toSet() != currentItemIds.toSet()) {
+                    liveOrderIds.clear()
+                    liveOrderIds.addAll(currentItemIds)
+                }
+                initialOrderOnDragStart.clear()
+                initialOrderOnDragStart.addAll(liveOrderIds)
+
+                draggedNoteId = hitId
+                droppingNoteId = null
+                dragMoved = false
+                dragStartX = animXMap[hitId] ?: hitRect.left
+                dragStartY = animYMap[hitId] ?: hitRect.top
+                dragDeltaX = 0f
+                dragDeltaY = 0f
+                currentDragRotDeg = 0f
+
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                currentOnHoldNote?.invoke(hitId)
+
+                var lastPosition = longPress.position
+                var wasCancelled = false
+
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id }
+                    if (change == null) {
+                        wasCancelled = true
+                        break
                     }
-                    val hitId = hitEntry?.key ?: return@detectDragGesturesAfterLongPress
-                    val hitRect = hitEntry.value
-
-                    dropSettleJob?.cancel()
-                    dropSettleJob = null
-
-                    if (liveOrderIds.size != currentItemIds.size || liveOrderIds.toSet() != currentItemIds.toSet()) {
-                        liveOrderIds.clear()
-                        liveOrderIds.addAll(currentItemIds)
+                    if (!change.pressed) {
+                        // CRITICAL: Consume pointer UP so NoteCard.clickable NEVER toggles off the held selection!
+                        change.consume()
+                        break
                     }
-                    initialOrderOnDragStart.clear()
-                    initialOrderOnDragStart.addAll(liveOrderIds)
 
-                    draggedNoteId = hitId
-                    droppingNoteId = null
-                    dragMoved = false
-                    dragStartX = animXMap[hitId] ?: hitRect.left
-                    dragStartY = animYMap[hitId] ?: hitRect.top
-                    dragDeltaX = 0f
-                    dragDeltaY = 0f
-
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    currentOnHoldNote?.invoke(hitId)
-                },
-                onDrag = { change, dragAmount ->
-                    val activeId = draggedNoteId ?: return@detectDragGesturesAfterLongPress
+                    val delta = change.position - lastPosition
+                    lastPosition = change.position
                     change.consume()
-                    dragDeltaX += dragAmount.x
-                    dragDeltaY += dragAmount.y
 
-                    if (!dragMoved && hypot(dragDeltaX, dragDeltaY) > 10f) {
+                    dragDeltaX += delta.x
+                    dragDeltaY += delta.y
+
+                    if (!dragMoved && hypot(dragDeltaX, dragDeltaY) > dragMoveSlopPx) {
                         dragMoved = true
                     }
 
-                    val activeRect = cardBoundsMap[activeId]
+                    val activeRect = cardBoundsMap[hitId]
                     val cardW = activeRect?.width ?: 1f
                     val cardH = activeRect?.height ?: 1f
                     val centerX = dragStartX + dragDeltaX + cardW * 0.5f
                     val centerY = dragStartY + dragDeltaY + cardH * 0.5f
 
-                    val isDraggedPinned = activeId in currentLockedItemIds
-                    val currentSlotIdx = liveOrderIds.indexOf(activeId)
+                    val isDraggedPinned = hitId in currentLockedItemIds
+                    val currentSlotIdx = liveOrderIds.indexOf(hitId)
                     if (currentSlotIdx >= 0) {
                         var bestSlotIdx = -1
                         var bestDist = Float.MAX_VALUE
@@ -273,106 +467,146 @@ fun MorphingNotesGrid(
                         }
 
                         if (crossedIntoOppositeGroup) {
-                            // Trying to move pinned into unpinned or unpinned into pinned -> revert to original order
                             if (liveOrderIds.toList() != initialOrderOnDragStart.toList()) {
                                 liveOrderIds.clear()
                                 liveOrderIds.addAll(initialOrderOnDragStart)
                             }
                         } else if (bestSlotIdx >= 0 && bestSlotIdx != currentSlotIdx) {
                             liveOrderIds.removeAt(currentSlotIdx)
-                            liveOrderIds.add(bestSlotIdx, activeId)
+                            liveOrderIds.add(bestSlotIdx, hitId)
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         }
                     }
-                },
-                onDragEnd = {
-                    val finishedId = draggedNoteId
-                    if (finishedId != null) {
-                        val finalOrder = liveOrderIds.toList()
-                        val initialOrder = initialOrderOnDragStart.toList()
-                        val didReorder = dragMoved && finalOrder.size == initialOrder.size && finalOrder != initialOrder
-                        val releaseX = dragStartX + dragDeltaX
-                        val releaseY = dragStartY + dragDeltaY
-
-                        draggedNoteId = null
-                        if (didReorder) {
-                            // Instant move into the new locked slot without jumping back to the original slot
-                            for (slotIdx in finalOrder.indices) {
-                                val id = finalOrder[slotIdx]
-                                val targetRect = slotBoundsMap[slotIdx]
-                                if (targetRect != null) {
-                                    animXMap[id] = targetRect.left
-                                    animYMap[id] = targetRect.top
-                                }
-                            }
-                            droppingNoteId = null
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            currentOnReorderNotes?.invoke(finalOrder)
-                        } else if (dragMoved) {
-                            // Smooth GPU-driven drop-back into original slot (no layout invalidation or measure spike)
-                            dropStartX = releaseX
-                            dropStartY = releaseY
-                            droppingNoteId = finishedId
-                            dropSettleJob?.cancel()
-                            dropSettleJob = coroutineScope.launch {
-                                dropSettleAnim.snapTo(0f)
-                                dropSettleAnim.animateTo(
-                                    targetValue = 1f,
-                                    animationSpec = tween(
-                                        durationMillis = 175,
-                                        easing = FastOutSlowInEasing
-                                    )
-                                )
-                                droppingNoteId = null
-                            }
-                        } else {
-                            // Released in place without dragging: zero glide needed, just settle elevation cleanly
-                            droppingNoteId = null
-                            currentOnReleaseWithoutDrag?.invoke(finishedId)
-                        }
-                    }
-                    dragMoved = false
-                    dragDeltaX = 0f
-                    dragDeltaY = 0f
-                },
-                onDragCancel = {
-                    val cancelledId = draggedNoteId
-                    if (cancelledId != null) {
-                        val releaseX = dragStartX + dragDeltaX
-                        val releaseY = dragStartY + dragDeltaY
-                        if (initialOrderOnDragStart.isNotEmpty() && liveOrderIds.toList() != initialOrderOnDragStart.toList()) {
-                            liveOrderIds.clear()
-                            liveOrderIds.addAll(initialOrderOnDragStart)
-                        }
-                        draggedNoteId = null
-                        if (dragMoved) {
-                            dropStartX = releaseX
-                            dropStartY = releaseY
-                            droppingNoteId = cancelledId
-                            dropSettleJob?.cancel()
-                            dropSettleJob = coroutineScope.launch {
-                                dropSettleAnim.snapTo(0f)
-                                dropSettleAnim.animateTo(
-                                    targetValue = 1f,
-                                    animationSpec = tween(
-                                        durationMillis = 175,
-                                        easing = FastOutSlowInEasing
-                                    )
-                                )
-                                droppingNoteId = null
-                            }
-                        } else {
-                            droppingNoteId = null
-                        }
-                    }
-                    dragMoved = false
-                    dragDeltaX = 0f
-                    dragDeltaY = 0f
                 }
-            )
+
+                // Finish gesture cleanly with smooth drop settle + radiant corner glow
+                val finalOrder = liveOrderIds.toList()
+                val initialOrder = initialOrderOnDragStart.toList()
+                val didReorder = !wasCancelled && dragMoved && finalOrder.size == initialOrder.size && finalOrder != initialOrder
+                val releaseX = dragStartX + dragDeltaX
+                val releaseY = dragStartY + dragDeltaY
+                val releaseRot = currentDragRotDeg
+
+                draggedNoteId = null
+
+                when {
+                    didReorder -> {
+                        launchSmoothDrop(
+                            droppedId = hitId,
+                            targetOrder = finalOrder,
+                            releaseX = releaseX,
+                            releaseY = releaseY,
+                            releaseRot = releaseRot,
+                            withCornerGlow = true
+                        )
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        currentOnReorderNotes?.invoke(finalOrder)
+                    }
+                    dragMoved -> {
+                        if (initialOrder.isNotEmpty() && liveOrderIds.toList() != initialOrder) {
+                            liveOrderIds.clear()
+                            liveOrderIds.addAll(initialOrder)
+                        }
+                        launchSmoothDrop(
+                            droppedId = hitId,
+                            targetOrder = initialOrder.ifEmpty { finalOrder },
+                            releaseX = releaseX,
+                            releaseY = releaseY,
+                            releaseRot = releaseRot,
+                            withCornerGlow = true
+                        )
+                    }
+                    else -> {
+                        // Released without dragging: keep note selected and smoothly lower elevation
+                        launchSmoothDrop(
+                            droppedId = hitId,
+                            targetOrder = liveOrderIds.toList(),
+                            releaseX = releaseX,
+                            releaseY = releaseY,
+                            releaseRot = releaseRot,
+                            withCornerGlow = false
+                        )
+                        if (!wasCancelled) {
+                            currentOnReleaseWithoutDrag?.invoke(hitId)
+                        }
+                    }
+                }
+
+                dragMoved = false
+                dragDeltaX = 0f
+                dragDeltaY = 0f
+                currentDragRotDeg = 0f
+            }
         }
     } else {
         Modifier
+    }
+
+    val cornerRadiusPx = with(density) { 16.dp.toPx() }
+    val glowBorderStrokePx = with(density) { 1.75.dp.toPx() }
+    val minGlowRadiusPx = with(density) { 340.dp.toPx() }
+    val maxCornerBloomPx = with(density) { 80.dp.toPx() }
+
+    val cornerGlowDrawModifier = Modifier.drawWithContent {
+        drawContent()
+        val originId = glowOriginId ?: return@drawWithContent
+        val glowP = dropGlowAnim.value.coerceIn(0f, 1f)
+        if (glowP <= 0.001f || glowP >= 0.999f) return@drawWithContent
+
+        val originRect = cardBoundsMap[originId] ?: return@drawWithContent
+        val originCx = originRect.center.x
+        val originCy = originRect.center.y
+        val maxRadius = max(size.width * 1.15f, minGlowRadiusPx)
+
+        for ((id, rect) in cardBoundsMap) {
+            if (rect.width <= 0f || rect.height <= 0f) continue
+            val isDropped = id == originId
+            val sample = computeCornerGlowSample(
+                progress = glowP,
+                isDroppedCard = isDropped,
+                dxFromDropped = rect.center.x - originCx,
+                dyFromDropped = rect.center.y - originCy,
+                maxRadiusPx = maxRadius
+            )
+            if (sample.intensity <= 0.01f) continue
+
+            val a = sample.intensity
+            val cornerBloomRadius = (min(rect.width, rect.height) * if (isDropped) 0.48f else 0.40f)
+                .coerceIn(36f, maxCornerBloomPx)
+            val cornerBoost = if (isDropped) 0.72f else 0.58f
+
+            val corners = arrayOf(
+                Triple(Offset(rect.left, rect.top), sample.tl, cornerBloomRadius),
+                Triple(Offset(rect.right, rect.top), sample.tr, cornerBloomRadius),
+                Triple(Offset(rect.left, rect.bottom), sample.bl, cornerBloomRadius),
+                Triple(Offset(rect.right, rect.bottom), sample.br, cornerBloomRadius)
+            )
+
+            for ((center, weight, radius) in corners) {
+                val peakAlpha = (a * weight * cornerBoost).coerceIn(0f, 1f)
+                if (peakAlpha <= 0.01f) continue
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0.0f to AuroraGlowCore.copy(alpha = peakAlpha),
+                        0.38f to AuroraGlowMid.copy(alpha = peakAlpha * 0.48f),
+                        1.0f to Color.Transparent,
+                        center = center,
+                        radius = radius
+                    ),
+                    radius = radius,
+                    center = center
+                )
+            }
+
+            // Crisp luminous rounded-corner rim around the card
+            drawRoundRect(
+                color = AuroraGlowCore.copy(alpha = (a * if (isDropped) 0.78f else 0.44f).coerceIn(0f, 1f)),
+                topLeft = Offset(rect.left, rect.top),
+                size = Size(rect.width, rect.height),
+                cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx),
+                style = Stroke(width = glowBorderStrokePx)
+            )
+        }
     }
 
     Box(
@@ -386,6 +620,7 @@ fun MorphingNotesGrid(
             content = content,
             modifier = Modifier
                 .fillMaxWidth()
+                .then(cornerGlowDrawModifier)
                 .then(dragGestureModifier)
         ) { measurables, constraints ->
             // MEASURE PHASE: Runs ONLY when data, grid mode, or slot order changes (NEVER per animation frame!)
@@ -487,9 +722,16 @@ fun MorphingNotesGrid(
             layout(totalWidth, layoutHeight) {
                 val activeDragId = draggedNoteId
                 val activeDropId = droppingNoteId
-                val morphP = if (morphActive) morphAnim.value.coerceIn(0f, 1f) else 1f
+                val activeGlowId = glowOriginId
+                val morphP = if (morphActive) {
+                    if (morphNeedsSnap) 0f else morphAnim.value.coerceIn(0f, 1f)
+                } else {
+                    1f
+                }
                 val isMorphRunning = morphActive && morphP < 0.999f
                 val dropP = if (activeDropId != null) dropSettleAnim.value.coerceIn(0f, 1f) else 1f
+                val glowP = if (activeGlowId != null) dropGlowAnim.value.coerceIn(0f, 1f) else 1f
+                val isGlowRunning = activeGlowId != null && glowP > 0.001f && glowP < 0.999f
                 val currentWobbleMs = if (activeDragId != null) wobbleTimeMs else 0L
                 val phaseRad = (currentWobbleMs.toDouble() / 1000.0 * 16.5).toFloat()
 
@@ -504,6 +746,21 @@ fun MorphingNotesGrid(
                     dragCenterX = -10000f
                     dragCenterY = -10000f
                 }
+
+                // Target center of the dropped card for outward nearby-note wave motion
+                var glowOriginCx = 0f
+                var glowOriginCy = 0f
+                if (isGlowRunning && activeGlowId != null) {
+                    val gSlot = effectiveOrderIds.indexOf(activeGlowId)
+                    if (gSlot >= 0) {
+                        val gRect = slotBoundsMap[gSlot]
+                        if (gRect != null) {
+                            glowOriginCx = gRect.center.x
+                            glowOriginCy = gRect.center.y
+                        }
+                    }
+                }
+                val maxWaveRadius = max(totalWidth * 1.15f, minGlowRadiusPx)
 
                 for (slotIdx in effectiveOrderIds.indices) {
                     val id = effectiveOrderIds[slotIdx]
@@ -521,15 +778,21 @@ fun MorphingNotesGrid(
                             drawXf = dragStartX + dragDeltaX
                             drawYf = dragStartY + dragDeltaY
                         }
-                        id == activeDropId -> {
-                            drawXf = dropStartX + (tx - dropStartX) * dropP
-                            drawYf = dropStartY + (ty - dropStartY) * dropP
+                        activeDropId != null -> {
+                            val startPos = dropStartPosMap[id]
+                            if (startPos != null) {
+                                drawXf = startPos.x + (tx - startPos.x) * dropP
+                                drawYf = startPos.y + (ty - startPos.y) * dropP
+                            } else {
+                                drawXf = tx
+                                drawYf = ty
+                            }
                         }
                         isMorphRunning -> {
-                            val startPos = morphStartPosMap[id]
-                            if (startPos != null) {
-                                drawXf = startPos.x + (tx - startPos.x) * morphP
-                                drawYf = startPos.y + (ty - startPos.y) * morphP
+                            val startRect = morphStartRectMap[id]
+                            if (startRect != null) {
+                                drawXf = startRect.left + (tx - startRect.left) * morphP
+                                drawYf = startRect.top + (ty - startRect.top) * morphP
                             } else {
                                 drawXf = tx
                                 drawYf = ty
@@ -556,54 +819,99 @@ fun MorphingNotesGrid(
 
                     animXMap[id] = drawXf
                     animYMap[id] = drawYf
-                    val drawX = drawXf.roundToInt()
-                    val drawY = drawYf.roundToInt()
+
+                    // Sympathetic micro-nudge & scale boost on nearby cards while the drop glow wave passes
+                    var wavePushX = 0f
+                    var wavePushY = 0f
+                    var waveScaleBoost = 0f
+                    if (isGlowRunning && id != activeGlowId) {
+                        val dxFromDropped = (tx + targetItemWidth * 0.5f) - glowOriginCx
+                        val dyFromDropped = (ty + itemH * 0.5f) - glowOriginCy
+                        val sample = computeCornerGlowSample(
+                            progress = glowP,
+                            isDroppedCard = false,
+                            dxFromDropped = dxFromDropped,
+                            dyFromDropped = dyFromDropped,
+                            maxRadiusPx = maxWaveRadius
+                        )
+                        if (sample.waveOffsetPx > 0.01f) {
+                            val d = max(1f, hypot(dxFromDropped, dyFromDropped))
+                            wavePushX = (dxFromDropped / d) * sample.waveOffsetPx
+                            wavePushY = (dyFromDropped / d) * sample.waveOffsetPx
+                            waveScaleBoost = sample.scaleBoost
+                        }
+                    }
+
+                    val finalDrawX = (drawXf + wavePushX).roundToInt()
+                    val finalDrawY = (drawYf + wavePushY).roundToInt()
 
                     cardBoundsMap[id] = Rect(
-                        left = drawXf,
-                        top = drawYf,
-                        right = drawXf + targetItemWidth.toFloat(),
-                        bottom = drawYf + itemH.toFloat()
+                        left = drawXf + wavePushX,
+                        top = drawYf + wavePushY,
+                        right = drawXf + wavePushX + targetItemWidth.toFloat(),
+                        bottom = drawYf + wavePushY + itemH.toFloat()
                     )
 
                     when {
                         id == activeDragId -> {
                             placeable.placeRelativeWithLayer(
-                                x = drawX,
-                                y = drawY,
+                                x = finalDrawX,
+                                y = finalDrawY,
                                 zIndex = 30f
                             ) {
                                 val elev = dragElevationAnim.value.coerceIn(0f, 1f)
                                 val scale = 1f + 0.045f * elev
+                                val rot = sin(phaseRad) * 1.15f * elev
+                                currentDragRotDeg = rot
                                 scaleX = scale
                                 scaleY = scale
-                                rotationZ = sin(phaseRad) * 1.15f * elev
+                                rotationZ = rot
                                 shadowElevation = 22f * elev
                             }
                         }
                         id == activeDropId -> {
                             placeable.placeRelativeWithLayer(
-                                x = drawX,
-                                y = drawY,
-                                zIndex = 15f
+                                x = finalDrawX,
+                                y = finalDrawY,
+                                zIndex = 18f
                             ) {
                                 val settle = 1f - dropP
-                                val scale = 1f + 0.03f * settle
+                                val cushion = sin(dropP * PI).toFloat() * 0.008f
+                                val scale = 1f + 0.045f * settle - cushion
                                 scaleX = scale
                                 scaleY = scale
-                                shadowElevation = 14f * settle
+                                rotationZ = dropStartRotation * settle
+                                shadowElevation = 18f * settle
                             }
                         }
                         isMorphRunning -> {
+                            val startRect = morphStartRectMap[id]
+                            val startScaleX = if (startRect != null && targetItemWidth > 0) {
+                                (startRect.width / targetItemWidth.toFloat()).coerceIn(0.35f, 2.4f)
+                            } else {
+                                1f
+                            }
+                            val startScaleY = if (startRect != null && itemH > 0) {
+                                (startRect.height / itemH.toFloat()).coerceIn(0.72f, 1.38f)
+                            } else {
+                                1f
+                            }
+                            val curScaleX = startScaleX + (1f - startScaleX) * morphP
+                            val curScaleY = startScaleY + (1f - startScaleY) * morphP
+                            cardBoundsMap[id] = Rect(
+                                left = drawXf,
+                                top = drawYf,
+                                right = drawXf + targetItemWidth * curScaleX,
+                                bottom = drawYf + itemH * curScaleY
+                            )
                             placeable.placeRelativeWithLayer(
-                                x = drawX,
-                                y = drawY,
+                                x = finalDrawX,
+                                y = finalDrawY,
                                 zIndex = (effectiveOrderIds.size - slotIdx).toFloat() * 0.01f
                             ) {
-                                val scale = 0.94f + 0.06f * morphP
-                                scaleX = scale
-                                scaleY = scale
-                                alpha = 0.88f + 0.12f * morphP
+                                transformOrigin = TransformOrigin(0f, 0f)
+                                scaleX = curScaleX
+                                scaleY = curScaleY
                             }
                         }
                         activeDragId != null -> {
@@ -624,8 +932,8 @@ fun MorphingNotesGrid(
                             val neighborScale = 1f - (hoverProximity * 0.015f)
 
                             placeable.placeRelativeWithLayer(
-                                x = drawX,
-                                y = drawY,
+                                x = finalDrawX,
+                                y = finalDrawY,
                                 zIndex = if (glideFactor > 0.05f) 5f else 0f
                             ) {
                                 scaleX = neighborScale
@@ -633,8 +941,19 @@ fun MorphingNotesGrid(
                                 rotationZ = neighborWobbleDeg
                             }
                         }
+                        waveScaleBoost > 0.0005f -> {
+                            placeable.placeRelativeWithLayer(
+                                x = finalDrawX,
+                                y = finalDrawY,
+                                zIndex = 2f
+                            ) {
+                                val s = 1f + waveScaleBoost
+                                scaleX = s
+                                scaleY = s
+                            }
+                        }
                         else -> {
-                            placeable.placeRelative(drawX, drawY)
+                            placeable.placeRelative(finalDrawX, finalDrawY)
                         }
                     }
                 }

@@ -981,3 +981,147 @@ export function normalizeLineEndingsWithCursor(
     cursorOffset: Math.max(0, Math.min(nextCursor, out.length)),
   };
 }
+
+export interface DropGlowRippleSample {
+  intensity: number;
+  waveOffsetPx: number;
+  scaleBoost: number;
+  cornerWeights: {
+    topLeft: number;
+    topRight: number;
+    bottomLeft: number;
+    bottomRight: number;
+  };
+}
+
+/**
+ * Computes the luminous corner glow intensity and nearby-note sympathetic wave
+ * at `elapsedMs` after dropping a note card.
+ */
+export function computeDropGlowRipple(
+  elapsedMs: number,
+  durationMs: number,
+  isDroppedCard: boolean,
+  dxFromDropped: number,
+  dyFromDropped: number,
+  maxRadiusPx: number
+): DropGlowRippleSample {
+  const zero: DropGlowRippleSample = {
+    intensity: 0,
+    waveOffsetPx: 0,
+    scaleBoost: 0,
+    cornerWeights: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+  };
+  if (durationMs <= 0 || elapsedMs < 0 || elapsedMs >= durationMs) {
+    return zero;
+  }
+
+  if (isDroppedCard) {
+    const t = Math.min(1, Math.max(0, elapsedMs / durationMs));
+    // Fast luminous bloom peaking as the card lands (~22% of duration), then silky fade-out
+    const rise = Math.min(1, t / 0.22);
+    const fall = t <= 0.22 ? 1 : Math.pow(1 - (t - 0.22) / 0.78, 1.75);
+    const intensity = Math.max(0, Math.min(1, rise * fall));
+    return {
+      intensity,
+      waveOffsetPx: 0,
+      scaleBoost: 0,
+      cornerWeights: {
+        topLeft: 1,
+        topRight: 1,
+        bottomLeft: 1,
+        bottomRight: 1,
+      },
+    };
+  }
+
+  const safeRadius = Math.max(1, maxRadiusPx);
+  const dist = Math.hypot(dxFromDropped, dyFromDropped);
+  if (dist >= safeRadius) return zero;
+
+  const proximity = Math.pow(1 - dist / safeRadius, 1.2);
+  const waveDelayMs = (dist / safeRadius) * Math.min(150, durationMs * 0.22);
+  const localDuration = Math.max(1, durationMs - waveDelayMs);
+  const localElapsed = elapsedMs - waveDelayMs;
+  if (localElapsed <= 0 || localElapsed >= localDuration) return zero;
+
+  const localT = localElapsed / localDuration;
+  const wave = Math.sin(localT * Math.PI) * Math.pow(1 - localT, 0.45);
+  const intensity = Math.max(0, Math.min(1, wave * proximity * 0.92));
+
+  // Unit vector pointing FROM neighbor TOWARD the dropped card so facing corners glow brightest
+  const ux = -dxFromDropped / Math.max(1, dist);
+  const uy = -dyFromDropped / Math.max(1, dist);
+  const weightCorner = (cxSign: number, cySign: number) => {
+    const dot = (cxSign * ux + cySign * uy) / Math.SQRT2; // -1..1
+    return Math.max(0.22, Math.min(1, 0.56 + dot * 0.48));
+  };
+
+  return {
+    intensity,
+    waveOffsetPx: wave * proximity * 4.5,
+    scaleBoost: wave * proximity * 0.016,
+    cornerWeights: {
+      topLeft: weightCorner(-1, -1),
+      topRight: weightCorner(1, -1),
+      bottomLeft: weightCorner(-1, 1),
+      bottomRight: weightCorner(1, 1),
+    },
+  };
+}
+
+export interface FlipRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Computes smooth FLIP transform values (top-left origin) when morphing a note card
+ * between 2-column Masonry Grid and Single-Column view with zero frame-0 width snap.
+ */
+export function computeFlipMorphTransform(
+  startRect: FlipRect,
+  targetRect: FlipRect,
+  progress: number
+): { x: number; y: number; scaleX: number; scaleY: number } {
+  const p = Math.max(0, Math.min(1, progress));
+  const rawScaleX =
+    targetRect.width > 0 && startRect.width > 0 ? startRect.width / targetRect.width : 1;
+  const rawScaleY =
+    targetRect.height > 0 && startRect.height > 0 ? startRect.height / targetRect.height : 1;
+  const clampedStartScaleX = Math.max(0.35, Math.min(2.4, rawScaleX));
+  const clampedStartScaleY = Math.max(0.72, Math.min(1.38, rawScaleY));
+
+  return {
+    x: startRect.left + (targetRect.left - startRect.left) * p,
+    y: startRect.top + (targetRect.top - startRect.top) * p,
+    scaleX: clampedStartScaleX + (1 - clampedStartScaleX) * p,
+    scaleY: clampedStartScaleY + (1 - clampedStartScaleY) * p,
+  };
+}
+
+/**
+ * Archives target notes while preserving their `isPinned` flag so restoring them later
+ * keeps the pin intact.
+ */
+export function applyArchivePreservingPin<T extends { id: string; isArchived?: boolean; isPinned: boolean }>(
+  notes: T[],
+  idsToArchive: string[]
+): T[] {
+  const idSet = new Set(idsToArchive);
+  return notes.map((n) => (idSet.has(n.id) ? { ...n, isArchived: true } : n));
+}
+
+/**
+ * Restores archived notes back to the active Notes tab while keeping their preserved `isPinned` flag.
+ */
+export function applyUnarchivePreservingPin<T extends { id: string; isArchived?: boolean; isPinned: boolean }>(
+  notes: T[],
+  idsToRestore: string[]
+): T[] {
+  const idSet = new Set(idsToRestore);
+  return notes.map((n) => (idSet.has(n.id) ? { ...n, isArchived: false } : n));
+}
+

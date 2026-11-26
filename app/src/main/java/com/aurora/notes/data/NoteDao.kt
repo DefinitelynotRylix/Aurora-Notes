@@ -44,10 +44,10 @@ interface NoteDao {
         }
     }
 
-    @Query("UPDATE notes SET isArchived = 1, isPinned = 0, updatedAt = :timestamp WHERE id = :id")
+    @Query("UPDATE notes SET isArchived = 1, updatedAt = :timestamp WHERE id = :id")
     suspend fun archiveNote(id: String, timestamp: Long)
 
-    @Query("UPDATE notes SET isArchived = 1, isPinned = 0, updatedAt = :timestamp WHERE id IN (:ids)")
+    @Query("UPDATE notes SET isArchived = 1, updatedAt = :timestamp WHERE id IN (:ids)")
     suspend fun archiveNotesBatch(ids: List<String>, timestamp: Long)
 
     @Query("UPDATE notes SET isArchived = 0, updatedAt = :timestamp WHERE id = :id")

@@ -517,3 +517,73 @@ test('normalizeLineEndingsWithCursor converts CRLF and CR into single LF with ex
   assert.equal(clean.text, 'Plain\nText');
   assert.equal(clean.cursorOffset, 6);
 });
+
+import {
+  computeDropGlowRipple,
+  computeFlipMorphTransform,
+  applyArchivePreservingPin,
+  applyUnarchivePreservingPin,
+} from './editorRules';
+
+test('computeDropGlowRipple lights dropped card corners and radiates directional glow to nearby notes', () => {
+  const droppedPeak = computeDropGlowRipple(160, 720, true, 0, 0, 500);
+  assert.ok(droppedPeak.intensity > 0.9, 'dropped card should peak brightly on landing');
+  assert.equal(droppedPeak.cornerWeights.topLeft, 1);
+  assert.equal(droppedPeak.cornerWeights.bottomRight, 1);
+
+  const droppedEnd = computeDropGlowRipple(720, 720, true, 0, 0, 500);
+  assert.equal(droppedEnd.intensity, 0);
+
+  // Neighbor directly to the right of the dropped card -> left corners face the dropped card and glow brighter
+  const rightNeighbor = computeDropGlowRipple(220, 720, false, 180, 0, 500);
+  assert.ok(rightNeighbor.intensity > 0.25, 'nearby note should receive sympathetic glow');
+  assert.ok(rightNeighbor.waveOffsetPx > 0, 'nearby note should feel subtle drop energy');
+  assert.ok(rightNeighbor.scaleBoost > 0);
+  assert.ok(
+    rightNeighbor.cornerWeights.topLeft > rightNeighbor.cornerWeights.topRight,
+    'facing corners should glow brighter than far corners'
+  );
+
+  // Far note outside radius receives zero glow
+  const farNote = computeDropGlowRipple(220, 720, false, 650, 0, 500);
+  assert.equal(farNote.intensity, 0);
+  assert.equal(farNote.waveOffsetPx, 0);
+});
+
+test('computeFlipMorphTransform starts at exact prior geometry and settles smoothly to target geometry', () => {
+  const gridRect = { left: 210, top: 0, width: 200, height: 160 };
+  const colRect = { left: 0, top: 174, width: 414, height: 120 };
+
+  const start = computeFlipMorphTransform(gridRect, colRect, 0);
+  assert.equal(start.x, 210);
+  assert.equal(start.y, 0);
+  assert.ok(Math.abs(start.scaleX - 200 / 414) < 0.001, 'frame 0 scaleX matches previous card width');
+
+  const mid = computeFlipMorphTransform(gridRect, colRect, 0.5);
+  assert.ok(mid.x > 0 && mid.x < 210);
+  assert.ok(mid.y > 0 && mid.y < 174);
+  assert.ok(mid.scaleX > start.scaleX && mid.scaleX < 1);
+
+  const end = computeFlipMorphTransform(gridRect, colRect, 1);
+  assert.equal(end.x, 0);
+  assert.equal(end.y, 174);
+  assert.equal(end.scaleX, 1);
+  assert.equal(end.scaleY, 1);
+});
+
+test('archiving a pinned note and restoring it preserves the pin state', () => {
+  const notes = [
+    { id: 'n1', title: 'Pinned Note', isPinned: true, isArchived: false },
+    { id: 'n2', title: 'Regular Note', isPinned: false, isArchived: false },
+  ];
+
+  const archived = applyArchivePreservingPin(notes, ['n1']);
+  assert.equal(archived[0].isArchived, true);
+  assert.equal(archived[0].isPinned, true, 'pin state should be retained while archived');
+  assert.equal(archived[1].isArchived, false);
+
+  const restored = applyUnarchivePreservingPin(archived, ['n1']);
+  assert.equal(restored[0].isArchived, false);
+  assert.equal(restored[0].isPinned, true, 'restored note must keep its pin active');
+});
+
