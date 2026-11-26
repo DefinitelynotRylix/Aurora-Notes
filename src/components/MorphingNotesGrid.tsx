@@ -54,6 +54,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const glowOverlayRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const glowRingRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const [measureVersion, setMeasureVersion] = useState<number>(0);
   const [isDragActive, setIsDragActive] = useState<boolean>(false);
@@ -145,61 +146,75 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
 
   const clearAllGlowOverlays = () => {
     const overlays = glowOverlayRefs.current;
+    const rings = glowRingRefs.current;
     for (const id of Object.keys(overlays)) {
       const overlay = overlays[id];
-      if (!overlay) continue;
-      overlay.style.opacity = '0';
-      overlay.style.background = 'none';
-      overlay.style.boxShadow = 'none';
-      overlay.dataset.glowIntensity = '0';
+      if (overlay) {
+        overlay.style.opacity = '0';
+        overlay.style.boxShadow = 'none';
+        overlay.style.filter = 'none';
+        overlay.dataset.glowIntensity = '0';
+      }
+      const ring = rings[id];
+      if (ring) {
+        ring.style.background = 'none';
+      }
     }
   };
 
-  const applyCornerGlowToOverlay = (
+  /**
+   * Renders a crisp luminous outline glow strictly along the card's rounded border
+   * (zero interior corner circles). For nearby cards, a radial light field centered at
+   * the released card illuminates the exact facing outline edges and corners.
+   */
+  const applyOutlineGlowToOverlay = (
     id: string,
     sample: DropGlowRippleSample,
-    isDroppedCard: boolean
+    isDroppedCard: boolean,
+    target: RectBox,
+    droppedCx: number,
+    droppedCy: number
   ) => {
     const overlay = glowOverlayRefs.current[id];
-    if (!overlay) return;
+    const ring = glowRingRefs.current[id];
+    if (!overlay || !ring) return;
     if (sample.intensity <= 0.01) {
       overlay.style.opacity = '0';
-      overlay.style.background = 'none';
       overlay.style.boxShadow = 'none';
+      overlay.style.filter = 'none';
       overlay.dataset.glowIntensity = '0';
+      ring.style.background = 'none';
       return;
     }
 
     const a = sample.intensity;
-    const cornerAlpha = isDroppedCard ? 0.68 : 0.56;
-    const midAlpha = isDroppedCard ? 0.28 : 0.22;
-    const tl = (a * sample.cornerWeights.topLeft * cornerAlpha).toFixed(3);
-    const tr = (a * sample.cornerWeights.topRight * cornerAlpha).toFixed(3);
-    const bl = (a * sample.cornerWeights.bottomLeft * cornerAlpha).toFixed(3);
-    const br = (a * sample.cornerWeights.bottomRight * cornerAlpha).toFixed(3);
-
-    const tlMid = (a * sample.cornerWeights.topLeft * midAlpha).toFixed(3);
-    const trMid = (a * sample.cornerWeights.topRight * midAlpha).toFixed(3);
-    const blMid = (a * sample.cornerWeights.bottomLeft * midAlpha).toFixed(3);
-    const brMid = (a * sample.cornerWeights.bottomRight * midAlpha).toFixed(3);
-
-    const rx = isDroppedCard ? '108px' : '92px';
-    const ry = isDroppedCard ? '76px' : '64px';
     overlay.style.opacity = '1';
     overlay.dataset.glowIntensity = a.toFixed(3);
-    overlay.style.background = [
-      `radial-gradient(${rx} ${ry} at 0% 0%, rgba(233, 213, 255, ${tl}) 0%, rgba(139, 92, 246, ${tlMid}) 38%, rgba(139, 92, 246, 0) 74%)`,
-      `radial-gradient(${rx} ${ry} at 100% 0%, rgba(233, 213, 255, ${tr}) 0%, rgba(139, 92, 246, ${trMid}) 38%, rgba(139, 92, 246, 0) 74%)`,
-      `radial-gradient(${rx} ${ry} at 0% 100%, rgba(233, 213, 255, ${bl}) 0%, rgba(139, 92, 246, ${blMid}) 38%, rgba(139, 92, 246, 0) 74%)`,
-      `radial-gradient(${rx} ${ry} at 100% 100%, rgba(233, 213, 255, ${br}) 0%, rgba(139, 92, 246, ${brMid}) 38%, rgba(139, 92, 246, 0) 74%)`,
-    ].join(', ');
 
-    const outerBlur = (isDroppedCard ? 26 : 16) * a;
-    const outerSpread = (isDroppedCard ? 2.5 : 1.0) * a;
-    const ringAlpha = (a * (isDroppedCard ? 0.85 : 0.48)).toFixed(3);
-    const haloAlpha = (a * (isDroppedCard ? 0.50 : 0.28)).toFixed(3);
-    const insetAlpha = (a * (isDroppedCard ? 0.36 : 0.22)).toFixed(3);
-    overlay.style.boxShadow = `0 0 ${outerBlur.toFixed(1)}px ${outerSpread.toFixed(1)}px rgba(139, 92, 246, ${haloAlpha}), inset 0 0 0 1.5px rgba(216, 180, 254, ${ringAlpha}), inset 0 0 ${(12 * a).toFixed(1)}px rgba(196, 181, 253, ${insetAlpha})`;
+    if (isDroppedCard) {
+      const bright = (a * 0.98).toFixed(3);
+      const mid = (a * 0.86).toFixed(3);
+      ring.style.background = `linear-gradient(135deg, rgba(233, 213, 255, ${bright}) 0%, rgba(167, 139, 250, ${mid}) 50%, rgba(233, 213, 255, ${bright}) 100%)`;
+      overlay.style.filter = `drop-shadow(0 0 ${(11 * a).toFixed(1)}px rgba(167, 139, 250, ${(0.85 * a).toFixed(3)}))`;
+      overlay.style.boxShadow = `0 0 ${(22 * a).toFixed(1)}px ${(1.5 * a).toFixed(1)}px rgba(139, 92, 246, ${(0.42 * a).toFixed(3)})`;
+    } else {
+      // Position light source at the released note's center relative to this card's outline
+      const relX = droppedCx - target.left;
+      const relY = droppedCy - target.top;
+      const nearX = Math.max(0, Math.min(target.width, relX));
+      const nearY = Math.max(0, Math.min(target.height, relY));
+      const distToEdge = Math.hypot(relX - nearX, relY - nearY);
+      const spread = Math.max(220, Math.min(target.width, target.height) * 1.65);
+
+      const stop0 = Math.max(0, distToEdge - 10).toFixed(1);
+      const stop1 = (distToEdge + spread * 0.42).toFixed(1);
+      const stop2 = (distToEdge + spread * 0.78).toFixed(1);
+      const stop3 = (distToEdge + spread).toFixed(1);
+
+      ring.style.background = `radial-gradient(circle at ${relX.toFixed(1)}px ${relY.toFixed(1)}px, rgba(233, 213, 255, ${(a * 0.98).toFixed(3)}) ${stop0}px, rgba(167, 139, 250, ${(a * 0.82).toFixed(3)}) ${stop1}px, rgba(139, 92, 246, ${(a * 0.28).toFixed(3)}) ${stop2}px, rgba(139, 92, 246, 0) ${stop3}px)`;
+      overlay.style.filter = `drop-shadow(0 0 ${(9 * a).toFixed(1)}px rgba(167, 139, 250, ${(0.75 * a).toFixed(3)}))`;
+      overlay.style.boxShadow = 'none';
+    }
   };
 
   // Compute slot layout for a given order & view mode using cached card heights
@@ -665,7 +680,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
               cornerWeights: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
             };
 
-        applyCornerGlowToOverlay(id, glowSample, isDropped);
+        applyOutlineGlowToOverlay(id, glowSample, isDropped, target, droppedCx, droppedCy);
 
         if (isDropped) {
           // Smooth cushioned touchdown from elevated drag scale to 1.0
@@ -798,10 +813,10 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
       liveOrderRef.current = restoreOrder;
       runDropAndGlowAnimation(activeId, restoreOrder, releaseRot, startPositions, true);
     } else {
-      // Held and released without dragging: ALWAYS keep selected & smoothly ease elevation back down
+      // Held and released without dragging: keep selected, ease elevation down, and ripple outline glow
       const stayOrder = [...liveOrderRef.current];
       const startPositions = captureStartPositions(stayOrder);
-      runDropAndGlowAnimation(activeId, stayOrder, releaseRot, startPositions, false);
+      runDropAndGlowAnimation(activeId, stayOrder, releaseRot, startPositions, !cancelled);
       if (!cancelled) {
         callbacksRef.current.onReleaseHoldWithoutDrag?.(activeId);
       }
@@ -1098,9 +1113,23 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
               data-drop-glow-overlay={id}
               data-glow-intensity="0"
               aria-hidden="true"
-              className="pointer-events-none absolute -inset-[2px] rounded-xl sm:rounded-2xl z-20"
+              className="pointer-events-none absolute -inset-[1px] rounded-xl sm:rounded-2xl z-20"
               style={{ opacity: 0 }}
-            />
+            >
+              <div
+                ref={(el) => {
+                  glowRingRefs.current[id] = el;
+                }}
+                className="absolute inset-0 rounded-[inherit]"
+                style={{
+                  padding: '2px',
+                  WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                  WebkitMaskComposite: 'xor',
+                  mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                  maskComposite: 'exclude',
+                }}
+              />
+            </div>
           </div>
         );
       })}

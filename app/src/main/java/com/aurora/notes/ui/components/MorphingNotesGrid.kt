@@ -517,14 +517,14 @@ fun MorphingNotesGrid(
                         )
                     }
                     else -> {
-                        // Released without dragging: keep note selected and smoothly lower elevation
+                        // Released without dragging: keep note selected, ease elevation down, and ripple outline glow
                         launchSmoothDrop(
                             droppedId = hitId,
                             targetOrder = liveOrderIds.toList(),
                             releaseX = releaseX,
                             releaseY = releaseY,
                             releaseRot = releaseRot,
-                            withCornerGlow = false
+                            withCornerGlow = !wasCancelled
                         )
                         if (!wasCancelled) {
                             currentOnReleaseWithoutDrag?.invoke(hitId)
@@ -543,9 +543,11 @@ fun MorphingNotesGrid(
     }
 
     val cornerRadiusPx = with(density) { 16.dp.toPx() }
-    val glowBorderStrokePx = with(density) { 1.75.dp.toPx() }
+    val coreOutlineStrokePx = with(density) { 2.dp.toPx() }
+    val midOutlineStrokePx = with(density) { 4.5.dp.toPx() }
+    val outerOutlineStrokePx = with(density) { 8.dp.toPx() }
     val minGlowRadiusPx = with(density) { 340.dp.toPx() }
-    val maxCornerBloomPx = with(density) { 80.dp.toPx() }
+    val minOutlineSpreadPx = with(density) { 210.dp.toPx() }
 
     val cornerGlowDrawModifier = Modifier.drawWithContent {
         drawContent()
@@ -556,7 +558,9 @@ fun MorphingNotesGrid(
         val originRect = cardBoundsMap[originId] ?: return@drawWithContent
         val originCx = originRect.center.x
         val originCy = originRect.center.y
+        val originCenter = Offset(originCx, originCy)
         val maxRadius = max(size.width * 1.15f, minGlowRadiusPx)
+        val cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx)
 
         for ((id, rect) in cardBoundsMap) {
             if (rect.width <= 0f || rect.height <= 0f) continue
@@ -571,41 +575,75 @@ fun MorphingNotesGrid(
             if (sample.intensity <= 0.01f) continue
 
             val a = sample.intensity
-            val cornerBloomRadius = (min(rect.width, rect.height) * if (isDropped) 0.48f else 0.40f)
-                .coerceIn(36f, maxCornerBloomPx)
-            val cornerBoost = if (isDropped) 0.72f else 0.58f
+            val topLeft = Offset(rect.left, rect.top)
+            val cardSize = Size(rect.width, rect.height)
 
-            val corners = arrayOf(
-                Triple(Offset(rect.left, rect.top), sample.tl, cornerBloomRadius),
-                Triple(Offset(rect.right, rect.top), sample.tr, cornerBloomRadius),
-                Triple(Offset(rect.left, rect.bottom), sample.bl, cornerBloomRadius),
-                Triple(Offset(rect.right, rect.bottom), sample.br, cornerBloomRadius)
-            )
+            if (isDropped) {
+                // Soft outer luminous outline bloom + crisp glowing perimeter stroke (no interior circles)
+                drawRoundRect(
+                    color = AuroraGlowMid.copy(alpha = (a * 0.28f).coerceIn(0f, 1f)),
+                    topLeft = topLeft,
+                    size = cardSize,
+                    cornerRadius = cornerRadius,
+                    style = Stroke(width = outerOutlineStrokePx)
+                )
+                drawRoundRect(
+                    color = AuroraGlowMid.copy(alpha = (a * 0.54f).coerceIn(0f, 1f)),
+                    topLeft = topLeft,
+                    size = cardSize,
+                    cornerRadius = cornerRadius,
+                    style = Stroke(width = midOutlineStrokePx)
+                )
+                drawRoundRect(
+                    color = AuroraGlowCore.copy(alpha = (a * 0.95f).coerceIn(0f, 1f)),
+                    topLeft = topLeft,
+                    size = cardSize,
+                    cornerRadius = cornerRadius,
+                    style = Stroke(width = coreOutlineStrokePx)
+                )
+            } else {
+                // Directional outline illumination: radial light field centered at the released note
+                // lights up only the facing outline edges & corners of nearby notes
+                val nearX = originCx.coerceIn(rect.left, rect.right)
+                val nearY = originCy.coerceIn(rect.top, rect.bottom)
+                val distToEdge = hypot(originCx - nearX, originCy - nearY)
+                val spread = max(minOutlineSpreadPx, min(rect.width, rect.height) * 1.65f)
+                val totalR = max(1f, distToEdge + spread)
+                val s0 = ((distToEdge - 10f) / totalR).coerceIn(0f, 0.95f)
+                val s1 = ((distToEdge + spread * 0.42f) / totalR).coerceIn(s0 + 0.01f, 0.97f)
+                val s2 = ((distToEdge + spread * 0.78f) / totalR).coerceIn(s1 + 0.01f, 0.99f)
 
-            for ((center, weight, radius) in corners) {
-                val peakAlpha = (a * weight * cornerBoost).coerceIn(0f, 1f)
-                if (peakAlpha <= 0.01f) continue
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0.0f to AuroraGlowCore.copy(alpha = peakAlpha),
-                        0.38f to AuroraGlowMid.copy(alpha = peakAlpha * 0.48f),
-                        1.0f to Color.Transparent,
-                        center = center,
-                        radius = radius
-                    ),
-                    radius = radius,
-                    center = center
+                val haloBrush = Brush.radialGradient(
+                    s0 to AuroraGlowMid.copy(alpha = (a * 0.46f).coerceIn(0f, 1f)),
+                    s1 to AuroraGlowMid.copy(alpha = (a * 0.26f).coerceIn(0f, 1f)),
+                    1.0f to Color.Transparent,
+                    center = originCenter,
+                    radius = totalR
+                )
+                drawRoundRect(
+                    brush = haloBrush,
+                    topLeft = topLeft,
+                    size = cardSize,
+                    cornerRadius = cornerRadius,
+                    style = Stroke(width = midOutlineStrokePx)
+                )
+
+                val coreBrush = Brush.radialGradient(
+                    s0 to AuroraGlowCore.copy(alpha = (a * 0.96f).coerceIn(0f, 1f)),
+                    s1 to AuroraGlowMid.copy(alpha = (a * 0.78f).coerceIn(0f, 1f)),
+                    s2 to AuroraGlowMid.copy(alpha = (a * 0.26f).coerceIn(0f, 1f)),
+                    1.0f to Color.Transparent,
+                    center = originCenter,
+                    radius = totalR
+                )
+                drawRoundRect(
+                    brush = coreBrush,
+                    topLeft = topLeft,
+                    size = cardSize,
+                    cornerRadius = cornerRadius,
+                    style = Stroke(width = coreOutlineStrokePx)
                 )
             }
-
-            // Crisp luminous rounded-corner rim around the card
-            drawRoundRect(
-                color = AuroraGlowCore.copy(alpha = (a * if (isDropped) 0.78f else 0.44f).coerceIn(0f, 1f)),
-                topLeft = Offset(rect.left, rect.top),
-                size = Size(rect.width, rect.height),
-                cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx),
-                style = Stroke(width = glowBorderStrokePx)
-            )
         }
     }
 
