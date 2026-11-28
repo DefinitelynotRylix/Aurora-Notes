@@ -408,10 +408,11 @@ fun AuroraApp(
         var lastRevealedTab by remember { mutableIntStateOf(mountedTab) }
 
         LaunchedEffect(renderedTab, mountedTab) {
-            if (renderedTab == null) {
+            val visibleTab = renderedTab
+            if (visibleTab == null) {
                 tabRevealAlpha.snapTo(0f)
-            } else if (renderedTab != lastRevealedTab) {
-                lastRevealedTab = renderedTab
+            } else if (visibleTab != lastRevealedTab) {
+                lastRevealedTab = visibleTab
                 tabRevealAlpha.snapTo(0f)
                 tabRevealAlpha.animateTo(
                     targetValue = 1f,
