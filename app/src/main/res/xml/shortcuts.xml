@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="create_note"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_create_note"
+        android:shortcutShortLabel="@string/shortcut_create_note_short"
+        android:shortcutLongLabel="@string/shortcut_create_note_long">
+        <intent
+            android:action="com.aurora.notes.action.CREATE_NOTE"
+            android:targetPackage="com.aurora.notes"
+            android:targetClass="com.aurora.notes.MainActivity" />
+    </shortcut>
+</shortcuts>

@@ -625,5 +625,64 @@ test('resolveFirstSelectedNoteForShare exports strictly the firstly selected not
   assert.deepEqual(resolveFirstSelectedNoteForShare(notes, []), []);
 });
 
+import {
+  extractBoundedCardPreview,
+  parseMarkdownToNoteDraft,
+  parseAppLaunchAction,
+} from './editorRules';
 
+test('extractBoundedCardPreview truncates 35K+ character notes fast and keeps card DOM lightweight', () => {
+  const hugeContent = `<div>First line with https://aurora.dev link</div><div>${'Lorem ipsum dolor sit amet '.repeat(1400)}</div>`;
+  assert.ok(hugeContent.length > 35000, 'test payload should exceed 35K chars');
 
+  const t0 = performance.now();
+  const preview = extractBoundedCardPreview(hugeContent, 240, 4);
+  const elapsedMs = performance.now() - t0;
+
+  assert.ok(elapsedMs < 25, `expected fast preview extraction (<25ms), took ${elapsedMs.toFixed(2)}ms`);
+  assert.ok(preview.length <= 245, `preview length (${preview.length}) must stay tightly bounded`);
+  assert.ok(preview.includes('https://aurora.dev'), 'leading link should remain intact');
+  assert.ok(preview.endsWith('…'), 'truncated preview should end with ellipsis');
+  assert.ok(!preview.includes('<div>'), 'HTML tags must be stripped');
+});
+
+test('parseMarkdownToNoteDraft parses Aurora-exported and generic .md files accurately', () => {
+  const auroraExport = [
+    '# Project Roadmap',
+    '',
+    '> **Category:** Work | **Tags:** #release #android | **Updated:** 2026-11-28 09:00',
+    '',
+    'First paragraph of notes.',
+    '- [ ] Ship zero-lag grid morph',
+    '- [x] Add home screen shortcut',
+    '- Plain bullet item',
+    '',
+    '### Checklist',
+    '- [ ] Verify file manager open-with',
+    '- [x] Run unit tests',
+  ].join('\r\n');
+
+  const parsed = parseMarkdownToNoteDraft(auroraExport, 'Project_Roadmap.md');
+  assert.equal(parsed.title, 'Project Roadmap');
+  assert.equal(parsed.category, 'Work');
+  assert.deepEqual(parsed.tags, ['release', 'android']);
+  assert.ok(parsed.content.includes('☐ Ship zero-lag grid morph'));
+  assert.ok(parsed.content.includes('☑ Add home screen shortcut'));
+  assert.ok(parsed.content.includes('• Plain bullet item'));
+  assert.ok(!parsed.content.includes('**Updated:**'), 'export metadata header should not leak into body');
+  assert.equal(parsed.checklist.length, 2);
+  assert.equal(parsed.checklist[0].completed, false);
+  assert.equal(parsed.checklist[1].completed, true);
+
+  // Generic external .md without H1 falls back to cleaned filename
+  const generic = parseMarkdownToNoteDraft('Just some raw markdown text\n- Item A', 'Meeting_Notes_2026.md');
+  assert.equal(generic.title, 'Meeting Notes 2026');
+  assert.equal(generic.content, 'Just some raw markdown text\n• Item A');
+});
+
+test('parseAppLaunchAction recognizes create_note shortcut deep link', () => {
+  assert.equal(parseAppLaunchAction('?action=create_note'), 'create_note');
+  assert.equal(parseAppLaunchAction('?action=new_note'), 'create_note');
+  assert.equal(parseAppLaunchAction('?foo=bar'), null);
+  assert.equal(parseAppLaunchAction(''), null);
+});

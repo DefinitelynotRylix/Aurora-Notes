@@ -2,11 +2,13 @@ package com.aurora.notes.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aurora.notes.data.AuroraDatabase
 import com.aurora.notes.data.AuroraRepository
 import com.aurora.notes.model.Note
+import com.aurora.notes.util.MarkdownNoteParser
 import com.aurora.notes.util.PrivateStorageManager
 import com.aurora.notes.util.PrivateStorageStats
 import com.aurora.notes.util.StorageCleanupReport
@@ -104,6 +106,13 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _lastCleanupSummary = MutableStateFlow<String?>(null)
     val lastCleanupSummary: StateFlow<String?> = _lastCleanupSummary.asStateFlow()
+
+    private sealed class PendingLaunchAction {
+        data object CreateNote : PendingLaunchAction()
+        data class OpenMarkdownUri(val uri: Uri, val onResult: (Boolean, String) -> Unit) : PendingLaunchAction()
+    }
+
+    private var pendingLaunchAction: PendingLaunchAction? = null
 
     init {
         prefs.edit().putBoolean(KEY_DB_ENCRYPTION_ENABLED, true).apply()
@@ -265,6 +274,79 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             tags = initialTags,
             category = if (activeTag != "All") activeTag else ""
         )
+    }
+
+    /**
+     * Triggered when the user taps "Create Note" from the Android Home Screen app icon long-press menu.
+     * Instantly switches to Notes and opens a fresh blank note (or queues until unlocked if Biometric Lock is on).
+     */
+    fun requestCreateNoteFromShortcut() {
+        if (_isAppLocked.value) {
+            pendingLaunchAction = PendingLaunchAction.CreateNote
+            return
+        }
+        executeCreateNoteFromShortcut()
+    }
+
+    private fun executeCreateNoteFromShortcut() {
+        _isWelcomeOpen.value = false
+        _isWhatsNewOpen.value = false
+        setSelectedTab(0)
+        _activeEditingNote.value = Note(
+            title = "",
+            content = "",
+            tags = emptyList(),
+            category = ""
+        )
+    }
+
+    /**
+     * Triggered when the user opens a `.md` file with Aurora Notes from an Android File Manager.
+     * Parses, saves, and immediately opens the imported note in the editor (or queues until unlocked).
+     */
+    fun requestOpenMarkdownUri(uri: Uri, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        if (_isAppLocked.value) {
+            pendingLaunchAction = PendingLaunchAction.OpenMarkdownUri(uri, onResult)
+            return
+        }
+        importAndOpenMarkdownUri(uri, onResult)
+    }
+
+    private fun importAndOpenMarkdownUri(uri: Uri, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val importedNote = withContext(Dispatchers.IO) {
+                val parsed = MarkdownNoteParser.readNoteFromUri(getApplication(), uri) ?: return@withContext null
+                repository.saveNote(parsed)
+                _storageStats.value = repository.getStorageStats()
+                parsed
+            }
+
+            if (importedNote == null) {
+                onResult(false, "Could not open Markdown file.")
+                return@launch
+            }
+
+            if (importedNote.tags.isNotEmpty()) {
+                val current = _userTags.value.toMutableList()
+                var changed = false
+                importedNote.tags.forEach { tag ->
+                    val clean = tag.trim().removePrefix("#")
+                    if (clean.isNotBlank() && current.none { it.equals(clean, ignoreCase = true) }) {
+                        current.add(clean)
+                        changed = true
+                    }
+                }
+                if (changed) {
+                    persistUserTags(current)
+                }
+            }
+
+            _isWelcomeOpen.value = false
+            _isWhatsNewOpen.value = false
+            setSelectedTab(0)
+            _activeEditingNote.value = importedNote
+            onResult(true, "Opened \"${importedNote.title}\" in Aurora Notes")
+        }
     }
 
     fun openEditNote(note: Note) {
@@ -546,6 +628,13 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
     fun unlockApp() {
         _isAppLocked.value = false
+        val queued = pendingLaunchAction
+        pendingLaunchAction = null
+        when (queued) {
+            is PendingLaunchAction.CreateNote -> executeCreateNoteFromShortcut()
+            is PendingLaunchAction.OpenMarkdownUri -> importAndOpenMarkdownUri(queued.uri, queued.onResult)
+            null -> Unit
+        }
     }
 
     fun lockApp() {

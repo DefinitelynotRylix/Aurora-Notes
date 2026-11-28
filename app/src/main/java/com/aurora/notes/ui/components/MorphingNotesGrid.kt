@@ -41,12 +41,14 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.hypot
@@ -149,6 +151,8 @@ fun MorphingNotesGrid(
     onHoldNote: ((String) -> Unit)? = null,
     onReleaseHoldWithoutDrag: ((String) -> Unit)? = null,
     onReorderNotes: ((List<String>) -> Unit)? = null,
+    selectedTabFlow: StateFlow<Int>? = null,
+    tabIndex: Int = -1,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -156,6 +160,8 @@ fun MorphingNotesGrid(
     val coroutineScope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val viewportSpanPx = max(with(density) { configuration.screenHeightDp.dp.toPx() }, 1200f)
 
     val currentItemIds by rememberUpdatedState(itemIds)
     val currentLockedItemIds by rememberUpdatedState(lockedItemIds)
@@ -193,19 +199,26 @@ fun MorphingNotesGrid(
     var morphStartLayoutHeight by remember { mutableIntStateOf(0) }
     var previousCount by remember { mutableIntStateOf(-1) }
 
-    // Capture old full card bounds BEFORE Layout measures at the new mode so Frame 0 has ZERO snap
+    // Capture old full card bounds BEFORE Layout measures at the new mode so Frame 0 has ZERO snap.
+    // Skip morph animations on hidden preloaded tabs so toggling Grid <-> Column never animates invisible screens.
     if (isGridView != lastGridViewMode) {
+        val isTabCurrentlyVisible = selectedTabFlow == null || tabIndex < 0 || selectedTabFlow.value == tabIndex
         morphStartRectMap.clear()
-        for ((id, rect) in cardBoundsMap) {
-            if (rect.width > 0f && rect.height > 0f) {
-                morphStartRectMap[id] = rect
+        if (isTabCurrentlyVisible) {
+            for ((id, rect) in cardBoundsMap) {
+                if (rect.width > 0f && rect.height > 0f) {
+                    morphStartRectMap[id] = rect
+                }
             }
         }
         morphStartLayoutHeight = previousLayoutHeight
         lastGridViewMode = isGridView
-        if (morphStartRectMap.isNotEmpty()) {
+        if (isTabCurrentlyVisible && morphStartRectMap.isNotEmpty()) {
             morphActive = true
             morphNeedsSnap = true
+        } else {
+            morphActive = false
+            morphNeedsSnap = false
         }
     }
 
@@ -234,7 +247,7 @@ fun MorphingNotesGrid(
         }
     }
 
-    // Run true FLIP morph animation whenever Grid <-> Column toggles
+    // Run true FLIP morph animation whenever Grid <-> Column toggles (cancels cleanly on rapid taps)
     LaunchedEffect(isGridView) {
         if (morphActive) {
             morphAnim.snapTo(0f)
@@ -242,7 +255,7 @@ fun MorphingNotesGrid(
             morphAnim.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(
-                    durationMillis = 340,
+                    durationMillis = 280,
                     easing = SmoothDecelEasing
                 )
             )
@@ -335,7 +348,7 @@ fun MorphingNotesGrid(
     }
 
     val dragGestureModifier = if (itemIds.isNotEmpty() && (onHoldNote != null || onReorderNotes != null)) {
-        Modifier.pointerInput(itemIds.size, isGridView) {
+        Modifier.pointerInput(itemIds.size) {
             val hitPadPx = 6.dp.toPx()
             val dragMoveSlopPx = 16.dp.toPx()
 
@@ -924,32 +937,50 @@ fun MorphingNotesGrid(
                         }
                         isMorphRunning -> {
                             val startRect = morphStartRectMap[id]
-                            val startScaleX = if (startRect != null && targetItemWidth > 0) {
-                                (startRect.width / targetItemWidth.toFloat()).coerceIn(0.35f, 2.4f)
+                            val scrollTop = scrollState.value.toFloat()
+                            val visMinY = scrollTop - viewportSpanPx * 0.75f
+                            val visMaxY = scrollTop + viewportSpanPx * 1.75f
+                            val intersectsStart = startRect != null &&
+                                startRect.bottom >= visMinY && startRect.top <= visMaxY
+                            val intersectsTarget = (ty + itemH) >= visMinY && ty <= visMaxY
+
+                            if (intersectsStart || intersectsTarget) {
+                                val startScaleX = if (startRect != null && targetItemWidth > 0) {
+                                    (startRect.width / targetItemWidth.toFloat()).coerceIn(0.35f, 2.4f)
+                                } else {
+                                    1f
+                                }
+                                val startScaleY = if (startRect != null && itemH > 0) {
+                                    (startRect.height / itemH.toFloat()).coerceIn(0.72f, 1.38f)
+                                } else {
+                                    1f
+                                }
+                                val curScaleX = startScaleX + (1f - startScaleX) * morphP
+                                val curScaleY = startScaleY + (1f - startScaleY) * morphP
+                                cardBoundsMap[id] = Rect(
+                                    left = drawXf,
+                                    top = drawYf,
+                                    right = drawXf + targetItemWidth * curScaleX,
+                                    bottom = drawYf + itemH * curScaleY
+                                )
+                                placeable.placeRelativeWithLayer(
+                                    x = finalDrawX,
+                                    y = finalDrawY,
+                                    zIndex = (effectiveOrderIds.size - slotIdx).toFloat() * 0.01f
+                                ) {
+                                    transformOrigin = TransformOrigin(0f, 0f)
+                                    scaleX = curScaleX
+                                    scaleY = curScaleY
+                                }
                             } else {
-                                1f
-                            }
-                            val startScaleY = if (startRect != null && itemH > 0) {
-                                (startRect.height / itemH.toFloat()).coerceIn(0.72f, 1.38f)
-                            } else {
-                                1f
-                            }
-                            val curScaleX = startScaleX + (1f - startScaleX) * morphP
-                            val curScaleY = startScaleY + (1f - startScaleY) * morphP
-                            cardBoundsMap[id] = Rect(
-                                left = drawXf,
-                                top = drawYf,
-                                right = drawXf + targetItemWidth * curScaleX,
-                                bottom = drawYf + itemH * curScaleY
-                            )
-                            placeable.placeRelativeWithLayer(
-                                x = finalDrawX,
-                                y = finalDrawY,
-                                zIndex = (effectiveOrderIds.size - slotIdx).toFloat() * 0.01f
-                            ) {
-                                transformOrigin = TransformOrigin(0f, 0f)
-                                scaleX = curScaleX
-                                scaleY = curScaleY
+                                // Far offscreen card: place directly at target slot with zero GPU layer overhead
+                                cardBoundsMap[id] = Rect(
+                                    left = tx,
+                                    top = ty,
+                                    right = tx + targetItemWidth.toFloat(),
+                                    bottom = ty + itemH.toFloat()
+                                )
+                                placeable.placeRelative(tx.roundToInt(), ty.roundToInt())
                             }
                         }
                         activeDragId != null -> {

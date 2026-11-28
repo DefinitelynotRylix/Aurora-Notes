@@ -83,6 +83,10 @@ import com.aurora.notes.viewmodel.NotesViewModel
 
 class MainActivity : FragmentActivity() {
 
+    companion object {
+        const val ACTION_CREATE_NOTE = "com.aurora.notes.action.CREATE_NOTE"
+    }
+
     private val viewModel: NotesViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -90,15 +94,7 @@ class MainActivity : FragmentActivity() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             window.decorView.isForceDarkAllowed = false
         }
-        if (intent?.getBooleanExtra("extra_updated_restarted", false) == true) {
-            intent?.removeExtra("extra_updated_restarted")
-            viewModel.onAppUpdatedRestart()
-            Toast.makeText(
-                this,
-                "Aurora Notes updated & restarted (v${BuildConfig.VERSION_NAME})",
-                Toast.LENGTH_LONG
-            ).show()
-        }
+        handleIncomingIntent(intent)
         setContent {
             val themeMode by viewModel.themeMode.collectAsState()
             val systemDark = isSystemInDarkTheme()
@@ -115,6 +111,43 @@ class MainActivity : FragmentActivity() {
                         showBiometricPrompt(this, onSuccess, onError)
                     }
                 )
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(incoming: Intent?) {
+        if (incoming == null) return
+
+        if (incoming.getBooleanExtra("extra_updated_restarted", false)) {
+            incoming.removeExtra("extra_updated_restarted")
+            viewModel.onAppUpdatedRestart()
+            Toast.makeText(
+                this,
+                "Aurora Notes updated & restarted (v${BuildConfig.VERSION_NAME})",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
+        when (incoming.action) {
+            ACTION_CREATE_NOTE -> {
+                incoming.action = null
+                viewModel.requestCreateNoteFromShortcut()
+            }
+            Intent.ACTION_VIEW, Intent.ACTION_EDIT -> {
+                val fileUri = incoming.data
+                if (fileUri != null) {
+                    incoming.action = null
+                    incoming.data = null
+                    viewModel.requestOpenMarkdownUri(fileUri) { _, message ->
+                        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
     }
@@ -508,7 +541,8 @@ fun AuroraApp(
                             onToggleGridView = { viewModel.toggleGridView() },
                             onRestoreNote = { viewModel.restoreFromTrash(it) },
                             onDeletePermanently = { viewModel.deletePermanently(it) },
-                            onEmptyTrash = { viewModel.emptyTrash() }
+                            onEmptyTrash = { viewModel.emptyTrash() },
+                            selectedTabFlow = viewModel.selectedTab
                         )
                     },
                     tab3 = {

@@ -1194,5 +1194,222 @@ export function resolveFirstSelectedNoteForShare<T extends { id: string }>(
   return [];
 }
 
+/**
+ * Extracts a compact, bounded plain-text preview for note cards without running regexes,
+ * DOM parsing, or text shaping across 30,000+ character notes.
+ * Slices a bounded head window first so Grid <-> Column view morphing stays O(1) per card.
+ */
+export function extractBoundedCardPreview(
+  rawContent: string,
+  maxChars: number = 280,
+  maxLines: number = 5
+): string {
+  if (!rawContent) return '';
+  const safeMaxChars = Math.max(40, maxChars);
+  const safeMaxLines = Math.max(1, maxLines);
+
+  // Fast bounded head slice: skip scanning megabytes of text when cards only show ~3 lines.
+  const scanBudget = Math.max(2048, safeMaxChars * 8);
+  const head = rawContent.length > scanBudget ? rawContent.slice(0, scanBudget) : rawContent;
+
+  const cleaned = head
+    .replace(/\[\[AURORA_IMG:[^\]]+\]\]/g, '')
+    .replace(/<img\b[^>]*>/gi, '')
+    .replace(/<div[^>]*class="[^"]*aurora-checklist-line[^"]*"[^>]*data-checklist="true"[^>]*>[\s\S]*?<\/div>/gi, '')
+    .replace(/<span[^>]*class="[^"]*aurora-line-bullet[^"]*"[^>]*>[\s\S]*?<\/span>/gi, '• ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(div|p|li|h1|h2|h3|h4|h5|h6|blockquote)>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\u200B/g, '');
+
+  const lines: string[] = [];
+  let charTotal = 0;
+  let truncated = rawContent.length > scanBudget;
+
+  const rawLines = cleaned.split(/\r?\n/);
+  for (let i = 0; i < rawLines.length; i++) {
+    const trimmedEnd = rawLines[i].trimEnd();
+    const trimmed = trimmedEnd.trim();
+    if (!trimmed || trimmed === '•') continue;
+
+    if (lines.length >= safeMaxLines) {
+      truncated = true;
+      break;
+    }
+
+    const remaining = safeMaxChars - charTotal - (lines.length > 0 ? 1 : 0);
+    if (remaining <= 0) {
+      truncated = true;
+      break;
+    }
+
+    if (trimmedEnd.length > remaining) {
+      lines.push(trimmedEnd.slice(0, remaining).trimEnd());
+      truncated = true;
+      break;
+    }
+
+    lines.push(trimmedEnd);
+    charTotal += trimmedEnd.length + (lines.length > 1 ? 1 : 0);
+  }
+
+  const joined = lines.join('\n').trim();
+  if (!joined) return '';
+  if (truncated && !joined.endsWith('…')) {
+    return `${joined}…`;
+  }
+  return joined;
+}
+
+export interface ParsedMarkdownNoteDraft {
+  title: string;
+  content: string;
+  tags: string[];
+  category: string;
+  checklist: Array<{ id: string; text: string; completed: boolean }>;
+}
+
+/**
+ * Parses an imported `.md` file (including Aurora Notes' own Markdown exports and generic `.md` files)
+ * into a structured note draft ready to open directly inside Aurora Notes.
+ */
+export function parseMarkdownToNoteDraft(
+  rawMarkdown: string,
+  fallbackFileName?: string
+): ParsedMarkdownNoteDraft {
+  const normalized = (rawMarkdown || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = normalized.split('\n');
+
+  let title = '';
+  let category = '';
+  const tags: string[] = [];
+  const checklist: Array<{ id: string; text: string; completed: boolean }> = [];
+  const bodyLines: string[] = [];
+
+  let cursor = 0;
+  while (cursor < lines.length && lines[cursor].trim() === '') {
+    cursor++;
+  }
+
+  if (cursor < lines.length) {
+    const h1Match = lines[cursor].match(/^#\s+(.+)$/);
+    if (h1Match) {
+      title = h1Match[1].trim();
+      cursor++;
+      while (cursor < lines.length && lines[cursor].trim() === '') {
+        cursor++;
+      }
+    }
+  }
+
+  if (cursor < lines.length && /^>\s*\*\*(Category|Tags|Updated):/i.test(lines[cursor].trim())) {
+    const metaLine = lines[cursor].trim().replace(/^>\s*/, '');
+    const catMatch = metaLine.match(/\*\*Category:\*\*\s*([^|]+)/i);
+    if (catMatch) {
+      const cat = catMatch[1].trim();
+      if (cat && cat.toLowerCase() !== 'all') {
+        category = cat;
+      }
+    }
+    const tagsMatch = metaLine.match(/\*\*Tags:\*\*\s*([^|]+)/i);
+    if (tagsMatch) {
+      const found = tagsMatch[1].match(/#([^\s#|]+)/g) ?? [];
+      for (const rawTag of found) {
+        const clean = rawTag.replace(/^#/, '').trim();
+        if (clean && !tags.some((t) => t.toLowerCase() === clean.toLowerCase())) {
+          tags.push(clean);
+        }
+      }
+    }
+    cursor++;
+    while (cursor < lines.length && lines[cursor].trim() === '') {
+      cursor++;
+    }
+  }
+
+  let inChecklistSection = false;
+  let checklistCounter = 0;
+
+  for (let i = cursor; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (/^###\s+Checklist\s*$/i.test(trimmed)) {
+      inChecklistSection = true;
+      continue;
+    }
+
+    const taskMatch = line.match(/^\s*[-*]\s+\[([ xX])\]\s?(.*)$/);
+    if (taskMatch) {
+      const completed = taskMatch[1].toLowerCase() === 'x';
+      const itemText = taskMatch[2] ?? '';
+      if (inChecklistSection) {
+        checklistCounter++;
+        checklist.push({
+          id: `md-chk-${checklistCounter}`,
+          text: itemText,
+          completed,
+        });
+      } else {
+        bodyLines.push(`${completed ? '☑' : '☐'} ${itemText}`);
+      }
+      continue;
+    }
+
+    if (inChecklistSection && trimmed === '') {
+      continue;
+    }
+    inChecklistSection = false;
+
+    const bulletMatch = line.match(/^\s*[-*]\s+(.*)$/);
+    if (bulletMatch) {
+      bodyLines.push(`• ${bulletMatch[1]}`);
+      continue;
+    }
+
+    bodyLines.push(line);
+  }
+
+  if (!title && fallbackFileName) {
+    title = fallbackFileName
+      .replace(/\.(md|markdown|txt)$/i, '')
+      .replace(/[_]+/g, ' ')
+      .trim();
+  }
+
+  const finalTitle = title || 'Imported Note';
+  const finalCategory = category || tags[0] || '';
+  const finalContent = bodyLines.join('\n').trim();
+
+  return {
+    title: finalTitle,
+    content: finalContent,
+    tags,
+    category: finalCategory,
+    checklist,
+  };
+}
+
+export type AppLaunchShortcutAction = 'create_note' | null;
+
+/**
+ * Parses URL search parameters for launcher shortcut deep links (e.g. `/?action=create_note`).
+ */
+export function parseAppLaunchAction(search: string): AppLaunchShortcutAction {
+  if (!search) return null;
+  const params = new URLSearchParams(search.startsWith('?') ? search : `?${search}`);
+  const action = (params.get('action') || '').trim().toLowerCase();
+  if (action === 'create_note' || action === 'new_note') {
+    return 'create_note';
+  }
+  return null;
+}
+
 
 

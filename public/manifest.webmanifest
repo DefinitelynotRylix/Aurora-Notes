@@ -1,0 +1,26 @@
+{
+  "name": "Aurora Notes",
+  "short_name": "Aurora Notes",
+  "description": "Local-only privacy-focused note-taking app.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#120E17",
+  "theme_color": "#5925DC",
+  "shortcuts": [
+    {
+      "name": "Create Note",
+      "short_name": "Create Note",
+      "description": "Instantly open Aurora Notes with a fresh blank note",
+      "url": "/?action=create_note"
+    }
+  ],
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": {
+        "text/markdown": [".md", ".markdown"],
+        "text/plain": [".md", ".markdown"]
+      }
+    }
+  ]
+}

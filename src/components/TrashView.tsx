@@ -12,7 +12,7 @@ import {
   Lock,
   X
 } from 'lucide-react';
-import { MorphingNotesGrid } from './MorphingNotesGrid';
+import { extractBoundedCardPreview } from '../utils/editorRules';
 
 interface TrashViewProps {
   trashedNotes: Note[];
@@ -24,15 +24,8 @@ interface TrashViewProps {
   onEmptyTrash: () => void;
 }
 
-const getPlainTextPreview = (htmlOrText: string) => {
-  if (!htmlOrText) return '';
-  try {
-    const doc = new DOMParser().parseFromString(htmlOrText, 'text/html');
-    return doc.body.textContent || '';
-  } catch {
-    return htmlOrText.replace(/<[^>]*>/g, '');
-  }
-};
+const getPlainTextPreview = (htmlOrText: string) =>
+  extractBoundedCardPreview(htmlOrText, 220, 3);
 
 export const TrashView: React.FC<TrashViewProps> = ({
   trashedNotes,

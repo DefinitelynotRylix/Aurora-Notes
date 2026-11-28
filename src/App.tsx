@@ -22,6 +22,8 @@ import {
   applyArchivePreservingPin,
   applyUnarchivePreservingPin,
   resolveFirstSelectedNoteForShare,
+  parseMarkdownToNoteDraft,
+  parseAppLaunchAction,
 } from './utils/editorRules';
 import { FileText, Plus, Fingerprint, Smartphone, X, Archive, Tag, Pin, Check } from 'lucide-react';
 
@@ -294,6 +296,80 @@ export default function App() {
     }
   }, [theme]);
 
+  // Pending launcher shortcut (`/?action=create_note`) or `.md` file open request
+  const pendingLaunchCreateNoteRef = useRef<boolean>(false);
+
+  const importMarkdownContent = (rawMarkdown: string, fileName?: string) => {
+    const draft = parseMarkdownToNoteDraft(rawMarkdown, fileName);
+    const now = Date.now();
+    const importedNote: Note = {
+      id: 'note-' + now + '-' + Math.random().toString(36).substring(2, 6),
+      title: draft.title,
+      content: draft.content,
+      checklist: draft.checklist,
+      tags: draft.tags,
+      category: draft.category,
+      isPinned: false,
+      isArchived: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    draft.tags.forEach((t) => handleAddCategory(t));
+    setIsWelcomeOpen(false);
+    setIsWhatsNewOpen(false);
+    setActiveTab('notes');
+    setSelectedNoteIds([]);
+    setNotes((prev) => [importedNote, ...prev]);
+    captureFabOrigin();
+    setActiveNote(importedNote);
+  };
+
+  // Handle `/?action=create_note` launcher shortcut and Web File Handling API (`launchQueue`) for `.md` files
+  useEffect(() => {
+    const launchAction = parseAppLaunchAction(window.location.search);
+    if (launchAction === 'create_note') {
+      try {
+        const cleanUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, '', cleanUrl || '/');
+      } catch {
+        // ignore history errors
+      }
+      if (isNativeLocked) {
+        pendingLaunchCreateNoteRef.current = true;
+      } else {
+        setIsWelcomeOpen(false);
+        setIsWhatsNewOpen(false);
+        setActiveTab('notes');
+        setSelectedNoteIds([]);
+        handleCreateNote();
+      }
+    }
+
+    const winWithLaunchQueue = window as unknown as {
+      launchQueue?: {
+        setConsumer: (
+          consumer: (launchParams: {
+            files?: Array<{ getFile: () => Promise<File> }>;
+          }) => void
+        ) => void;
+      };
+    };
+
+    if (winWithLaunchQueue.launchQueue) {
+      winWithLaunchQueue.launchQueue.setConsumer(async (launchParams) => {
+        const firstHandle = launchParams.files?.[0];
+        if (!firstHandle) return;
+        try {
+          const file = await firstHandle.getFile();
+          const text = await file.text();
+          importMarkdownContent(text, file.name);
+        } catch (err) {
+          console.warn('Could not open Markdown file from launchQueue', err);
+        }
+      });
+    }
+  }, []);
+
   // Attempt Android native unlock automatically if enabled
   useEffect(() => {
     if (isNativeLocked) {
@@ -306,6 +382,13 @@ export default function App() {
     const result = await verifyWithAndroidNativeLock();
     if (result.success) {
       setIsNativeLocked(false);
+      if (pendingLaunchCreateNoteRef.current) {
+        pendingLaunchCreateNoteRef.current = false;
+        setIsWelcomeOpen(false);
+        setIsWhatsNewOpen(false);
+        setActiveTab('notes');
+        handleCreateNote();
+      }
     } else {
       setNativeAuthError(result.error || 'Android native authentication required.');
     }
@@ -956,7 +1039,21 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF8FB] dark:bg-[#120E17] text-[#1E1A24] dark:text-[#F7EEFC] flex flex-col selection:bg-[#ccbeff] selection:text-[#1e0060] pb-24 transition-colors duration-300">
+    <div
+      className="min-h-screen bg-[#FAF8FB] dark:bg-[#120E17] text-[#1E1A24] dark:text-[#F7EEFC] flex flex-col selection:bg-[#ccbeff] selection:text-[#1e0060] pb-24 transition-colors duration-300"
+      onDragOver={(e) => {
+        if (e.dataTransfer?.types?.includes('Files')) {
+          e.preventDefault();
+        }
+      }}
+      onDrop={(e) => {
+        const files = Array.from(e.dataTransfer?.files || []);
+        const mdFile = files.find((f) => /\.(md|markdown|txt)$/i.test(f.name) || f.type === 'text/markdown');
+        if (!mdFile) return;
+        e.preventDefault();
+        mdFile.text().then((raw) => importMarkdownContent(raw, mdFile.name)).catch(() => {});
+      }}
+    >
       {/* Liquid Glass Header */}
       <LiquidHeader
         searchQuery={searchQuery}
@@ -1013,6 +1110,7 @@ export default function App() {
           ) : (
             <MorphingNotesGrid
               isGridView={isGridView}
+              isActiveTab={activeTab === 'notes'}
               itemIds={allFilteredNotes.map((n) => n.id)}
               lockedItemIds={allFilteredNotes.filter((n) => n.isPinned).map((n) => n.id)}
               onHoldNote={handleHoldNoteStart}
@@ -1083,6 +1181,7 @@ export default function App() {
           ) : (
             <MorphingNotesGrid
               isGridView={isGridView}
+              isActiveTab={activeTab === 'archive'}
               itemIds={archivedFilteredNotes.map((n) => n.id)}
               lockedItemIds={[]}
               onHoldNote={handleHoldNoteStart}

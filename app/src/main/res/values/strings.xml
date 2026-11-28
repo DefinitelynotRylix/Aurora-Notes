@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Aurora Notes</string>
+    <string name="shortcut_create_note_short">Create Note</string>
+    <string name="shortcut_create_note_long">Create a new note</string>
 </resources>

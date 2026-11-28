@@ -8,6 +8,7 @@ import {
 
 interface MorphingNotesGridProps {
   isGridView: boolean;
+  isActiveTab?: boolean;
   itemIds?: string[];
   lockedItemIds?: string[];
   onHoldNote?: (id: string) => void;
@@ -44,6 +45,7 @@ const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
  */
 export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
   isGridView,
+  isActiveTab = true,
   itemIds,
   lockedItemIds,
   onHoldNote,
@@ -417,7 +419,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
       return;
     }
 
-    if (didModeChange && Object.keys(prevRects).length > 0) {
+    if (didModeChange && isActiveTab && Object.keys(prevRects).length > 0) {
       if (morphRafRef.current !== null) {
         cancelAnimationFrame(morphRafRef.current);
       }
@@ -426,16 +428,54 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
 
       const startHeight = prevTotalHeight > 0 ? prevTotalHeight : layout.totalHeight;
       const targetHeight = layout.totalHeight;
-      const durationMs = 340;
+      // Hold container height ONCE at max(start, target) during the morph so rAF frames trigger ZERO layout reflows
+      if (containerRef.current) {
+        containerRef.current.style.height = `${Math.round(Math.max(startHeight, targetHeight))}px`;
+      }
+
+      // Limit GPU FLIP animation to cards near the visible viewport; far-offscreen cards snap cleanly
+      const containerTop = containerRef.current ? containerRef.current.getBoundingClientRect().top : 0;
+      const viewportH = typeof window !== 'undefined' ? window.innerHeight : 900;
+      const visibleTop = -containerTop - 700;
+      const visibleBottom = -containerTop + viewportH + 700;
+
+      const animatedIds: string[] = [];
+      for (let i = 0; i < order.length; i++) {
+        const id = order[i];
+        const target = layout.byId[id];
+        const el = itemRefs.current[id];
+        if (!target || !el) continue;
+        const startRect = prevRects[id];
+        const intersectsStart =
+          startRect !== undefined &&
+          startRect.top + startRect.height >= visibleTop &&
+          startRect.top <= visibleBottom;
+        const intersectsTarget = target.bottom >= visibleTop && target.top <= visibleBottom;
+
+        if (intersectsStart || intersectsTarget) {
+          animatedIds.push(id);
+          el.style.willChange = 'transform';
+          el.style.transformOrigin = '0 0';
+          el.style.opacity = '1';
+          el.style.zIndex = String(order.length - i);
+        } else {
+          // Far offscreen: settle directly without allocating GPU transform layers
+          animPosRef.current[id] = { x: target.left, y: target.top };
+          cardBoundsRef.current[id] = target;
+          el.style.willChange = 'auto';
+          el.style.transformOrigin = '';
+          el.style.transform = `translate3d(${target.left.toFixed(2)}px, ${target.top.toFixed(2)}px, 0)`;
+          el.style.opacity = '1';
+          el.style.zIndex = '1';
+        }
+      }
+
+      const durationMs = 280;
       const startTime = performance.now();
 
       const applyMorphFrame = (p: number) => {
-        if (containerRef.current) {
-          const h = startHeight + (targetHeight - startHeight) * p;
-          containerRef.current.style.height = `${Math.round(h)}px`;
-        }
-        for (let i = 0; i < order.length; i++) {
-          const id = order[i];
+        for (let i = 0; i < animatedIds.length; i++) {
+          const id = animatedIds[i];
           const target = layout.byId[id];
           const el = itemRefs.current[id];
           if (!target || !el) continue;
@@ -458,11 +498,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
             cx: flip.x + target.width * flip.scaleX * 0.5,
             cy: flip.y + target.height * flip.scaleY * 0.5,
           };
-          el.style.willChange = 'transform';
-          el.style.transformOrigin = '0 0';
           el.style.transform = `translate3d(${flip.x.toFixed(2)}px, ${flip.y.toFixed(2)}px, 0) scale(${flip.scaleX.toFixed(4)}, ${flip.scaleY.toFixed(4)})`;
-          el.style.opacity = '1';
-          el.style.zIndex = String(order.length - i);
         }
       };
 
@@ -494,7 +530,7 @@ export const MorphingNotesGrid: React.FC<MorphingNotesGridProps> = ({
     }
 
     applySettledPositions(order, layout.byId, layout.totalHeight);
-  }, [isGridView, containerWidth, resolvedIds, measureVersion]);
+  }, [isGridView, isActiveTab, containerWidth, resolvedIds, measureVersion]);
 
   // Cleanup any in-flight rAFs on unmount
   useEffect(() => {

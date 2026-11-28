@@ -29,8 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aurora.notes.model.Note
 import com.aurora.notes.ui.components.MorphingNotesGrid
+import com.aurora.notes.ui.components.buildBoundedNoteCardPreview
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
+import kotlinx.coroutines.flow.StateFlow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -46,6 +48,7 @@ fun TrashScreen(
     onRestoreNote: (String) -> Unit,
     onDeletePermanently: (String) -> Unit,
     onEmptyTrash: () -> Unit,
+    selectedTabFlow: StateFlow<Int>? = null,
     modifier: Modifier = Modifier
 ) {
     var showEmptyConfirmDialog by remember { mutableStateOf(false) }
@@ -203,6 +206,8 @@ fun TrashScreen(
                 horizontalSpacing = 10.dp,
                 verticalSpacing = 10.dp,
                 contentPadding = PaddingValues(bottom = 88.dp),
+                selectedTabFlow = selectedTabFlow,
+                tabIndex = 2,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -229,10 +234,13 @@ private fun TrashedNoteCard(
     onDeletePermanent: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val dateFormat = SimpleDateFormat("MMM d, HH:mm", Locale.US)
-    val formattedDate = dateFormat.format(Date(note.deletedAt ?: note.updatedAt))
+    val formattedDate = remember(note.deletedAt, note.updatedAt) {
+        SimpleDateFormat("MMM d, HH:mm", Locale.US).format(Date(note.deletedAt ?: note.updatedAt))
+    }
 
-    val plainText = note.content.replace(Regex("<[^>]*>"), "").trim()
+    val plainText = remember(note.content) {
+        buildBoundedNoteCardPreview(note.content)
+    }
 
     Card(
         shape = RoundedCornerShape(16.dp),

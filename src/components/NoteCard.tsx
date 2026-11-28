@@ -15,6 +15,7 @@ import {
   Edit3
 } from 'lucide-react';
 import { parseTextWithLinks, openUrlInDefaultBrowser } from '../utils/linkUtils';
+import { extractBoundedCardPreview } from '../utils/editorRules';
 
 interface NoteCardProps {
   note: Note;
@@ -35,7 +36,7 @@ interface NoteCardProps {
   animateMovement: boolean;
 }
 
-export const NoteCard: React.FC<NoteCardProps> = ({
+const NoteCardInner: React.FC<NoteCardProps> = ({
   note,
   onSelect,
   onTogglePin,
@@ -157,42 +158,23 @@ export const NoteCard: React.FC<NoteCardProps> = ({
       });
     }
     if (!note.content) return { plainTextPreview: '', previewImages: imgs };
-    try {
-      const htmlForParse =
-        imgs.length > 0 ? note.content.replace(/<img\b[^>]*>/gi, '') : note.content;
-      const doc = new DOMParser().parseFromString(htmlForParse, 'text/html');
-      if (imgs.length === 0) {
-        doc.body.querySelectorAll('img').forEach((imgEl) => {
-          const src = imgEl.getAttribute('src');
-          if (src) imgs.push(src);
-        });
+    if (imgs.length === 0 && note.content.includes('<img')) {
+      const imgRegex = /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+      let match: RegExpExecArray | null;
+      while ((match = imgRegex.exec(note.content)) !== null && imgs.length < 4) {
+        if (match[1]) imgs.push(match[1]);
       }
-      doc.body.querySelectorAll('.aurora-image-block, img').forEach((el) => el.remove());
-      doc.body
-        .querySelectorAll('.aurora-checklist-line[data-checklist="true"]')
-        .forEach((el) => el.remove());
-      doc.body.querySelectorAll('.aurora-line-bullet').forEach((el) => {
-        el.textContent = '• ';
-      });
-      doc.body.querySelectorAll('br').forEach((br) => br.replaceWith('\n'));
-      doc.body.querySelectorAll('div, p, li, h1, h2, h3').forEach((block) => {
-        block.append('\n');
-      });
-      const text = (doc.body.textContent || '')
-        .replace(/\u200B/g, '')
-        .split('\n')
-        .map((line) => line.trimEnd())
-        .filter((line) => line.trim() !== '' && line.trim() !== '•')
-        .join('\n')
-        .trim();
-      return { plainTextPreview: text, previewImages: imgs };
-    } catch {
-      return {
-        plainTextPreview: note.content.replace(/<[^>]*>/g, ''),
-        previewImages: imgs,
-      };
     }
+    return {
+      plainTextPreview: extractBoundedCardPreview(note.content, 240, 4),
+      previewImages: imgs,
+    };
   }, [note.content, note.images]);
+
+  const previewLinkSegments = React.useMemo(
+    () => (plainTextPreview ? parseTextWithLinks(plainTextPreview) : []),
+    [plainTextPreview]
+  );
 
   return (
     <>
@@ -426,7 +408,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({
           {/* Note Body Preview with Clickable Purple Links */}
           {plainTextPreview && (
             <p className="text-[11px] sm:text-xs leading-[17px] text-[#484455] dark:text-[#A39BAC] line-clamp-2 sm:line-clamp-3 mb-2 font-normal whitespace-pre-wrap">
-              {parseTextWithLinks(plainTextPreview).map((seg, idx) =>
+              {previewLinkSegments.map((seg, idx) =>
                 seg.type === 'link' && seg.url ? (
                   <a
                     key={idx}
@@ -703,3 +685,13 @@ export const NoteCard: React.FC<NoteCardProps> = ({
     </>
   );
 };
+
+export const NoteCard = React.memo(NoteCardInner, (prev, next) => {
+  return (
+    prev.note === next.note &&
+    prev.isSelectionMode === next.isSelectionMode &&
+    prev.isSelected === next.isSelected &&
+    prev.animateMovement === next.animateMovement &&
+    prev.disableInternalLongPress === next.disableInternalLongPress
+  );
+});

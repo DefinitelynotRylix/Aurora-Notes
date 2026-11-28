@@ -52,6 +52,60 @@ import java.util.Locale
 
 private val NOTE_CARD_IMAGE_MARKER_REGEX = Regex("\\[\\[AURORA_IMG:[^\\]]+\\]\\]")
 private val NOTE_CARD_HTML_TAG_REGEX = Regex("<[^>]*>")
+private const val NOTE_CARD_PREVIEW_SCAN_LIMIT = 2048
+private const val NOTE_CARD_PREVIEW_MAX_CHARS = 260
+private const val NOTE_CARD_PREVIEW_MAX_LINES = 4
+
+/**
+ * Extracts a compact bounded excerpt for NoteCard previews without running regexes,
+ * link detection, or Android StaticLayout text shaping across 30,000+ character notes.
+ */
+internal fun buildBoundedNoteCardPreview(rawContent: String): String {
+    if (rawContent.isBlank()) return ""
+    val head = if (rawContent.length > NOTE_CARD_PREVIEW_SCAN_LIMIT) {
+        rawContent.substring(0, NOTE_CARD_PREVIEW_SCAN_LIMIT)
+    } else {
+        rawContent
+    }
+    val cleaned = head
+        .replace(NOTE_CARD_IMAGE_MARKER_REGEX, "")
+        .replace(NOTE_CARD_HTML_TAG_REGEX, "")
+        .replace("&nbsp;", " ")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+
+    val result = StringBuilder(NOTE_CARD_PREVIEW_MAX_CHARS + 4)
+    var lineCount = 0
+    var truncated = rawContent.length > NOTE_CARD_PREVIEW_SCAN_LIMIT
+
+    for (rawLine in cleaned.lineSequence()) {
+        val trimmedEnd = rawLine.trimEnd()
+        if (trimmedEnd.isBlank()) continue
+        if (lineCount >= NOTE_CARD_PREVIEW_MAX_LINES) {
+            truncated = true
+            break
+        }
+        val sepLen = if (result.isNotEmpty()) 1 else 0
+        val remaining = NOTE_CARD_PREVIEW_MAX_CHARS - result.length - sepLen
+        if (remaining <= 0) {
+            truncated = true
+            break
+        }
+        if (sepLen > 0) result.append('\n')
+        if (trimmedEnd.length > remaining) {
+            result.append(trimmedEnd.substring(0, remaining).trimEnd())
+            truncated = true
+            break
+        } else {
+            result.append(trimmedEnd)
+        }
+        lineCount++
+    }
+
+    val text = result.toString().trim()
+    if (text.isEmpty()) return ""
+    return if (truncated && !text.endsWith("…")) "$text…" else text
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -77,11 +131,7 @@ fun NoteCard(
     }
 
     val plainTextPreview = remember(note.content) {
-        note.content
-            .replace(NOTE_CARD_IMAGE_MARKER_REGEX, "")
-            .replace(NOTE_CARD_HTML_TAG_REGEX, "")
-            .replace("&nbsp;", " ")
-            .trim()
+        buildBoundedNoteCardPreview(note.content)
     }
 
     val cardBorder = if (isSelected) {
@@ -371,8 +421,11 @@ fun NoteCard(
                                 )
                             }
                             Spacer(modifier = Modifier.width(6.dp))
+                            val checklistAnnotated = remember(item.text) {
+                                LinkHelper.buildLinkAnnotatedString(item.text.take(140))
+                            }
                             Text(
-                                text = LinkHelper.buildLinkAnnotatedString(item.text),
+                                text = checklistAnnotated,
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontSize = 11.sp,
                                     textDecoration = if (item.completed) TextDecoration.LineThrough else TextDecoration.None,

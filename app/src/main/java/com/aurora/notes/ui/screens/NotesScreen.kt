@@ -857,6 +857,8 @@ fun NotesScreen(
                     optimisticOrderedIds = newOrderIds
                     onReorderNotes(newOrderIds)
                 },
+                selectedTabFlow = selectedTabFlow,
+                tabIndex = tabIndex,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
