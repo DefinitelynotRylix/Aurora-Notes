@@ -150,9 +150,13 @@ fun NotesScreen(
                     selectedCount = selectedNoteIds.size,
                     isArchiveTab = isArchiveTab,
                     onShareSelected = {
-                        val selectedNotes = currentNotes.filter { it.id in selectedNoteIds }
-                        if (selectedNotes.isNotEmpty()) {
-                            notesToShare = selectedNotes
+                        // Even if Share is tapped rapidly while 2+ notes are selected,
+                        // strictly export ONLY the firstly selected note (preserving selection order).
+                        val firstSelectedNote = selectedNoteIds.firstNotNullOfOrNull { id ->
+                            currentNotes.firstOrNull { it.id == id }
+                        }
+                        if (firstSelectedNote != null) {
+                            notesToShare = listOf(firstSelectedNote)
                         }
                     },
                     onTagSelected = {

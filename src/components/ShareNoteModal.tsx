@@ -558,39 +558,45 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [fullLengthImageDataUrl, setFullLengthImageDataUrl] = useState<string>('');
 
-  const individualMdFileNames = useMemo(() => getUniqueNoteFileNames(notes, 'md'), [notes]);
+  // Hard single-note guard: even if multiple notes are ever passed under a rapid tap race,
+  // strictly export ONLY the firstly selected note.
+  const singleNoteList = useMemo(() => notes.slice(0, 1), [notes]);
+  const individualMdFileNames = useMemo(
+    () => getUniqueNoteFileNames(singleNoteList, 'md'),
+    [singleNoteList]
+  );
 
-  const formattedPreview = useMemo(() => {
-    if (notes.length <= 1) return formatNotesForShare(notes, false);
-    return notes
-      .map(
-        (n, idx) =>
-          `=== File ${idx + 1}: ${individualMdFileNames[idx]} ===\n` +
-          formatSingleNote(n, false).trimEnd()
-      )
-      .join('\n\n');
-  }, [notes, individualMdFileNames]);
+  const formattedPreview = useMemo(
+    () => formatNotesForShare(singleNoteList, false),
+    [singleNoteList]
+  );
 
-  const formattedExportMarkdown = useMemo(() => formatNotesForShare(notes, true), [notes]);
-  const suggestedFileName = useMemo(() => getSuggestedFileName(notes, format), [notes, format]);
+  const formattedExportMarkdown = useMemo(
+    () => formatNotesForShare(singleNoteList, true),
+    [singleNoteList]
+  );
+  const suggestedFileName = useMemo(
+    () => getSuggestedFileName(singleNoteList, format),
+    [singleNoteList, format]
+  );
 
   useEffect(() => {
     let active = true;
-    renderNotesToFullLengthPngDataUrl(notes).then((dataUrl) => {
+    renderNotesToFullLengthPngDataUrl(singleNoteList).then((dataUrl) => {
       if (active) setFullLengthImageDataUrl(dataUrl);
     });
     return () => {
       active = false;
     };
-  }, [notes]);
+  }, [singleNoteList]);
 
-  if (!notes.length) return null;
+  if (!singleNoteList.length) return null;
 
   const handleSaveNoteImageToGallery = () => {
     if (!fullLengthImageDataUrl) return;
     const a = document.createElement('a');
     a.href = fullLengthImageDataUrl;
-    a.download = getSuggestedFileName(notes, 'png');
+    a.download = getSuggestedFileName(singleNoteList, 'png');
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -599,17 +605,18 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
   };
 
   const handleShareToAppsAndContacts = async () => {
-    const title = notes.length === 1 ? notes[0].title || 'Aurora Note' : `${notes.length} Aurora Notes`;
+    const targetNote = singleNoteList[0];
+    const title = targetNote?.title || 'Aurora Note';
 
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         if (format === 'md') {
-          const mdFiles = notes.map((note, idx) => {
-            const singleMd = formatSingleNote(note, false);
-            return new File([singleMd], individualMdFileNames[idx], {
+          const singleMd = formatSingleNote(targetNote, false);
+          const mdFiles = [
+            new File([singleMd], individualMdFileNames[0], {
               type: 'text/markdown;charset=utf-8',
-            });
-          });
+            }),
+          ];
           if (typeof navigator.canShare === 'function' && navigator.canShare({ files: mdFiles })) {
             await navigator.share({
               title,
@@ -627,7 +634,7 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
             text: title,
           });
         }
-        logger.security('SHARE', `Shared ${notes.length} separate note(s) to apps & contacts (.${format})`);
+        logger.security('SHARE', `Shared single note to apps & contacts (.${format})`);
         onClose();
         return;
       } catch (err) {
@@ -640,7 +647,6 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
       return;
     }
 
-    // Download each selected note as its own separate .md file
     handleSaveToFolderPicker();
   };
 
@@ -651,35 +657,22 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
     }
 
     const mimeType = 'text/markdown';
+    const plain = decryptNoteFields(singleNoteList[0]);
+    const singleMdContent = formatSingleNote(plain, false);
+    const mdFileName = individualMdFileNames[0];
 
-    // Export each selected note into its own separate .md file (note text only, no images exported)
-    notes.forEach((rawNote, noteIdx) => {
-      const plain = decryptNoteFields(rawNote);
-      const singleMdContent = formatSingleNote(plain, false);
-      const mdFileName = individualMdFileNames[noteIdx];
+    const blob = new Blob([singleMdContent], { type: `${mimeType};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = mdFileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
 
-      const blob = new Blob([singleMdContent], { type: `${mimeType};charset=utf-8` });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = mdFileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    });
-
-    logger.security(
-      'SHARE',
-      `Downloaded ${notes.length} separate .md file(s): ${individualMdFileNames.join(', ')}`
-    );
-    if (notes.length > 1) {
-      setStatusMessage(
-        `Saved ${notes.length} separate .md files (${individualMdFileNames.join(', ')})!`
-      );
-    } else {
-      setStatusMessage(`Saved ${individualMdFileNames[0]}!`);
-    }
+    logger.security('SHARE', `Downloaded single .md file: ${mdFileName}`);
+    setStatusMessage(`Saved ${mdFileName}!`);
   };
 
   return (
@@ -699,7 +692,7 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
             </div>
             <div>
               <h3 className="text-sm sm:text-base font-bold text-[#1E1A24] dark:text-[#F7EEFC]">
-                {notes.length === 1 ? 'Share & Export Note' : `Share ${notes.length} Selected Notes`}
+                Share & Export Note
               </h3>
               <p className="text-[11px] text-[#797487] dark:text-[#A39BAC]">
                 Text-only Markdown (.md) or full-length Gallery image
@@ -828,11 +821,7 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
               className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-bold shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
             >
               <Share2 className="w-4 h-4" />
-              <span>
-                {notes.length > 1
-                  ? `Share ${notes.length} Separate .MD Files`
-                  : 'Share Note Markdown (.MD)'}
-              </span>
+              <span>Share Note Markdown (.MD)</span>
             </button>
 
             <div className="grid grid-cols-2 gap-2">
@@ -842,7 +831,7 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
                 className="py-2.5 px-3 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] border border-[#EADBFC] dark:border-[#322742] text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
               >
                 <FolderOpen className="w-3.5 h-3.5" />
-                <span>{notes.length > 1 ? `Save ${notes.length} .MD Files` : 'Save to Folder'}</span>
+                <span>Save to Folder</span>
               </button>
 
               <button

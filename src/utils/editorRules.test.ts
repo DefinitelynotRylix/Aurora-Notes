@@ -587,3 +587,89 @@ test('archiving a pinned note and restoring it preserves the pin state', () => {
   assert.equal(restored[0].isPinned, true, 'restored note must keep its pin active');
 });
 
+import {
+  TAB_BACKGROUND_LAYER_MS,
+  createInitialTabTransitionState,
+  planTabTransition,
+  completeTabTransition,
+  resolveFirstSelectedNoteForShare,
+} from './editorRules';
+
+test('planTabTransition shows brief background layer and cancels intermediate tab when switching back early', () => {
+  assert.ok(TAB_BACKGROUND_LAYER_MS >= 40 && TAB_BACKGROUND_LAYER_MS <= 100);
+
+  let state = createInitialTabTransitionState<'notes' | 'archive' | 'trash' | 'settings'>('notes');
+  assert.equal(state.renderedTab, 'notes');
+  assert.equal(state.mountedTab, 'notes');
+
+  // Step 1: Switch Notes -> Settings (enters brief background layer without mounting Settings)
+  const toSettings = planTabTransition(state, 'settings');
+  assert.equal(toSettings.shouldCancelPending, true);
+  assert.equal(toSettings.shouldScheduleMount, true);
+  state = toSettings.nextState;
+  assert.equal(state.requestedTab, 'settings');
+  assert.equal(state.renderedTab, null, 'brief background layer should be visible before Settings loads');
+  assert.equal(state.mountedTab, 'notes', 'Settings must NOT mount during the background-layer wait');
+  assert.equal(state.isPending, true);
+
+  // Step 2: Switch back Settings -> Notes BEFORE Settings loads -> cancels Settings & restores Notes instantly
+  const backToNotes = planTabTransition(state, 'notes');
+  assert.equal(backToNotes.shouldCancelPending, true);
+  assert.equal(backToNotes.shouldScheduleMount, false, 'returning to already-shown tab requires zero wait');
+  state = backToNotes.nextState;
+  assert.equal(state.requestedTab, 'notes');
+  assert.equal(state.renderedTab, 'notes');
+  assert.equal(state.mountedTab, 'notes');
+  assert.equal(state.isPending, false);
+
+  // Stale Settings timer firing late must be ignored
+  const afterStaleComplete = completeTabTransition(state, 'settings');
+  assert.equal(afterStaleComplete.renderedTab, 'notes');
+  assert.equal(afterStaleComplete.mountedTab, 'notes');
+});
+
+test('planTabTransition skips intermediate tabs during rapid hopping and mounts only final target', () => {
+  let state = createInitialTabTransitionState<'notes' | 'archive' | 'trash' | 'settings'>('notes');
+
+  // Rapid hop: Notes -> Settings -> Trash -> Archive before any timer fires
+  state = planTabTransition(state, 'settings').nextState;
+  assert.equal(state.mountedTab, 'notes');
+  state = planTabTransition(state, 'trash').nextState;
+  assert.equal(state.mountedTab, 'notes', 'Settings was skipped and never mounted');
+  const toArchive = planTabTransition(state, 'archive');
+  assert.equal(toArchive.shouldCancelPending, true);
+  assert.equal(toArchive.shouldScheduleMount, true);
+  state = toArchive.nextState;
+  assert.equal(state.requestedTab, 'archive');
+  assert.equal(state.renderedTab, null);
+  assert.equal(state.mountedTab, 'notes', 'Trash was also skipped and never mounted');
+
+  // Final Archive timer completes -> only Archive mounts
+  state = completeTabTransition(state, 'archive');
+  assert.equal(state.renderedTab, 'archive');
+  assert.equal(state.mountedTab, 'archive');
+  assert.equal(state.isPending, false);
+});
+
+test('resolveFirstSelectedNoteForShare exports strictly the firstly selected note even when 2+ notes are selected', () => {
+  const notes = [
+    { id: 'note-1', title: 'Alpha (first in grid)' },
+    { id: 'note-2', title: 'Beta (second in grid)' },
+    { id: 'note-3', title: 'Gamma (selected first!)' },
+  ];
+
+  // User selected note-3 first, then rapidly selected note-1 and note-2 and tapped Share
+  const result = resolveFirstSelectedNoteForShare(notes, ['note-3', 'note-1', 'note-2']);
+  assert.equal(result.length, 1, 'must never export more than one note');
+  assert.equal(result[0].id, 'note-3', 'must export the firstly selected note, not grid-order note-1');
+
+  // If first ID is stale/deleted, falls back cleanly to next valid selected ID (still max 1)
+  const fallback = resolveFirstSelectedNoteForShare(notes, ['deleted-id', 'note-2', 'note-1']);
+  assert.equal(fallback.length, 1);
+  assert.equal(fallback[0].id, 'note-2');
+
+  // Empty selection returns empty list
+  assert.deepEqual(resolveFirstSelectedNoteForShare(notes, []), []);
+});
+
+

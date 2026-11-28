@@ -22,6 +22,12 @@ import {
   cleanupOrphanedPrivateStorageEntries,
   applyArchivePreservingPin,
   applyUnarchivePreservingPin,
+  TAB_BACKGROUND_LAYER_MS,
+  TabTransitionState,
+  createInitialTabTransitionState,
+  planTabTransition,
+  completeTabTransition,
+  resolveFirstSelectedNoteForShare,
 } from './utils/editorRules';
 import { FileText, Plus, Fingerprint, Smartphone, X, Archive, Tag, Pin, Check } from 'lucide-react';
 
@@ -72,11 +78,21 @@ export default function App() {
     }
   };
 
-  // Active navigation tab & directional slide tracking (instant, zero wait time)
-  const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
+  // Cancellable menu switching with a brief clean background-layer beat:
+  // Navbar pill responds immediately; if user switches back before the next tab loads,
+  // the intermediate tab is cancelled completely and the already-shown tab restores instantly.
+  const [tabTransition, setTabTransition] = useState<TabTransitionState<ActiveTab>>(() =>
+    createInitialTabTransitionState<ActiveTab>('notes')
+  );
+  const tabTransitionRef = useRef<TabTransitionState<ActiveTab>>(tabTransition);
+  tabTransitionRef.current = tabTransition;
+  const tabTransitionTimerRef = useRef<number | null>(null);
   const [slideDirection, setSlideDirection] = useState<number>(1);
-  const pendingNavTab = activeTab;
-  const isNavTransitionPending = false;
+
+  const activeTab = tabTransition.mountedTab;
+  const pendingNavTab = tabTransition.requestedTab;
+  const renderedTab = tabTransition.renderedTab;
+  const isNavTransitionPending = tabTransition.isPending;
 
   const TAB_ORDER: Record<ActiveTab, number> = {
     notes: 0,
@@ -85,11 +101,43 @@ export default function App() {
     settings: 3,
   };
 
+  useEffect(() => {
+    return () => {
+      if (tabTransitionTimerRef.current !== null) {
+        window.clearTimeout(tabTransitionTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleSelectNavTab = (nextTab: ActiveTab) => {
-    if (nextTab === activeTab) return;
-    setSlideDirection(TAB_ORDER[nextTab] >= TAB_ORDER[activeTab] ? 1 : -1);
-    setSelectedNoteIds([]);
-    setActiveTab(nextTab);
+    const current = tabTransitionRef.current;
+    const plan = planTabTransition(current, nextTab);
+    if (!plan.shouldCancelPending && !plan.shouldScheduleMount && plan.nextState === current) {
+      return;
+    }
+
+    if (plan.shouldCancelPending && tabTransitionTimerRef.current !== null) {
+      window.clearTimeout(tabTransitionTimerRef.current);
+      tabTransitionTimerRef.current = null;
+    }
+
+    setSlideDirection(TAB_ORDER[nextTab] >= TAB_ORDER[current.requestedTab] ? 1 : -1);
+    if (plan.shouldScheduleMount) {
+      setSelectedNoteIds([]);
+    }
+    tabTransitionRef.current = plan.nextState;
+    setTabTransition(plan.nextState);
+
+    if (plan.shouldScheduleMount) {
+      tabTransitionTimerRef.current = window.setTimeout(() => {
+        tabTransitionTimerRef.current = null;
+        setTabTransition((prev) => {
+          const completed = completeTabTransition(prev, nextTab);
+          tabTransitionRef.current = completed;
+          return completed;
+        });
+      }, TAB_BACKGROUND_LAYER_MS);
+    }
   };
 
   // Custom user tags - starts completely empty in the base app
@@ -954,35 +1002,22 @@ export default function App() {
         noteCount={activeNotes.length}
       />
 
-      {/* Main Workspace: Notes / Archive / Trash / Settings with Instant Spring Page Slide */}
-      <main className="max-w-6xl w-full mx-auto px-3 sm:px-6 pt-4 flex-1 overflow-x-hidden">
-        <AnimatePresence mode="popLayout" custom={slideDirection} initial={false}>
+      {/* Main Workspace: Cancellable Brief Background-Layer Transition (Never stacks overlapping screens) */}
+      <main
+        data-rendered-tab={renderedTab ?? 'background-layer'}
+        data-mounted-tab={activeTab}
+        data-requested-tab={pendingNavTab}
+        className="max-w-6xl w-full mx-auto px-3 sm:px-6 pt-4 flex-1 overflow-x-hidden"
+      >
+        <div
+          className={renderedTab === null ? 'hidden' : 'block'}
+          aria-hidden={renderedTab === null}
+        >
           <motion.div
             key={activeTab}
-            custom={slideDirection}
-            variants={{
-              enter: (dir: number) => ({
-                x: dir > 0 ? 56 : -56,
-                opacity: 0,
-              }),
-              center: {
-                x: 0,
-                opacity: 1,
-              },
-              exit: (dir: number) => ({
-                x: dir > 0 ? -56 : 56,
-                opacity: 0,
-              }),
-            }}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{
-              type: 'spring',
-              stiffness: 520,
-              damping: 38,
-              mass: 0.7,
-            }}
+            initial={{ opacity: 0, x: slideDirection > 0 ? 14 : -14 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.11, ease: [0.22, 1, 0.36, 1] }}
           >
             {activeTab === 'settings' ? (
               <SettingsPage
@@ -1121,7 +1156,7 @@ export default function App() {
               </>
             )}
           </motion.div>
-        </AnimatePresence>
+        </div>
       </main>
 
       {/* Batch Delete Confirmation Modal */}
@@ -1467,8 +1502,8 @@ export default function App() {
         />
       )}
 
-      {/* Floating Circular UI Element in the Down Right Corner (only on active Notes tab when not holding/selecting a note) */}
-      {activeTab === 'notes' && selectedNoteIds.length === 0 && (
+      {/* Floating Circular UI Element in the Down Right Corner (only on visible Notes tab when not holding/selecting a note) */}
+      {renderedTab === 'notes' && selectedNoteIds.length === 0 && (
         <motion.button
           ref={fabButtonRef}
           type="button"
@@ -1494,9 +1529,14 @@ export default function App() {
         selectedCount={selectedNoteIds.length}
         isArchiveTab={activeTab === 'archive'}
         onShareSelected={() => {
-          const selected = currentTabNotes.filter((n) => selectedNoteIds.includes(n.id));
-          if (selected.length > 0) {
-            setNotesToShare(selected);
+          // Even if the user taps Share rapidly while 2+ notes are selected,
+          // strictly export ONLY the firstly selected note (preserving selection order).
+          const firstSelectedOnly = resolveFirstSelectedNoteForShare(
+            currentTabNotes,
+            selectedNoteIds
+          );
+          if (firstSelectedOnly.length > 0) {
+            setNotesToShare(firstSelectedOnly);
           }
         }}
         onTagSelected={handleOpenBatchTagModal}

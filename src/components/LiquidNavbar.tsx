@@ -391,7 +391,7 @@ export const LiquidNavbar: React.FC<LiquidNavbarProps> = ({
                     aria-current={isSelected ? 'page' : undefined}
                     onClick={(e) => {
                       e.preventDefault();
-                      if (idx !== targetIndex && !isNavTransitionPending) {
+                      if (idx !== targetIndex) {
                         triggerWebHaptic(isHapticsEnabled);
                         onChangeTab(item.id);
                       }

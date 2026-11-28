@@ -50,23 +50,13 @@ fun ShareNoteDialog(
     val context = LocalContext.current
     var selectedFormat by remember { mutableStateOf(ShareNoteFormat.MARKDOWN) }
 
+    // Hard single-note guard: strictly export ONLY the firstly selected note even under fast tap races.
     val plainNotes = remember(notes) {
-        notes.map { PrivateStorageManager.decryptNoteFromRoom(it) }
+        notes.take(1).map { PrivateStorageManager.decryptNoteFromRoom(it) }
     }
 
-    val individualMdFileNames = remember(plainNotes) {
-        NoteShareHelper.buildUniqueNoteFileNames(plainNotes, ShareNoteFormat.MARKDOWN)
-    }
-
-    val formattedPreview = remember(plainNotes, selectedFormat, individualMdFileNames) {
-        if (plainNotes.size <= 1) {
-            NoteShareHelper.formatNotes(plainNotes, selectedFormat, embedBase64Images = false)
-        } else {
-            plainNotes.mapIndexed { idx, note ->
-                "=== File ${idx + 1}: ${individualMdFileNames[idx]} ===\n" +
-                    NoteShareHelper.formatSingleNote(note, selectedFormat, embedBase64Images = false).trimEnd()
-            }.joinToString("\n\n")
-        }
+    val formattedPreview = remember(plainNotes, selectedFormat) {
+        NoteShareHelper.formatNotes(plainNotes, selectedFormat, embedBase64Images = false)
     }
 
     val fullLengthNoteBitmap = remember(plainNotes, selectedFormat) {
@@ -111,40 +101,9 @@ fun ShareNoteDialog(
         }
     }
 
-    // Folder picker when saving multiple selected notes as separate .md files
-    val openFolderLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { treeUri ->
-        if (treeUri != null) {
-            val savedCount = NoteShareHelper.writeSeparateMarkdownNotesToFolderUri(
-                context = context,
-                treeUri = treeUri,
-                notes = plainNotes
-            )
-            if (savedCount > 0) {
-                Toast.makeText(
-                    context,
-                    "Saved $savedCount separate .md files to your chosen folder!",
-                    Toast.LENGTH_LONG
-                ).show()
-                onDismiss()
-            } else {
-                Toast.makeText(
-                    context,
-                    "Could not write .md files to selected folder.",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-        }
-    }
-
     fun launchAndroidFolderFilePicker() {
         try {
-            if (selectedFormat == ShareNoteFormat.MARKDOWN && plainNotes.size > 1) {
-                openFolderLauncher.launch(null)
-            } else {
-                createDocLauncher.launch(suggestedFileName)
-            }
+            createDocLauncher.launch(suggestedFileName)
         } catch (e: Exception) {
             Toast.makeText(
                 context,
@@ -189,7 +148,7 @@ fun ShareNoteDialog(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = if (notes.size == 1) "Share & Export Note" else "Share ${notes.size} Selected Notes",
+                                text = "Share & Export Note",
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 17.sp
@@ -440,11 +399,7 @@ fun ShareNoteDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (plainNotes.size > 1) {
-                                "Share ${plainNotes.size} Separate .MD Files"
-                            } else {
-                                "Share Note Markdown (.MD)"
-                            },
+                            text = "Share Note Markdown (.MD)",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -468,11 +423,7 @@ fun ShareNoteDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (plainNotes.size > 1) {
-                                "Save ${plainNotes.size} .MD Files to Folder (File Picker)"
-                            } else {
-                                "Save Markdown to Folder (Android File Picker)"
-                            },
+                            text = "Save Markdown to Folder (Android File Picker)",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface

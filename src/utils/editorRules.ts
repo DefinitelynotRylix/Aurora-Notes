@@ -1125,3 +1125,121 @@ export function applyUnarchivePreservingPin<T extends { id: string; isArchived?:
   return notes.map((n) => (idSet.has(n.id) ? { ...n, isArchived: false } : n));
 }
 
+export const TAB_BACKGROUND_LAYER_MS = 65;
+
+export interface TabTransitionState<TTab> {
+  /** Tab requested by user input — updates navbar pill immediately. */
+  requestedTab: TTab;
+  /** Tab visually revealed right now, or null during the brief clean background-layer beat. */
+  renderedTab: TTab | null;
+  /** Single tab currently mounted in memory so cancelling back restores it with zero re-mount. */
+  mountedTab: TTab;
+  /** True while waiting on the brief background layer before mounting `requestedTab`. */
+  isPending: boolean;
+}
+
+export interface TabTransitionPlan<TTab> {
+  nextState: TabTransitionState<TTab>;
+  shouldCancelPending: boolean;
+  shouldScheduleMount: boolean;
+}
+
+export function createInitialTabTransitionState<TTab>(initialTab: TTab): TabTransitionState<TTab> {
+  return {
+    requestedTab: initialTab,
+    renderedTab: initialTab,
+    mountedTab: initialTab,
+    isPending: false,
+  };
+}
+
+/**
+ * Computes a cancellable menu-switch plan with a brief background-layer beat:
+ * - Switching to a new tab immediately moves `requestedTab` and clears `renderedTab` (clean background layer)
+ *   while keeping ONLY the already-shown `mountedTab` hidden in memory (never mounting skipped tabs).
+ * - If the user switches back to `mountedTab` before the brief wait finishes, cancels loading the intermediate
+ *   tab completely and restores the already-shown tab immediately with zero extra wait or remount.
+ */
+export function planTabTransition<TTab>(
+  current: TabTransitionState<TTab>,
+  targetTab: TTab
+): TabTransitionPlan<TTab> {
+  if (current.requestedTab === targetTab && current.renderedTab === targetTab && !current.isPending) {
+    return {
+      nextState: current,
+      shouldCancelPending: false,
+      shouldScheduleMount: false,
+    };
+  }
+
+  if (current.requestedTab === targetTab && current.isPending) {
+    return {
+      nextState: current,
+      shouldCancelPending: false,
+      shouldScheduleMount: false,
+    };
+  }
+
+  // Returning to the already-shown tab before the next tab loads -> cancel & restore instantly
+  if (current.renderedTab === null && targetTab === current.mountedTab) {
+    return {
+      nextState: {
+        requestedTab: targetTab,
+        renderedTab: targetTab,
+        mountedTab: targetTab,
+        isPending: false,
+      },
+      shouldCancelPending: true,
+      shouldScheduleMount: false,
+    };
+  }
+
+  // Switching away or retargeting to another unmounted tab -> show clean background layer briefly
+  return {
+    nextState: {
+      requestedTab: targetTab,
+      renderedTab: null,
+      mountedTab: current.mountedTab,
+      isPending: true,
+    },
+    shouldCancelPending: true,
+    shouldScheduleMount: true,
+  };
+}
+
+/**
+ * Commits a scheduled menu transition once the brief background-layer wait finishes.
+ * Ignores stale completions if the user has already requested a different tab.
+ */
+export function completeTabTransition<TTab>(
+  current: TabTransitionState<TTab>,
+  targetTab: TTab
+): TabTransitionState<TTab> {
+  if (current.requestedTab !== targetTab) {
+    return current;
+  }
+  return {
+    requestedTab: targetTab,
+    renderedTab: targetTab,
+    mountedTab: targetTab,
+    isPending: false,
+  };
+}
+
+/**
+ * Resolves strictly the FIRSTLY selected note (preserving selection order in `selectedNoteIds`)
+ * so that even a rapid Share tap while 2+ notes are selected only ever exports that first note.
+ */
+export function resolveFirstSelectedNoteForShare<T extends { id: string }>(
+  notes: T[],
+  selectedNoteIds: string[]
+): T[] {
+  if (!selectedNoteIds.length || !notes.length) return [];
+  for (const id of selectedNoteIds) {
+    const match = notes.find((n) => n.id === id);
+    if (match) return [match];
+  }
+  return [];
+}
+
+

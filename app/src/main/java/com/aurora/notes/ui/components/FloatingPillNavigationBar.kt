@@ -382,6 +382,7 @@ fun FloatingPillNavigationBar(
     val currentHapticsEnabled by rememberUpdatedState(isHapticsEnabled)
     val currentIsTransitionPending by rememberUpdatedState(isNavTransitionPending)
     val activeTargetTab = if (isNavTransitionPending) pendingTab else selectedTab
+    val currentActiveTargetTab by rememberUpdatedState(activeTargetTab)
 
     val items = remember(archivedCount, trashCount) {
         listOf(
@@ -472,7 +473,7 @@ fun FloatingPillNavigationBar(
                     .fillMaxSize()
                     .padding(5.dp)
                     .clip(RoundedCornerShape(100.dp))
-                    .pointerInput(items.size, selectedTab) {
+                    .pointerInput(items.size) {
                         val touchSlopPx = viewConfiguration.touchSlop
                         val holdTimeoutMs = 150L
 
@@ -485,7 +486,7 @@ fun FloatingPillNavigationBar(
                             var currentX = startX
                             val initialTappedTab = (startX / tabWidthPx).toInt().coerceIn(0, items.size - 1)
 
-                            if (initialTappedTab != selectedTab) {
+                            if (initialTappedTab != currentActiveTargetTab) {
                                 triggerNavbarHaptic(view, context, currentHapticsEnabled)
                                 currentOnTabSelected(initialTappedTab)
                             }
