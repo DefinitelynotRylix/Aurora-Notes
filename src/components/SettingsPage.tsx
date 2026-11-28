@@ -1,23 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
+import React, { useState } from 'react';
 import { ThemeOption, Note } from '../types';
 import {
   Sun,
   Moon,
   Monitor,
-  Trash2,
   Download,
   Smartphone,
-  Terminal,
-  Copy,
   Sliders,
   AlertTriangle,
   RefreshCw,
   CheckCircle2,
   Sparkles,
   Send,
-  ChevronDown,
-  ChevronUp,
   Fingerprint
 } from 'lucide-react';
 import {
@@ -26,11 +20,10 @@ import {
   verifyWithAndroidNativeLock,
   setNativeLockEnabled,
 } from '../utils/nativeAuth';
-import { logger, LogEntry, LogLevel } from '../utils/logger';
 import { compareReleaseVersions, extractReleaseRunNumber } from '../utils/editorRules';
 
-const DEFAULT_APP_VERSION = '1.3.39';
-const DEFAULT_APP_BUILD_CODE = 139;
+const DEFAULT_APP_VERSION = '1.3.40';
+const DEFAULT_APP_BUILD_CODE = 140;
 const DEFAULT_GITHUB_REPO = 'DefinitelynotRylix/Aurora-Notes';
 
 interface SettingsPageProps {
@@ -62,13 +55,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onSelectTheme,
   isHapticsEnabled = true,
   onToggleHaptics,
-  notes,
   onWipeData,
   onOpenWelcomeTour,
   onOpenWhatsNew,
 }) => {
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
-  const [isLogsExpanded, setIsLogsExpanded] = useState(false);
 
   // App Version & Self-Update State
   const [installedVersion, setInstalledVersion] = useState<string>(() => {
@@ -87,18 +78,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     latestVersion?: string;
     apkUrl?: string;
   } | null>(null);
-
-  // Local Diagnostic Logger State
-  const [logs, setLogs] = useState<LogEntry[]>(() => logger.getLogs());
-  const [logFilter, setLogFilter] = useState<'ALL' | LogLevel>('ALL');
-  const [copiedNotice, setCopiedNotice] = useState(false);
-
-  useEffect(() => {
-    const unsubscribe = logger.subscribe(() => {
-      setLogs(logger.getLogs());
-    });
-    return unsubscribe;
-  }, []);
 
   // Android Native Lock State
   const [isNativeLockOn, setIsNativeLockOn] = useState(isNativeLockEnabled);
@@ -122,10 +101,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
     setIsScanningUpdate(true);
     setUpdateStatus(null);
-    logger.security(
-      'UPDATE',
-      `Scanning GitHub Releases (${activeRepo}) for updates (installed v${installedVersion} • Build ${installedBuildCode})`
-    );
 
     try {
       let releaseData: {
@@ -205,7 +180,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       );
 
       if (cmp <= 0) {
-        logger.security('UPDATE', `App is up to date (v${installedVersion})`);
         setUpdateStatus({
           type: 'uptodate',
           latestVersion: latestVer,
@@ -215,7 +189,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       } else {
         const downloadUrl = apkAsset?.browser_download_url || releaseData.html_url || '';
         const nextBuildCode = remoteRunNum ? 100 + remoteRunNum : installedBuildCode + 1;
-        logger.security('UPDATE', `New release v${latestVer} (Build ${nextBuildCode}) found on GitHub!`);
         setUpdateStatus({
           type: 'available',
           latestVersion: latestVer,
@@ -240,9 +213,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           });
         }, 700);
       }
-    } catch (err) {
+    } catch {
       setIsScanningUpdate(false);
-      logger.error('UPDATE', 'Failed checking GitHub Releases', String(err));
       setUpdateStatus({
         type: 'error',
         message: 'Could not reach GitHub Releases API. Check your internet connection.',
@@ -284,42 +256,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
-  const handleExportMarkdown = () => {
-    const mdContent = notes
-      .map((n) => {
-        const checklists = (n.checklist || [])
-          .map((c) => `- [${c.completed ? 'x' : ' '}] ${c.text}`)
-          .join('\n');
-        return `# ${n.title}\n\n*Category: ${n.category} | Created: ${new Date(n.createdAt).toLocaleString()}*\n\n${n.content}\n\n${checklists ? '### Checklist\n' + checklists + '\n' : ''}\n---\n`;
-      })
-      .join('\n\n');
-
-    const dataStr = 'data:text/markdown;charset=utf-8,' + encodeURIComponent(mdContent);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `aurora-notes-${new Date().toISOString().slice(0, 10)}.md`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
-
-  const filteredLogs = logs.filter((l) => logFilter === 'ALL' || l.level === logFilter);
-
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12 }}
-      transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-      className="max-w-2xl mx-auto px-4 sm:px-6 pt-2 pb-24 space-y-3"
-    >
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-2 pb-24 space-y-3">
       {/* Compact Header */}
       <div className="pb-1">
         <h2 className="text-lg sm:text-xl font-bold text-[#1E1A24] dark:text-[#F7EEFC] tracking-tight">
           Settings
         </h2>
         <p className="text-xs text-[#797487] dark:text-[#A39BAC] mt-0.5">
-          Theme, lock, updates, and diagnostics.
+          Theme, lock, updates, and guides.
         </p>
       </div>
 
@@ -554,112 +499,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       </div>
 
-      {/* 5. Diagnostic Logs (Collapsed by default to keep Settings minimal) */}
-      <div className="rounded-2xl p-3.5 border border-[#EADBFC] dark:border-[#322742] bg-white dark:bg-[#1B1524] shadow-xs">
-        <button
-          type="button"
-          data-testid="settings-logs-toggle"
-          onClick={() => setIsLogsExpanded((prev) => !prev)}
-          aria-expanded={isLogsExpanded}
-          className="w-full flex items-center justify-between gap-2 cursor-pointer text-left"
-        >
-          <span className="text-xs font-bold text-[#1E1A24] dark:text-[#F7EEFC] flex items-center gap-1.5">
-            <Terminal className="w-3.5 h-3.5 text-[#5925DC] dark:text-[#C296FD]" />
-            <span>Diagnostic Logs</span>
-          </span>
-          <span className="flex items-center gap-1.5 text-[11px] font-medium text-[#797487] dark:text-[#A39BAC]">
-            <span>{logs.length} entries</span>
-            {isLogsExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </span>
-        </button>
-
-        {isLogsExpanded && (
-          <div className="mt-3 space-y-2.5 pt-2.5 border-t border-[#EADBFC]/60 dark:border-[#322742]/70">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {(['ALL', 'WARN', 'ERROR'] as const).map((lvl) => {
-                const count =
-                  lvl === 'ALL'
-                    ? logs.length
-                    : logs.filter((entry) => entry.level === lvl).length;
-                const active = logFilter === lvl;
-                return (
-                  <button
-                    key={lvl}
-                    type="button"
-                    onClick={() => setLogFilter(lvl)}
-                    className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-[#5925DC] dark:bg-[#9D5AF5] text-white border-transparent'
-                        : 'bg-[#FAF8FB] dark:bg-[#120E17] text-[#484455] dark:text-[#A39BAC] border-[#EADBFC] dark:border-[#322742]'
-                    }`}
-                  >
-                    {lvl} ({count})
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="p-2.5 rounded-xl bg-[#0F0B14] font-mono text-[11px] text-[#A39BAC] space-y-1 max-h-36 overflow-y-auto custom-scrollbar border border-[#322742]">
-              {filteredLogs.length === 0 ? (
-                <div className="text-slate-500 py-1.5 text-center">No warnings or errors recorded.</div>
-              ) : (
-                filteredLogs.slice(0, 50).map((log) => (
-                  <div key={log.id} className="leading-tight">
-                    <span
-                      className={
-                        log.level === 'ERROR'
-                          ? 'text-rose-400 font-semibold'
-                          : 'text-amber-400 font-semibold'
-                      }
-                    >
-                      [{log.level}]
-                    </span>{' '}
-                    <span className="text-slate-400">[{log.category}]</span> {log.message}
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <button
-                type="button"
-                onClick={() => {
-                  const dump = logger.exportLogsAsText();
-                  navigator.clipboard?.writeText(dump);
-                  setCopiedNotice(true);
-                  setTimeout(() => setCopiedNotice(false), 2000);
-                }}
-                className="px-2.5 py-1.5 rounded-xl bg-[#F4EBFF] dark:bg-[#2B1E3E] text-[#5925DC] dark:text-[#C296FD] text-[11px] font-semibold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 cursor-pointer"
-              >
-                <Copy className="w-3 h-3" />
-                <span>{copiedNotice ? 'Copied!' : 'Copy'}</span>
-              </button>
-
-              {logs.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => logger.clearLogs()}
-                  className="px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-[11px] font-semibold border border-rose-200 dark:border-rose-800 flex items-center gap-1 cursor-pointer"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  <span>Clear</span>
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={handleExportMarkdown}
-                className="px-2.5 py-1.5 rounded-xl bg-[#FAF8FB] dark:bg-[#120E17] text-[#1E1A24] dark:text-[#F7EEFC] text-[11px] font-semibold border border-[#EADBFC] dark:border-[#322742] flex items-center gap-1 cursor-pointer"
-              >
-                <Download className="w-3 h-3" />
-                <span>Export Notes (.md)</span>
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 6. Danger Zone (Compact) */}
+      {/* 5. Danger Zone (Compact) */}
       <div className="rounded-2xl p-3.5 border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20 shadow-xs space-y-2.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -727,6 +567,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 };

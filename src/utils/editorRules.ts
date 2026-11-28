@@ -1128,12 +1128,13 @@ export function applyUnarchivePreservingPin<T extends { id: string; isArchived?:
 export interface PreloadedTabLayerTransform {
   alpha: number;
   translationXPx: number;
+  scale: number;
   isInteractive: boolean;
 }
 
 /**
- * Computes pure GPU-layer transform (`alpha`, `translationXPx`) for a permanently preloaded tab
- * during an instant smooth slide/crossfade between `fromTab` and `toTab` (`progress` in 0..1).
+ * Computes pure GPU-layer transform (`alpha`, `translationXPx`, `scale`) for a permanently preloaded tab
+ * during a smooth directional glide & depth crossfade between `fromTab` and `toTab` (`progress` in 0..1).
  * All 4 tabs remain loaded in memory; inactive tabs park cleanly offscreen without unmounting.
  */
 export function computePreloadedTabLayerTransform(
@@ -1146,15 +1147,16 @@ export function computePreloadedTabLayerTransform(
   const p = Math.max(0, Math.min(1, progress));
   const width = Math.max(1, viewportWidthPx);
   const slideDir = toTab >= fromTab ? 1 : -1;
-  const slideSpan = width * 0.12;
+  const slideSpan = width * 0.26;
 
   if (tabIndex === toTab) {
     if (fromTab === toTab || p >= 0.999) {
-      return { alpha: 1, translationXPx: 0, isInteractive: true };
+      return { alpha: 1, translationXPx: 0, scale: 1, isInteractive: true };
     }
     return {
       alpha: p,
       translationXPx: (1 - p) * slideDir * slideSpan,
+      scale: 0.972 + 0.028 * p,
       isInteractive: true,
     };
   }
@@ -1162,7 +1164,8 @@ export function computePreloadedTabLayerTransform(
   if (tabIndex === fromTab && p < 0.999) {
     return {
       alpha: 1 - p,
-      translationXPx: -p * slideDir * slideSpan,
+      translationXPx: -p * slideDir * (slideSpan * 0.65),
+      scale: 1 - 0.018 * p,
       isInteractive: false,
     };
   }
@@ -1170,6 +1173,7 @@ export function computePreloadedTabLayerTransform(
   return {
     alpha: 0,
     translationXPx: width * 2.5,
+    scale: 1,
     isInteractive: false,
   };
 }

@@ -2,7 +2,6 @@ package com.aurora.notes.data
 
 import android.content.Context
 import com.aurora.notes.model.Note
-import com.aurora.notes.util.LocalLogger
 import com.aurora.notes.util.PrivateStorageManager
 import com.aurora.notes.util.PrivateStorageStats
 import com.aurora.notes.util.StorageCleanupReport
@@ -46,7 +45,6 @@ class AuroraRepository(
             note = plainUpdated,
             encryptFileContent = isDatabaseEncryptionEnabled
         )
-        LocalLogger.security("NOTE", "Local note saved: \"${plainUpdated.title}\" (ID: ${plainUpdated.id})")
     }
 
     suspend fun saveNotesBatch(notes: List<Note>) {

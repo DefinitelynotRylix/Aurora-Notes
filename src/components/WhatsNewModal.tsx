@@ -8,7 +8,7 @@ import {
   X
 } from 'lucide-react';
 
-export const CURRENT_WHATS_NEW_VERSION = '1.3.39';
+export const CURRENT_WHATS_NEW_VERSION = '1.3.40';
 
 interface WhatsNewModalProps {
   isOpen: boolean;
@@ -23,32 +23,32 @@ export const WhatsNewModal: React.FC<WhatsNewModalProps> = ({
 
   const highlights = [
     {
-      icon: <Undo2 className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'Note Editor Undo & Redo',
-      badge: 'EDITOR',
-      description:
-        'Added dedicated Undo and Redo buttons directly before the Save button in the top bar so you can step backward and forward through text edits, formatting, checklists, and images.',
-    },
-    {
       icon: <Sparkles className="w-5 h-5 text-[#8B3DFF] dark:text-[#C296FD]" />,
-      title: 'Silky-Smooth Navbar Pill Animation',
+      title: 'Silky-Smooth Preloaded Menu Transitions',
       badge: 'PERFORMANCE',
       description:
-        'Re-engineered the floating navigation pill with zero-recomposition GPU rendering so tab switches and hold-to-slide gestures stay locked at 60/120fps.',
+        'All four menus stay permanently loaded in memory and glide smoothly with GPU-accelerated directional motion and depth scaling, eliminating switching lag and stutter.',
     },
     {
       icon: <Sliders className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
-      title: 'Minimalist Settings Menu',
-      badge: 'DESIGN',
+      title: 'Fluid View Morph & Outline Release Glow',
+      badge: 'MOTION',
       description:
-        'Decluttered Settings into compact grouped cards with collapsible Diagnostic Logs and removed the verbose encryption section while keeping automatic AES-256 protection active behind the scenes.',
+        'Switching between Masonry Grid and Column view morphs every note smoothly in place, while dropping a held note lights up its outline and ripples gently to nearby notes.',
+    },
+    {
+      icon: <Undo2 className="w-5 h-5 text-[#5925DC] dark:text-[#C296FD]" />,
+      title: 'Word & Paste Undo/Redo + Single-Row Enter',
+      badge: 'EDITOR',
+      description:
+        'Undo and Redo now group full words, isolate pasted text, and step cleanly through spaces and punctuation, while pressing Enter always starts a single crisp row.',
     },
     {
       icon: <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
-      title: 'Native Selection, Smooth Keyboard & Exact Dates',
+      title: 'Streamlined Settings & Reliable Actions',
       badge: 'RELIABILITY',
       description:
-        'Restored native long-press text selection handles in the editor, eliminated keyboard animation lag, and ensured opening a note without editing never alters its last-edited date.',
+        'Removed unused overhead for a leaner Settings screen, made hold-to-select 100% consistent, kept pins intact when restoring archived notes, and locked Share to your first selected note.',
     },
   ];
 

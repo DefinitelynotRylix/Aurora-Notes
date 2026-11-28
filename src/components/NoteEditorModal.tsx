@@ -20,7 +20,6 @@ import {
   Undo2,
   Redo2
 } from 'lucide-react';
-import { logger } from '../utils/logger';
 import {
   convertPlainTextToLinkedHtml,
   linkifyDomContainer,
@@ -666,7 +665,6 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
 
     // Discard note if user entered nothing and added no images
     if (!cleanTitle && !cleanText && !hasEmbeddedImages) {
-      logger.warn('NOTE', `Discarded blank note (ID: ${note.id})`);
       onClose();
       return;
     }
@@ -680,7 +678,6 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     const updated = getConstructedNote();
     setDisplayedUpdatedAt(updated.updatedAt);
     onSave(updated);
-    logger.security('NOTE', `Saved local note: "${updated.title}" (ID: ${updated.id})`);
     onClose();
   };
 
@@ -721,7 +718,6 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
         contentHtml: editorRef.current ? editorRef.current.innerHTML : updated.content,
         plainText: editorRef.current ? extractEditorPlainText(editorRef.current) : '',
       };
-      logger.security('NOTE', `Saved local note in editor: "${updated.title}" (ID: ${updated.id})`);
     }
 
     historyRef.current = breakEditorHistoryGroup(historyRef.current);

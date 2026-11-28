@@ -7,7 +7,6 @@ import androidx.lifecycle.viewModelScope
 import com.aurora.notes.data.AuroraDatabase
 import com.aurora.notes.data.AuroraRepository
 import com.aurora.notes.model.Note
-import com.aurora.notes.util.LocalLogger
 import com.aurora.notes.util.PrivateStorageManager
 import com.aurora.notes.util.PrivateStorageStats
 import com.aurora.notes.util.StorageCleanupReport
@@ -30,7 +29,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_BIOMETRIC_LOCK = "key_biometric_lock_enabled"
         private const val KEY_WELCOME_SEEN = "key_welcome_tour_seen_v1"
         private const val KEY_WHATS_NEW_SEEN_VERSION = "key_whats_new_seen_version_v1"
-        const val CURRENT_MAJOR_UPDATE_ID = "1.3.39"
+        const val CURRENT_MAJOR_UPDATE_ID = "1.3.40"
         private const val KEY_USER_TAGS = "key_user_created_tags_v1"
         private const val KEY_THEME_MODE = "key_theme_mode_v1"
         private const val KEY_HAPTICS_ENABLED = "key_haptics_enabled_v1"
@@ -254,7 +253,6 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         val current = _userTags.value
         if (current.none { it.equals(clean, ignoreCase = true) }) {
             persistUserTags(current + clean)
-            LocalLogger.security("TAGS", "Created user tag '$clean'")
         }
     }
 
@@ -288,7 +286,6 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         val hasChecklistContent = note.checklist.any { it.text.trim().isNotBlank() }
 
         if (cleanTitle.isBlank() && cleanContent.isBlank() && !hasChecklistContent && note.images.isEmpty()) {
-            LocalLogger.warn("NOTE", "Discarded blank note with empty title and body")
             return
         }
 
@@ -539,14 +536,6 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun clearDiagnosticLogs() {
-        LocalLogger.clear()
-    }
-
-    fun exportDiagnosticLogs(): String {
-        return LocalLogger.exportToPlainText()
-    }
-
     fun setBiometricLockEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_BIOMETRIC_LOCK, enabled).apply()
         _isBiometricEnabled.value = enabled
@@ -589,7 +578,6 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
-            LocalLogger.security("TAGS", "Deleted tag '$tagToDelete' and returned associated notes to All.")
         }
     }
 }

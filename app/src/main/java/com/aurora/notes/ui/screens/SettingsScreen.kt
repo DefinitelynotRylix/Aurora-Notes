@@ -1,40 +1,25 @@
 package com.aurora.notes.ui.screens
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BrightnessAuto
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.SystemUpdate
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -45,7 +30,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,16 +37,11 @@ import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
 import com.aurora.notes.util.AppUpdateManager
 import com.aurora.notes.util.HapticHelper
-import com.aurora.notes.util.LocalLogger
-import com.aurora.notes.util.LogLevel
 import com.aurora.notes.util.PrivateStorageStats
 import com.aurora.notes.util.StorageCleanupReport
 import com.aurora.notes.util.UpdateScanResult
 import kotlinx.coroutines.launch
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 private data class ThemeOptionItem(
     val id: String,
@@ -91,17 +70,12 @@ fun SettingsScreen(
     onSetBiometricLock: (Boolean) -> Unit = {},
     onOpenWelcomeTour: () -> Unit = {},
     onOpenWhatsNew: () -> Unit = {},
-    onClearLogs: () -> Unit = {},
-    onExportLogs: () -> String = { "" },
     onTriggerBiometricAuth: (onSuccess: () -> Unit, onError: (String) -> Unit) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val view = LocalView.current
     val coroutineScope = rememberCoroutineScope()
-    val logs by LocalLogger.logs.collectAsState()
-    var selectedLevelFilter by remember { mutableStateOf<LogLevel?>(null) }
-    var isLogsExpanded by remember { mutableStateOf(false) }
 
     var showWipeConfirmDialog by remember { mutableStateOf(false) }
 
@@ -114,12 +88,6 @@ fun SettingsScreen(
     var scanResult by remember { mutableStateOf<UpdateScanResult?>(null) }
     var downloadedApkFile by remember { mutableStateOf<File?>(null) }
     var awaitingInstallPermission by remember { mutableStateOf(false) }
-
-    val filteredLogs = remember(logs, selectedLevelFilter) {
-        if (selectedLevelFilter == null) logs else logs.filter { it.level == selectedLevelFilter }
-    }
-
-    val dateFormat = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
 
     val themeOptions = remember {
         listOf(
@@ -278,7 +246,7 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                 )
                 Text(
-                    text = "Theme, lock, updates, and diagnostics.",
+                    text = "Theme, lock, updates, and guides.",
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
                         fontSize = 12.sp
@@ -777,179 +745,7 @@ fun SettingsScreen(
             }
         }
 
-        // 5. Local Diagnostic Logs (Collapsed by default for clean Settings height)
-        item(key = "settings_logs") {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { isLogsExpanded = !isLogsExpanded },
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Terminal,
-                                contentDescription = null,
-                                tint = AuroraRoyalViolet,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(7.dp))
-                            Text(
-                                text = "Diagnostic Logs",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "${logs.size} entries",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = if (isLogsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = if (isLogsExpanded) "Collapse logs" else "Expand logs",
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-
-                    AnimatedVisibility(visible = isLogsExpanded) {
-                        Column(modifier = Modifier.padding(top = 10.dp)) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                FilterChip(
-                                    selected = selectedLevelFilter == null,
-                                    onClick = { selectedLevelFilter = null },
-                                    label = { Text("ALL (${logs.size})", fontSize = 11.sp) }
-                                )
-                                FilterChip(
-                                    selected = selectedLevelFilter == LogLevel.WARN,
-                                    onClick = { selectedLevelFilter = LogLevel.WARN },
-                                    label = { Text("WARN (${logs.count { it.level == LogLevel.WARN }})", fontSize = 11.sp) }
-                                )
-                                FilterChip(
-                                    selected = selectedLevelFilter == LogLevel.ERROR,
-                                    onClick = { selectedLevelFilter = LogLevel.ERROR },
-                                    label = { Text("ERROR (${logs.count { it.level == LogLevel.ERROR }})", fontSize = 11.sp) }
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(140.dp)
-                                    .background(Color(0xFF0F0B14), shape = RoundedCornerShape(10.dp))
-                                    .padding(8.dp)
-                                    .verticalScroll(rememberScrollState())
-                            ) {
-                                if (filteredLogs.isEmpty()) {
-                                    Text(
-                                        text = "No warnings or errors recorded.",
-                                        color = Color(0xFF6B6577),
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 11.sp
-                                    )
-                                } else {
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        filteredLogs.forEach { log ->
-                                            val levelColor = when (log.level) {
-                                                LogLevel.ERROR -> Color(0xFFFB7185)
-                                                LogLevel.WARN -> Color(0xFFFBBF24)
-                                                LogLevel.SECURITY -> Color(0xFFA78BFA)
-                                            }
-                                            Text(
-                                                text = "[${dateFormat.format(Date(log.timestamp))}] [${log.level.name}] [${log.category}] ${log.message}",
-                                                color = levelColor,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = 10.sp,
-                                                lineHeight = 14.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        val dump = onExportLogs()
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = ClipData.newPlainText("Aurora Diagnostic Logs", dump)
-                                        clipboard.setPrimaryClip(clip)
-                                        Toast.makeText(context, "Copied logs to clipboard", Toast.LENGTH_SHORT).show()
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(13.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Copy", fontSize = 11.sp)
-                                }
-
-                                OutlinedButton(
-                                    onClick = onClearLogs,
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AuroraDangerRed),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(13.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Clear", fontSize = 11.sp)
-                                }
-
-                                Button(
-                                    onClick = {
-                                        val dump = onExportLogs()
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = ClipData.newPlainText("aurora_diagnostic_logs.txt", dump)
-                                        clipboard.setPrimaryClip(clip)
-                                        Toast.makeText(context, "Exported logs to clipboard", Toast.LENGTH_LONG).show()
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = AuroraRoyalViolet),
-                                    modifier = Modifier.weight(1.1f)
-                                ) {
-                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(13.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Export", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 6. Danger Zone (Compact single row)
+        // 5. Danger Zone (Compact single row)
         item(key = "settings_danger_zone") {
             Card(
                 shape = RoundedCornerShape(16.dp),

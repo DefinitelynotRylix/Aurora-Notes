@@ -18,7 +18,6 @@ class UpdateRestartReceiver : BroadcastReceiver() {
         val action = intent?.action ?: return
 
         if (action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            LocalLogger.security("UPDATE", "Package replaced successfully — forcing automatic app restart into new version")
             val launchIntent = Intent(context, MainActivity::class.java).apply {
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -47,14 +46,10 @@ class UpdateRestartReceiver : BroadcastReceiver() {
                     }
                 }
                 PackageInstaller.STATUS_SUCCESS -> {
-                    LocalLogger.security("UPDATE", "Self-update installation succeeded — restarting Aurora Notes")
                     Toast.makeText(context, "Update installed! Restarting Aurora Notes...", Toast.LENGTH_SHORT).show()
                     AppUpdateManager.forceRestartApp(context)
                 }
-                else -> {
-                    val msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "Installation cancelled or failed"
-                    LocalLogger.error("UPDATE", "PackageInstaller status $status: $msg")
-                }
+                else -> Unit
             }
         }
     }

@@ -150,8 +150,6 @@ object AppUpdateManager {
                 )
             }
 
-            LocalLogger.security("UPDATE", "Scanning GitHub Releases for updates (current v$currentVersionName • build $currentVersionCode)")
-
             try {
                 val releaseObj = fetchLatestReleaseJson(repoSlug)
                     ?: return@withContext UpdateScanResult.Error(
@@ -198,10 +196,6 @@ object AppUpdateManager {
                 }
 
                 if (cmp <= 0) {
-                    LocalLogger.security(
-                        "UPDATE",
-                        "App is already at the latest version (installed v$currentVersionName, latest release v$latestCleanVersion)"
-                    )
                     return@withContext UpdateScanResult.UpToDate(
                         currentVersion = currentVersionName,
                         latestVersion = latestCleanVersion,
@@ -215,11 +209,6 @@ object AppUpdateManager {
                     )
                 }
 
-                LocalLogger.security(
-                    "UPDATE",
-                    "New update found: v$latestCleanVersion (current v$currentVersionName) — APK '$apkName'"
-                )
-
                 UpdateScanResult.UpdateAvailable(
                     currentVersion = currentVersionName,
                     latestVersion = latestCleanVersion,
@@ -230,7 +219,6 @@ object AppUpdateManager {
                     apkSizeBytes = apkSize
                 )
             } catch (e: Exception) {
-                LocalLogger.error("UPDATE", "Update scan failed: ${e.localizedMessage}")
                 UpdateScanResult.Error(
                     "Could not reach GitHub Releases: ${e.localizedMessage ?: "Network error"}"
                 )
@@ -340,7 +328,6 @@ object AppUpdateManager {
         onProgress: (Int) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
-            LocalLogger.security("UPDATE", "Downloading update APK from $downloadUrl")
             val updatesDir = File(context.cacheDir, "apk_updates").apply {
                 if (!exists()) mkdirs()
             }
@@ -415,10 +402,8 @@ object AppUpdateManager {
             }
             activeConn.disconnect()
             onProgress(100)
-            LocalLogger.security("UPDATE", "Downloaded update APK (${targetFile.length()} bytes)")
             Result.success(targetFile)
         } catch (e: Exception) {
-            LocalLogger.error("UPDATE", "Failed downloading update APK: ${e.localizedMessage}")
             Result.failure(e)
         }
     }
@@ -484,10 +469,8 @@ object AppUpdateManager {
                 activeSession.commit(pendingIntent.intentSender)
             }
 
-            LocalLogger.security("UPDATE", "Committed self-update session ($sessionId); awaiting OS package replacement & forced restart")
             true
-        } catch (e: Exception) {
-            LocalLogger.warn("UPDATE", "PackageInstaller session fallback to ACTION_VIEW installer: ${e.localizedMessage}")
+        } catch (_: Exception) {
             try {
                 val apkUri = FileProvider.getUriForFile(
                     context,
@@ -501,8 +484,7 @@ object AppUpdateManager {
                 }
                 context.startActivity(viewIntent)
                 true
-            } catch (fallbackErr: Exception) {
-                LocalLogger.error("UPDATE", "Failed launching APK installer: ${fallbackErr.localizedMessage}")
+            } catch (_: Exception) {
                 false
             }
         }
@@ -513,7 +495,6 @@ object AppUpdateManager {
      * and terminating the old process.
      */
     fun forceRestartApp(context: Context) {
-        LocalLogger.security("UPDATE", "Executing forced app restart")
         val restartIntent = Intent(context, MainActivity::class.java).apply {
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or

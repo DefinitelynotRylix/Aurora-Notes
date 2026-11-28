@@ -549,7 +549,6 @@ object NoteShareHelper {
                 resolver.update(imageUri, contentValues, null, null)
             }
 
-            LocalLogger.security("SHARE", "Saved full-length note image ($fileName) to Android Gallery")
             Toast.makeText(
                 context,
                 "Saved full-length note image to Android Gallery!",
@@ -557,7 +556,6 @@ object NoteShareHelper {
             ).show()
             true
         } catch (e: Exception) {
-            LocalLogger.error("SHARE", "Failed saving note image to Android Gallery: ${e.localizedMessage}")
             Toast.makeText(
                 context,
                 "Failed to save image to Gallery: ${e.localizedMessage ?: "Storage error"}",
@@ -727,9 +725,7 @@ object NoteShareHelper {
                 chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(chooser)
             }
-            LocalLogger.security("SHARE", "Shared ${plainNotes.size} separate note file(s) in ${format.name} format")
         } catch (e: Exception) {
-            LocalLogger.error("SHARE", "Failed to share note(s): ${e.localizedMessage}")
             Toast.makeText(context, "Unable to open share sheet: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }
     }
@@ -773,10 +769,8 @@ object NoteShareHelper {
                 }
             }
 
-            LocalLogger.security("SHARE", "Saved $savedCount separate .md file(s) to chosen folder")
             savedCount
-        } catch (e: Exception) {
-            LocalLogger.error("SHARE", "Failed saving separate .md files to folder: ${e.localizedMessage}")
+        } catch (_: Exception) {
             0
         }
     }
@@ -811,10 +805,8 @@ object NoteShareHelper {
                     outputStream.flush()
                 } ?: return false
             }
-            LocalLogger.security("SHARE", "Saved note as .${format.extension} to chosen folder")
             true
-        } catch (e: Exception) {
-            LocalLogger.error("SHARE", "Failed saving note to chosen folder: ${e.localizedMessage}")
+        } catch (_: Exception) {
             false
         }
     }

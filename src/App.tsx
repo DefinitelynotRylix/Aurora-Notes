@@ -13,7 +13,6 @@ import { WelcomeTourModal } from './components/WelcomeTourModal';
 import { WhatsNewModal, CURRENT_WHATS_NEW_VERSION } from './components/WhatsNewModal';
 import { ShareNoteModal } from './components/ShareNoteModal';
 import { isNativeLockEnabled, verifyWithAndroidNativeLock } from './utils/nativeAuth';
-import { logger } from './utils/logger';
 import {
   PRIVATE_EXTERNAL_FILE_PREFIX,
   ENC_STORAGE_PREFIX,
@@ -73,16 +72,49 @@ export default function App() {
     }
   };
 
-  // Instant zero-delay menu switching: all 4 pages stay permanently loaded in memory
-  // so switching menus never unmounts/remounts heavy screens or shows a blank delay.
+  // Preloaded smooth menu switching: all 4 pages stay permanently loaded in memory
+  // with GPU-accelerated directional glide + subtle depth scaling (zero unmounting or lag).
+  const tabOrder: ActiveTab[] = ['notes', 'archive', 'trash', 'settings'];
   const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
+  const [outgoingTab, setOutgoingTab] = useState<ActiveTab | null>(null);
+  const tabTransitionTimerRef = useRef<number | null>(null);
   const pendingNavTab = activeTab;
   const isNavTransitionPending = false;
+  const activeTabIndex = tabOrder.indexOf(activeTab);
+
+  useEffect(() => {
+    return () => {
+      if (tabTransitionTimerRef.current !== null) {
+        window.clearTimeout(tabTransitionTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSelectNavTab = (nextTab: ActiveTab) => {
     if (nextTab === activeTab) return;
     setSelectedNoteIds([]);
+    setOutgoingTab(activeTab);
     setActiveTab(nextTab);
+    if (tabTransitionTimerRef.current !== null) {
+      window.clearTimeout(tabTransitionTimerRef.current);
+    }
+    tabTransitionTimerRef.current = window.setTimeout(() => {
+      setOutgoingTab(null);
+      tabTransitionTimerRef.current = null;
+    }, 300);
+  };
+
+  const getTabPanelClassName = (tab: ActiveTab) => {
+    const base =
+      'w-full transition-[opacity,transform] duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[transform,opacity]';
+    if (activeTab === tab) {
+      return `${base} relative opacity-100 translate-x-0 scale-100 pointer-events-auto visible z-10`;
+    }
+    const idx = tabOrder.indexOf(tab);
+    const offsetClass = idx < activeTabIndex ? '-translate-x-12' : 'translate-x-12';
+    const isOutgoing = outgoingTab === tab;
+    const visibilityClass = isOutgoing ? 'visible scale-[0.982] z-[5]' : 'invisible scale-[0.972] z-0';
+    return `${base} absolute top-4 left-3 right-3 sm:left-6 sm:right-6 max-h-[85vh] overflow-hidden opacity-0 ${offsetClass} pointer-events-none ${visibilityClass}`;
   };
 
   // Custom user tags - starts completely empty in the base app
@@ -262,11 +294,6 @@ export default function App() {
     }
   }, [theme]);
 
-  // Initialize global error listeners
-  useEffect(() => {
-    logger.setupGlobalErrorListeners();
-  }, []);
-
   // Attempt Android native unlock automatically if enabled
   useEffect(() => {
     if (isNativeLocked) {
@@ -279,10 +306,8 @@ export default function App() {
     const result = await verifyWithAndroidNativeLock();
     if (result.success) {
       setIsNativeLocked(false);
-      logger.security('AUTH', 'Android native authentication successful');
     } else {
       setNativeAuthError(result.error || 'Android native authentication required.');
-      logger.warn('AUTH', 'Android native authentication rejected or canceled', result.error);
     }
   };
 
@@ -356,7 +381,6 @@ export default function App() {
         localStorage.setItem(STORAGE_NOTES_KEY, encryptStoragePayload(serialized));
       } catch (e) {
         console.error('Failed to save notes locally', e);
-        logger.error('STORAGE', 'Failed to save notes to localStorage', String(e));
       }
       syncNotesToPrivateExternalStorage(notes, true);
     }, 0);
@@ -525,7 +549,6 @@ export default function App() {
     const updated = applyArchivePreservingPin(notes, [id]);
     persistNotes(updated);
     setSelectedNoteIds((prev) => prev.filter((item) => item !== id));
-    logger.security('ARCHIVE', `Archived note (ID: ${id})`);
   };
 
   // Batch Archive selected notes (preserves each note's pin state for restoration)
@@ -533,7 +556,6 @@ export default function App() {
     const updated = applyArchivePreservingPin(notes, ids);
     persistNotes(updated);
     setSelectedNoteIds([]);
-    logger.security('ARCHIVE', `Batch archived ${ids.length} selected notes`);
   };
 
   // Restore (Unarchive) single note back to Notes menu keeping its pin intact
@@ -544,7 +566,6 @@ export default function App() {
     const updated = applyUnarchivePreservingPin(notes, [id]);
     persistNotes(updated);
     setSelectedNoteIds((prev) => prev.filter((item) => item !== id));
-    logger.security('ARCHIVE', `Restored note from Archive (ID: ${id})`);
   };
 
   // Batch Restore (Unarchive) selected notes back to Notes menu keeping pins intact
@@ -552,7 +573,6 @@ export default function App() {
     const updated = applyUnarchivePreservingPin(notes, ids);
     persistNotes(updated);
     setSelectedNoteIds([]);
-    logger.security('ARCHIVE', `Batch restored ${ids.length} archived notes`);
   };
 
   // Soft Delete: moves note to Trash
@@ -576,7 +596,6 @@ export default function App() {
     );
     persistNotes(updated);
     setSelectedNoteIds([]);
-    logger.security('TRASH', `Batch moved ${ids.length} selected notes to Trash`);
   };
 
   const handleToggleNoteSelection = (noteId: string) => {
@@ -957,11 +976,7 @@ export default function App() {
           data-tab-panel="notes"
           data-active={activeTab === 'notes'}
           aria-hidden={activeTab !== 'notes'}
-          className={`w-full transition-[opacity,transform] duration-150 ease-out will-change-[transform,opacity] ${
-            activeTab === 'notes'
-              ? 'relative opacity-100 translate-x-0 pointer-events-auto visible z-10'
-              : 'absolute top-4 left-3 right-3 sm:left-6 sm:right-6 max-h-[85vh] overflow-hidden opacity-0 -translate-x-2 pointer-events-none invisible z-0'
-          }`}
+          className={getTabPanelClassName('notes')}
         >
           <div className="mb-2.5">
             <CategoryFilterBar
@@ -1038,11 +1053,7 @@ export default function App() {
           data-tab-panel="archive"
           data-active={activeTab === 'archive'}
           aria-hidden={activeTab !== 'archive'}
-          className={`w-full transition-[opacity,transform] duration-150 ease-out will-change-[transform,opacity] ${
-            activeTab === 'archive'
-              ? 'relative opacity-100 translate-x-0 pointer-events-auto visible z-10'
-              : 'absolute top-4 left-3 right-3 sm:left-6 sm:right-6 max-h-[85vh] overflow-hidden opacity-0 translate-x-2 pointer-events-none invisible z-0'
-          }`}
+          className={getTabPanelClassName('archive')}
         >
           <div className="mb-2.5">
             <CategoryFilterBar
@@ -1112,11 +1123,7 @@ export default function App() {
           data-tab-panel="trash"
           data-active={activeTab === 'trash'}
           aria-hidden={activeTab !== 'trash'}
-          className={`w-full transition-[opacity,transform] duration-150 ease-out will-change-[transform,opacity] ${
-            activeTab === 'trash'
-              ? 'relative opacity-100 translate-x-0 pointer-events-auto visible z-10'
-              : 'absolute top-4 left-3 right-3 sm:left-6 sm:right-6 max-h-[85vh] overflow-hidden opacity-0 translate-x-2 pointer-events-none invisible z-0'
-          }`}
+          className={getTabPanelClassName('trash')}
         >
           <TrashView
             trashedNotes={trashedNotes}
@@ -1134,11 +1141,7 @@ export default function App() {
           data-tab-panel="settings"
           data-active={activeTab === 'settings'}
           aria-hidden={activeTab !== 'settings'}
-          className={`w-full transition-[opacity,transform] duration-150 ease-out will-change-[transform,opacity] ${
-            activeTab === 'settings'
-              ? 'relative opacity-100 translate-x-0 pointer-events-auto visible z-10'
-              : 'absolute top-4 left-3 right-3 sm:left-6 sm:right-6 max-h-[85vh] overflow-hidden opacity-0 translate-x-2 pointer-events-none invisible z-0'
-          }`}
+          className={getTabPanelClassName('settings')}
         >
           <SettingsPage
             currentTheme={theme}
@@ -1164,7 +1167,6 @@ export default function App() {
               setSelectedCategory('All');
               setSelectedNoteIds([]);
               setLastCleanupSummary('Wiped all notes and cleaned private external storage');
-              logger.security('STORAGE', 'User wiped local storage notes and custom categories after biometric verification');
             }}
           />
         </section>

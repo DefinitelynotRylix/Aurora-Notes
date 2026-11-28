@@ -3,7 +3,7 @@
 Aurora Notes is a privacy-first, local-only note-taking app built natively for Android using **Kotlin** and **Jetpack Compose**, protected by mandatory **hardware-backed AES-256-GCM cryptography**.
 
 > ### Care, Maintenance, Cryptography & Privacy Notice
-> **Aurora Notes** has been created with the help of **Argon 4 Gemini**. This app receives its deserved care and ongoing maintenance while strictly respecting the user's privacy — all notes, checklists, categories, and diagnostic logs stay 100% locally on your device with zero tracking or telemetry. Every note in the Room SQLite database and mirrored private device storage is permanently encrypted at rest using **AndroidKeyStore AES-256-GCM cryptography**.
+> **Aurora Notes** has been created with the help of **Argon 4 Gemini**. This app receives its deserved care and ongoing maintenance while strictly respecting the user's privacy — all notes, checklists, images, and categories stay 100% locally on your device with zero tracking or telemetry. Every note in the Room SQLite database and mirrored private device storage is permanently encrypted at rest using **AndroidKeyStore AES-256-GCM cryptography**.
 
 ---
 
@@ -23,8 +23,8 @@ Aurora Notes is a privacy-first, local-only note-taking app built natively for A
    - **Automatic Orphaned & Temp File Cleanup**: Automatically sweeps orphaned note files, incomplete `.tmp` atomic writes, and stale shared/update cache files on app launch, resume, and every note change.
    - **Biometric / System PIN Lock**: Optional native Android hardware biometric lock (Fingerprint, Face Unlock, or Device PIN) on launch and mandatory verification before wiping app data.
 
-2. **Jetpack Compose UI & Smooth Layout Morphing**:
-   - Modern declarative UI with a fluid horizontal pill navigation bar, tactile haptics, and continuous width + coordinate morphing between 2-column Masonry Grid and Single Column views.
+2. **Jetpack Compose UI, Smooth Preloaded Navigation & Layout Morphing**:
+   - Modern declarative UI with permanently preloaded menus for silky-smooth GPU transitions, a fluid horizontal pill navigation bar, tactile haptics, outline release glow, and continuous morphing between 2-column Masonry Grid and Single Column views.
    - Dual theme support (Light, Dark & System mode) with Royal Violet (`#5925DC`) accents.
    - Exact **Last Edited Timestamps** showing the month, day, hour, and minute (`MMM d, h:mm a`) on note cards and inside the note editor.
 
@@ -43,9 +43,8 @@ Aurora Notes is a privacy-first, local-only note-taking app built natively for A
    - Archived notes are moved to the **Archive** menu and locked in **read-only mode** so their contents cannot be accidentally modified, while keeping **Restore** and **Delete** actions ready.
    - Share notes to apps & contacts or save `.md` / `.txt` files directly to any folder via the **Android Storage Access Framework (File Picker)**.
 
-5. **Local Diagnostic Logs & Local Trash**:
-   - Rolling 250-entry FIFO local diagnostics buffer restricted to warnings and errors in device memory.
-   - Restoring, individual permanent shredding, and bulk Empty Trash with confirmation dialog and real-time search.
+5. **Local Trash & Instant Recovery**:
+   - Soft-deleted notes move to local Trash where you can search, restore in one tap, permanently delete individually, or bulk Empty Trash with a confirmation dialog.
 
 ---
 

@@ -127,9 +127,7 @@ object LinkHelper {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(browserIntent)
-            LocalLogger.security("LINK", "Opened link in Android default browser: $normalizedUrl")
-        } catch (e: Exception) {
-            LocalLogger.error("LINK", "Could not open browser for $normalizedUrl: ${e.localizedMessage}")
+        } catch (_: Exception) {
             Toast.makeText(
                 context,
                 "No default browser found to open $normalizedUrl",

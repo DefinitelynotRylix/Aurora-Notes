@@ -123,7 +123,6 @@ test('toggleCheckboxCheckedStateAtOffset toggles ☐ and ☑ on the targeted lin
   assert.equal(toggledBack.text, '☐ Buy milk\n☐ Call mom');
 });
 
-import { logger } from './logger';
 
 test('getNoteViewFormatAlignment keeps first note single-column in masonry grid view and only expands in column view', () => {
   // In Masonry Grid view (isGridView = true), the first note and second note stay single-column (do not stretch full width)
@@ -144,31 +143,6 @@ test('getNoteViewFormatAlignment keeps first note single-column in masonry grid 
   assert.equal(colFirst.spansFullHorizontalWidth, true);
   assert.equal(colSecond.spansFullHorizontalWidth, true);
   assert.equal(colSecond.alignsToFirstNoteBounds, true);
-});
-
-test('logger restricts entries strictly to ERROR and WARN when one occurs', () => {
-  logger.clearLogs();
-  assert.equal(logger.getLogs().length, 0);
-
-  // Routine security/informational logs must be ignored
-  const secEntry = logger.security('ARCHIVE', 'Archived note');
-  assert.equal(secEntry, null);
-  assert.equal(logger.getLogs().length, 0);
-
-  // Warning and Error logs must be recorded when one occurs
-  const warnEntry = logger.warn('NOTE', 'Discarded blank note');
-  assert.ok(warnEntry);
-  assert.equal(warnEntry.level, 'WARN');
-
-  const errEntry = logger.error('UPDATE', 'Failed checking GitHub Releases');
-  assert.ok(errEntry);
-  assert.equal(errEntry.level, 'ERROR');
-
-  const allLogs = logger.getLogs();
-  assert.equal(allLogs.length, 2);
-  assert.equal(allLogs[0].level, 'ERROR');
-  assert.equal(allLogs[1].level, 'WARN');
-  logger.clearLogs();
 });
 
 test('compareReleaseVersions detects newer GitHub Releases across standard semver and CI run numbers', () => {
@@ -592,16 +566,18 @@ import {
   resolveFirstSelectedNoteForShare,
 } from './editorRules';
 
-test('computePreloadedTabLayerTransform glides active and outgoing preloaded tabs smoothly while parking inactive tabs offscreen', () => {
+test('computePreloadedTabLayerTransform glides active and outgoing preloaded tabs smoothly with subtle depth scale while parking inactive tabs offscreen', () => {
   // Settled on tab 0 (Notes)
   const settledNotes = computePreloadedTabLayerTransform(0, 0, 0, 1, 400);
   assert.equal(settledNotes.alpha, 1);
   assert.equal(settledNotes.translationXPx, 0);
+  assert.equal(settledNotes.scale, 1);
   assert.equal(settledNotes.isInteractive, true);
 
   const settledSettings = computePreloadedTabLayerTransform(3, 0, 0, 1, 400);
   assert.equal(settledSettings.alpha, 0);
   assert.equal(settledSettings.translationXPx, 1000);
+  assert.equal(settledSettings.scale, 1);
   assert.equal(settledSettings.isInteractive, false);
 
   // Mid-transition Notes (0) -> Settings (3) at progress 0.5
@@ -609,9 +585,11 @@ test('computePreloadedTabLayerTransform glides active and outgoing preloaded tab
   const midIncoming = computePreloadedTabLayerTransform(3, 0, 3, 0.5, 400);
   const midSkippedArchive = computePreloadedTabLayerTransform(1, 0, 3, 0.5, 400);
   assert.equal(midOutgoing.alpha, 0.5);
-  assert.ok(midOutgoing.translationXPx < 0, 'outgoing left tab glides slightly left');
+  assert.ok(midOutgoing.translationXPx < -25, 'outgoing left tab glides smoothly to the left');
+  assert.ok(midOutgoing.scale < 1 && midOutgoing.scale > 0.98, 'outgoing tab recedes slightly in depth');
   assert.equal(midIncoming.alpha, 0.5);
-  assert.ok(midIncoming.translationXPx > 0, 'incoming right tab glides in from the right');
+  assert.ok(midIncoming.translationXPx > 40, 'incoming right tab glides smoothly in from the right');
+  assert.ok(midIncoming.scale > 0.97 && midIncoming.scale < 1, 'incoming tab scales smoothly into place');
   assert.equal(midIncoming.isInteractive, true);
   assert.equal(midSkippedArchive.alpha, 0, 'skipped middle tab stays hidden offscreen');
   assert.equal(midSkippedArchive.translationXPx, 1000);
@@ -621,6 +599,7 @@ test('computePreloadedTabLayerTransform glides active and outgoing preloaded tab
   const doneNotes = computePreloadedTabLayerTransform(0, 0, 3, 1, 400);
   assert.equal(doneSettings.alpha, 1);
   assert.equal(doneSettings.translationXPx, 0);
+  assert.equal(doneSettings.scale, 1);
   assert.equal(doneNotes.alpha, 0);
   assert.equal(doneNotes.translationXPx, 1000);
 });

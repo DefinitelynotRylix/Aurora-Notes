@@ -46,7 +46,7 @@ export const WelcomeTourModal: React.FC<WelcomeTourModalProps> = ({
             <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1B1524] border border-[#EADBFC] dark:border-[#322742] shadow-xs">
               <span className="font-bold text-[#1E1A24] dark:text-[#F7EEFC] block mb-1">Fluid Pill Navigation</span>
               <p className="text-[#797487] dark:text-[#A39BAC] leading-normal">
-                GPU-accelerated floating pill navigation with hold-to-slide gestures, tactile haptics, and Masonry-to-Column morphing.
+                GPU-accelerated floating pill navigation with preloaded smooth menu transitions, tactile haptics, and Masonry-to-Column morphing.
               </p>
             </div>
           </div>

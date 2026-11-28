@@ -10,6 +10,7 @@ import androidx.activity.viewModels
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -535,8 +536,6 @@ fun AuroraApp(
                             },
                             onOpenWelcomeTour = { viewModel.reopenWelcome() },
                             onOpenWhatsNew = { viewModel.reopenWhatsNew() },
-                            onClearLogs = { viewModel.clearDiagnosticLogs() },
-                            onExportLogs = { viewModel.exportDiagnosticLogs() },
                             onTriggerBiometricAuth = onTriggerBiometricAuth
                         )
                     }
@@ -672,9 +671,9 @@ private fun WelcomeTourDialog(
         "Protected by Android Device Security"
     )
     val descriptions = listOf(
-        "Aurora Notes is crafted for distraction-free writing with butter-smooth floating pill navigation, tactile haptics, and instant Masonry-to-Column view morphing.",
+        "Aurora Notes is crafted for distraction-free writing with permanently preloaded menus, silky-smooth floating pill transitions, tactile haptics, and fluid Masonry-to-Column view morphing.",
         "Every note, checklist, and tag stays 100% offline on your device and is automatically protected with hardware-backed AES-256-GCM encryption—no setup or cloud account needed.",
-        "Write with confidence using top-bar Undo & Redo buttons, live word and letter counters, native text selection handles, inline checklists, and drag-to-reorder note organization.",
+        "Write with confidence using word-aware Undo & Redo buttons, live word and letter counters, native text selection handles, inline checklists, and drag-to-reorder note organization.",
         "Enable Biometric / System PIN Lock in Settings to require your phone's native fingerprint, face unlock, or PIN whenever Aurora Notes opens."
     )
     val icons = listOf(
@@ -848,27 +847,27 @@ private fun WhatsNewDialog(
     val features = remember {
         listOf(
             WhatsNewFeatureItem(
-                title = "Note Editor Undo & Redo",
-                badge = "EDITOR",
-                description = "Added dedicated Undo and Redo buttons directly before the Save button in the top bar so you can step backward and forward through text edits, formatting, checklists, and images.",
-                icon = Icons.Default.Edit
-            ),
-            WhatsNewFeatureItem(
-                title = "Silky-Smooth Navbar Pill Animation",
+                title = "Silky-Smooth Preloaded Menu Transitions",
                 badge = "PERFORMANCE",
-                description = "Re-engineered the floating navigation pill with zero-recomposition GPU rendering and cached drawing so tab switches and hold-to-slide gestures stay locked at 60/120fps.",
+                description = "All four menus stay permanently loaded in memory and glide smoothly with zero-recomposition GPU motion and depth scaling, eliminating switching lag and stutter.",
                 icon = Icons.Default.AutoAwesome
             ),
             WhatsNewFeatureItem(
-                title = "Minimalist Settings Menu",
-                badge = "DESIGN",
-                description = "Decluttered Settings into compact grouped cards with collapsible Diagnostic Logs and removed the verbose encryption section while keeping automatic AES-256 protection active behind the scenes.",
+                title = "Fluid View Morph & Outline Release Glow",
+                badge = "MOTION",
+                description = "Switching between Masonry Grid and Column view morphs every note smoothly in place, while releasing a held note lights up its outline and ripples gently to nearby notes.",
                 icon = Icons.Default.CheckCircle
             ),
             WhatsNewFeatureItem(
-                title = "Native Selection, Smooth Keyboard & Exact Dates",
+                title = "Word & Paste Undo/Redo + Single-Row Enter",
+                badge = "EDITOR",
+                description = "Undo and Redo now group full words, isolate pasted items, and step cleanly through spaces and punctuation, while pressing Enter always starts a single crisp row.",
+                icon = Icons.Default.Edit
+            ),
+            WhatsNewFeatureItem(
+                title = "Streamlined Settings & Reliable Actions",
                 badge = "RELIABILITY",
-                description = "Restored native long-press text selection handles in the editor, eliminated keyboard animation lag, and ensured opening a note without editing never alters its last-edited date.",
+                description = "Removed unused overhead for a leaner Settings screen, made hold-to-select 100% consistent, kept pins intact when restoring archived notes, and locked Share to your first selected note.",
                 icon = Icons.Default.Lock
             )
         )
@@ -1140,6 +1139,7 @@ private fun PreloadedTabViewport(
     var fromTab by remember { mutableIntStateOf(selectedTabFlow.value) }
     var toTab by remember { mutableIntStateOf(selectedTabFlow.value) }
     val slideProgress = remember { Animatable(1f) }
+    val smoothMenuEasing = remember { CubicBezierEasing(0.22f, 1f, 0.36f, 1f) }
 
     LaunchedEffect(selectedTabFlow) {
         selectedTabFlow.collectLatest { targetTab ->
@@ -1150,8 +1150,8 @@ private fun PreloadedTabViewport(
                 slideProgress.animateTo(
                     targetValue = 1f,
                     animationSpec = tween(
-                        durationMillis = 135,
-                        easing = FastOutSlowInEasing
+                        durationMillis = 280,
+                        easing = smoothMenuEasing
                     )
                 )
                 fromTab = toTab
@@ -1165,24 +1165,34 @@ private fun PreloadedTabViewport(
         val curTo = toTab
         val widthPx = size.width.coerceAtLeast(1f)
         val slideDir = if (curTo >= curFrom) 1f else -1f
-        val slideSpan = widthPx * 0.12f
+        val slideSpan = widthPx * 0.26f
 
         when {
             tabIndex == curTo -> {
                 if (curFrom == curTo || progress >= 0.999f) {
                     translationX = 0f
+                    scaleX = 1f
+                    scaleY = 1f
                     alpha = 1f
                 } else {
+                    val incomingScale = 0.972f + (0.028f * progress)
                     translationX = (1f - progress) * slideDir * slideSpan
+                    scaleX = incomingScale
+                    scaleY = incomingScale
                     alpha = progress.coerceIn(0f, 1f)
                 }
             }
             tabIndex == curFrom && progress < 0.999f -> {
-                translationX = -progress * slideDir * slideSpan
+                val outgoingScale = 1f - (0.018f * progress)
+                translationX = -progress * slideDir * (slideSpan * 0.65f)
+                scaleX = outgoingScale
+                scaleY = outgoingScale
                 alpha = (1f - progress).coerceIn(0f, 1f)
             }
             else -> {
                 translationX = widthPx * 2.5f
+                scaleX = 1f
+                scaleY = 1f
                 alpha = 0f
             }
         }

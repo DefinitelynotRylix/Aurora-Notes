@@ -12,7 +12,6 @@ import {
   Lock,
   X
 } from 'lucide-react';
-import { logger } from '../utils/logger';
 import { MorphingNotesGrid } from './MorphingNotesGrid';
 
 interface TrashViewProps {
@@ -199,10 +198,8 @@ export const TrashView: React.FC<TrashViewProps> = ({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    const count = trashedNotes.length;
                     onEmptyTrash();
                     setConfirmEmptyOpen(false);
-                    logger.security('STORAGE', `User permanently emptied trash (${count} notes purged)`);
                   }}
                   className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-md transition cursor-pointer"
                 >
@@ -267,7 +264,6 @@ export const TrashView: React.FC<TrashViewProps> = ({
                     const id = itemToDeleteConfirm;
                     onPermanentDelete(id);
                     setItemToDeleteConfirm(null);
-                    logger.security('STORAGE', `Permanently deleted note ID: ${id}`);
                   }}
                   className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-md transition cursor-pointer"
                 >

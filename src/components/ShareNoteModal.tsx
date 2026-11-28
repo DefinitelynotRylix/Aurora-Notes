@@ -10,7 +10,6 @@ import {
   Copy,
   Download
 } from 'lucide-react';
-import { logger } from '../utils/logger';
 import { decryptStoragePayload, ENC_STORAGE_PREFIX } from '../utils/editorRules';
 
 export type ShareFormat = 'md' | 'png';
@@ -600,7 +599,6 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
     document.body.appendChild(a);
     a.click();
     a.remove();
-    logger.security('SHARE', `Saved full-length note image (${a.download}) to Android Gallery`);
     setStatusMessage('Saved full-length note image to Android Gallery (Pictures/AuroraNotes)!');
   };
 
@@ -634,7 +632,6 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
             text: title,
           });
         }
-        logger.security('SHARE', `Shared single note to apps & contacts (.${format})`);
         onClose();
         return;
       } catch (err) {
@@ -671,7 +668,6 @@ export const ShareNoteModal: React.FC<ShareNoteModalProps> = ({ notes, onClose }
     a.remove();
     URL.revokeObjectURL(url);
 
-    logger.security('SHARE', `Downloaded single .md file: ${mdFileName}`);
     setStatusMessage(`Saved ${mdFileName}!`);
   };
 

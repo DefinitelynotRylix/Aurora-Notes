@@ -139,8 +139,7 @@ object PrivateStorageManager {
                 out.write(finalPart)
             }
             out.toByteArray()
-        } catch (e: Exception) {
-            LocalLogger.warn("CRYPTO", "Binary AES-GCM encryption fallback: ${e.localizedMessage ?: "error"}")
+        } catch (_: Exception) {
             plainBytes
         }
     }
@@ -174,8 +173,7 @@ object PrivateStorageManager {
                 out.write(finalPart)
             }
             out.toByteArray()
-        } catch (e: Exception) {
-            LocalLogger.warn("CRYPTO", "Binary AES-GCM decryption warning: ${e.localizedMessage ?: "error"}")
+        } catch (_: Exception) {
             rawBytes
         }
     }
@@ -191,8 +189,7 @@ object PrivateStorageManager {
             System.arraycopy(iv, 0, combined, 0, iv.size)
             System.arraycopy(cipherBytes, 0, combined, iv.size, cipherBytes.size)
             ENC_PREFIX + Base64.encodeToString(combined, Base64.NO_WRAP)
-        } catch (e: Exception) {
-            LocalLogger.warn("CRYPTO", "AES-GCM encryption fallback: ${e.localizedMessage ?: "error"}")
+        } catch (_: Exception) {
             plainText
         }
     }
@@ -212,8 +209,7 @@ object PrivateStorageManager {
                 GCMParameterSpec(GCM_TAG_BITS, iv)
             )
             String(cipher.doFinal(cipherBytes), StandardCharsets.UTF_8)
-        } catch (e: Exception) {
-            LocalLogger.warn("CRYPTO", "AES-GCM decryption warning: ${e.localizedMessage ?: "error"}")
+        } catch (_: Exception) {
             rawText
         }
     }
@@ -309,11 +305,7 @@ object PrivateStorageManager {
                 }
             }
             absPath
-        } catch (e: Exception) {
-            LocalLogger.error(
-                "IMAGE",
-                "Failed saving encrypted lossless image to private storage: ${e.localizedMessage ?: "I/O error"}"
-            )
+        } catch (_: Exception) {
             null
         }
     }
@@ -340,8 +332,7 @@ object PrivateStorageManager {
                 }
                 diskBytes
             }
-        } catch (e: Exception) {
-            LocalLogger.warn("IMAGE", "Failed reading encrypted note image: ${e.localizedMessage ?: "error"}")
+        } catch (_: Exception) {
             null
         }
     }
@@ -497,11 +488,8 @@ object PrivateStorageManager {
                 finalFile.writeText(diskContent, StandardCharsets.UTF_8)
                 tempFile.delete()
             }
-        } catch (e: Exception) {
-            LocalLogger.error(
-                "STORAGE",
-                "Failed writing note ${note.id} to external private storage: ${e.localizedMessage ?: "I/O error"}"
-            )
+        } catch (_: Exception) {
+            // ignore storage write failures
         }
     }
 
