@@ -37,6 +37,7 @@ import com.aurora.notes.ui.components.SelectionActionBarState
 import com.aurora.notes.ui.components.ShareNoteDialog
 import com.aurora.notes.ui.theme.AuroraDangerRed
 import com.aurora.notes.ui.theme.AuroraRoyalViolet
+import kotlinx.coroutines.flow.StateFlow
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -65,6 +66,8 @@ fun NotesScreen(
     onDeleteTag: ((String) -> Unit)? = null,
     isArchiveTab: Boolean = false,
     isActiveTab: Boolean = true,
+    selectedTabFlow: StateFlow<Int>? = null,
+    tabIndex: Int = if (isArchiveTab) 1 else 0,
     onSelectionBarStateChange: (SelectionActionBarState) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -127,7 +130,15 @@ fun NotesScreen(
         detailsIsPinned = target.isPinned
     }
 
-    // Clear selection when leaving this tab
+    // Clear selection cleanly when leaving this tab WITHOUT recomposing NotesScreen on tab switches
+    LaunchedEffect(selectedTabFlow, tabIndex) {
+        selectedTabFlow?.collect { currentTab ->
+            if (currentTab != tabIndex && selectedNoteIds.isNotEmpty()) {
+                selectedNoteIds.clear()
+            }
+        }
+    }
+
     LaunchedEffect(isActiveTab) {
         if (!isActiveTab && selectedNoteIds.isNotEmpty()) {
             selectedNoteIds.clear()
@@ -143,7 +154,8 @@ fun NotesScreen(
     // Report bottom selection action bar state whenever selection changes on the active tab
     val currentNotes by rememberUpdatedState(notes)
     LaunchedEffect(isActiveTab, isSelectionMode, selectedNoteIds.size, isArchiveTab) {
-        if (isActiveTab) {
+        val currentlyActive = selectedTabFlow?.let { it.value == tabIndex } ?: isActiveTab
+        if (currentlyActive) {
             onSelectionBarStateChange(
                 SelectionActionBarState(
                     isVisible = isSelectionMode,
@@ -198,7 +210,7 @@ fun NotesScreen(
         }
     }
 
-    BackHandler(enabled = isActiveTab && isSelectionMode) {
+    BackHandler(enabled = isSelectionMode) {
         selectedNoteIds.clear()
     }
 

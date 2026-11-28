@@ -588,67 +588,41 @@ test('archiving a pinned note and restoring it preserves the pin state', () => {
 });
 
 import {
-  TAB_BACKGROUND_LAYER_MS,
-  createInitialTabTransitionState,
-  planTabTransition,
-  completeTabTransition,
+  computePreloadedTabLayerTransform,
   resolveFirstSelectedNoteForShare,
 } from './editorRules';
 
-test('planTabTransition shows brief background layer and cancels intermediate tab when switching back early', () => {
-  assert.ok(TAB_BACKGROUND_LAYER_MS >= 40 && TAB_BACKGROUND_LAYER_MS <= 100);
+test('computePreloadedTabLayerTransform glides active and outgoing preloaded tabs smoothly while parking inactive tabs offscreen', () => {
+  // Settled on tab 0 (Notes)
+  const settledNotes = computePreloadedTabLayerTransform(0, 0, 0, 1, 400);
+  assert.equal(settledNotes.alpha, 1);
+  assert.equal(settledNotes.translationXPx, 0);
+  assert.equal(settledNotes.isInteractive, true);
 
-  let state = createInitialTabTransitionState<'notes' | 'archive' | 'trash' | 'settings'>('notes');
-  assert.equal(state.renderedTab, 'notes');
-  assert.equal(state.mountedTab, 'notes');
+  const settledSettings = computePreloadedTabLayerTransform(3, 0, 0, 1, 400);
+  assert.equal(settledSettings.alpha, 0);
+  assert.equal(settledSettings.translationXPx, 1000);
+  assert.equal(settledSettings.isInteractive, false);
 
-  // Step 1: Switch Notes -> Settings (enters brief background layer without mounting Settings)
-  const toSettings = planTabTransition(state, 'settings');
-  assert.equal(toSettings.shouldCancelPending, true);
-  assert.equal(toSettings.shouldScheduleMount, true);
-  state = toSettings.nextState;
-  assert.equal(state.requestedTab, 'settings');
-  assert.equal(state.renderedTab, null, 'brief background layer should be visible before Settings loads');
-  assert.equal(state.mountedTab, 'notes', 'Settings must NOT mount during the background-layer wait');
-  assert.equal(state.isPending, true);
+  // Mid-transition Notes (0) -> Settings (3) at progress 0.5
+  const midOutgoing = computePreloadedTabLayerTransform(0, 0, 3, 0.5, 400);
+  const midIncoming = computePreloadedTabLayerTransform(3, 0, 3, 0.5, 400);
+  const midSkippedArchive = computePreloadedTabLayerTransform(1, 0, 3, 0.5, 400);
+  assert.equal(midOutgoing.alpha, 0.5);
+  assert.ok(midOutgoing.translationXPx < 0, 'outgoing left tab glides slightly left');
+  assert.equal(midIncoming.alpha, 0.5);
+  assert.ok(midIncoming.translationXPx > 0, 'incoming right tab glides in from the right');
+  assert.equal(midIncoming.isInteractive, true);
+  assert.equal(midSkippedArchive.alpha, 0, 'skipped middle tab stays hidden offscreen');
+  assert.equal(midSkippedArchive.translationXPx, 1000);
 
-  // Step 2: Switch back Settings -> Notes BEFORE Settings loads -> cancels Settings & restores Notes instantly
-  const backToNotes = planTabTransition(state, 'notes');
-  assert.equal(backToNotes.shouldCancelPending, true);
-  assert.equal(backToNotes.shouldScheduleMount, false, 'returning to already-shown tab requires zero wait');
-  state = backToNotes.nextState;
-  assert.equal(state.requestedTab, 'notes');
-  assert.equal(state.renderedTab, 'notes');
-  assert.equal(state.mountedTab, 'notes');
-  assert.equal(state.isPending, false);
-
-  // Stale Settings timer firing late must be ignored
-  const afterStaleComplete = completeTabTransition(state, 'settings');
-  assert.equal(afterStaleComplete.renderedTab, 'notes');
-  assert.equal(afterStaleComplete.mountedTab, 'notes');
-});
-
-test('planTabTransition skips intermediate tabs during rapid hopping and mounts only final target', () => {
-  let state = createInitialTabTransitionState<'notes' | 'archive' | 'trash' | 'settings'>('notes');
-
-  // Rapid hop: Notes -> Settings -> Trash -> Archive before any timer fires
-  state = planTabTransition(state, 'settings').nextState;
-  assert.equal(state.mountedTab, 'notes');
-  state = planTabTransition(state, 'trash').nextState;
-  assert.equal(state.mountedTab, 'notes', 'Settings was skipped and never mounted');
-  const toArchive = planTabTransition(state, 'archive');
-  assert.equal(toArchive.shouldCancelPending, true);
-  assert.equal(toArchive.shouldScheduleMount, true);
-  state = toArchive.nextState;
-  assert.equal(state.requestedTab, 'archive');
-  assert.equal(state.renderedTab, null);
-  assert.equal(state.mountedTab, 'notes', 'Trash was also skipped and never mounted');
-
-  // Final Archive timer completes -> only Archive mounts
-  state = completeTabTransition(state, 'archive');
-  assert.equal(state.renderedTab, 'archive');
-  assert.equal(state.mountedTab, 'archive');
-  assert.equal(state.isPending, false);
+  // Settled on Settings (3)
+  const doneSettings = computePreloadedTabLayerTransform(3, 0, 3, 1, 400);
+  const doneNotes = computePreloadedTabLayerTransform(0, 0, 3, 1, 400);
+  assert.equal(doneSettings.alpha, 1);
+  assert.equal(doneSettings.translationXPx, 0);
+  assert.equal(doneNotes.alpha, 0);
+  assert.equal(doneNotes.translationXPx, 1000);
 });
 
 test('resolveFirstSelectedNoteForShare exports strictly the firstly selected note even when 2+ notes are selected', () => {
@@ -671,5 +645,6 @@ test('resolveFirstSelectedNoteForShare exports strictly the firstly selected not
   // Empty selection returns empty list
   assert.deepEqual(resolveFirstSelectedNoteForShare(notes, []), []);
 });
+
 
 

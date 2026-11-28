@@ -36,7 +36,6 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_HAPTICS_ENABLED = "key_haptics_enabled_v1"
         private const val KEY_DB_ENCRYPTION_ENABLED = "key_room_db_encryption_enabled_v1"
         private val HTML_TAG_REGEX = Regex("<[^>]*>")
-        const val TAB_BACKGROUND_LAYER_MS = 65L
     }
 
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -60,16 +59,8 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     private val _pendingNavTab = MutableStateFlow(0)
     val pendingNavTab: StateFlow<Int> = _pendingNavTab.asStateFlow()
 
-    private val _mountedTab = MutableStateFlow(0)
-    val mountedTab: StateFlow<Int> = _mountedTab.asStateFlow()
-
-    private val _renderedTab = MutableStateFlow<Int?>(0)
-    val renderedTab: StateFlow<Int?> = _renderedTab.asStateFlow()
-
     private val _isNavTransitionPending = MutableStateFlow(false)
     val isNavTransitionPending: StateFlow<Boolean> = _isNavTransitionPending.asStateFlow()
-
-    private var navTransitionJob: kotlinx.coroutines.Job? = null
 
     private val _activeEditingNote = MutableStateFlow<Note?>(null)
     val activeEditingNote = _activeEditingNote.asStateFlow()
@@ -214,45 +205,10 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setSelectedTab(tab: Int) {
-        val currentRequested = _pendingNavTab.value
-        val currentRendered = _renderedTab.value
-        val currentMounted = _mountedTab.value
-
-        if (tab == currentRequested && currentRendered == tab && !_isNavTransitionPending.value) {
-            return
-        }
-        if (tab == currentRequested && _isNavTransitionPending.value) {
-            return
-        }
-
-        navTransitionJob?.cancel()
-        navTransitionJob = null
-
-        // Switching back to the already-shown tab BEFORE the next page loads:
-        // cancel the pending load immediately and restore the already-shown page with zero wait.
-        if (currentRendered == null && tab == currentMounted) {
-            _pendingNavTab.value = tab
-            _selectedTab.value = tab
-            _renderedTab.value = tab
-            _isNavTransitionPending.value = false
-            return
-        }
-
-        // Switching to a new tab: move navbar pill immediately and show clean background layer
-        // for a few milliseconds before mounting the target screen (skipping any intermediate tabs).
+        if (_selectedTab.value == tab) return
+        _selectedTab.value = tab
         _pendingNavTab.value = tab
-        _renderedTab.value = null
-        _isNavTransitionPending.value = true
-
-        navTransitionJob = viewModelScope.launch {
-            kotlinx.coroutines.delay(TAB_BACKGROUND_LAYER_MS)
-            if (_pendingNavTab.value == tab) {
-                _mountedTab.value = tab
-                _selectedTab.value = tab
-                _renderedTab.value = tab
-                _isNavTransitionPending.value = false
-            }
-        }
+        _isNavTransitionPending.value = false
     }
 
     fun toggleGridView() {

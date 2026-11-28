@@ -65,6 +65,8 @@ import com.aurora.notes.model.Note
 import com.aurora.notes.ui.components.AnimatedBottomPillBar
 import com.aurora.notes.ui.components.SelectionActionBarState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -180,11 +182,6 @@ fun AuroraApp(
     onTriggerBiometricAuth: (onSuccess: () -> Unit, onError: (String) -> Unit) -> Unit = { _, _ -> }
 ) {
     val activeEditingNote by viewModel.activeEditingNote.collectAsState()
-    val selectedTab by viewModel.selectedTab.collectAsState()
-    val pendingNavTab by viewModel.pendingNavTab.collectAsState()
-    val mountedTab by viewModel.mountedTab.collectAsState()
-    val renderedTab by viewModel.renderedTab.collectAsState()
-    val isNavTransitionPending by viewModel.isNavTransitionPending.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val isGridView by viewModel.isGridView.collectAsState()
@@ -323,8 +320,9 @@ fun AuroraApp(
         // Bottom selection action navbar state when holding down a note
         var selectionBarState by remember { mutableStateOf(SelectionActionBarState()) }
 
-        LaunchedEffect(pendingNavTab, mountedTab) {
-            if (pendingNavTab != mountedTab || (pendingNavTab != 0 && pendingNavTab != 1)) {
+        // Clear bottom selection action bar whenever the user switches tabs without recomposing AuroraApp
+        LaunchedEffect(viewModel.selectedTab) {
+            viewModel.selectedTab.collect {
                 selectionBarState = SelectionActionBarState()
             }
         }
@@ -377,18 +375,14 @@ fun AuroraApp(
             }
         }
 
-        // Predictive Back for non-Notes tabs (Archive, Trash, Settings -> smoothly returns to Notes tab)
-        PredictiveBackHandler(enabled = displayedEditorNote == null && pendingNavTab != 0 && !selectionBarState.isVisible) { progress ->
-            try {
-                progress.collect { backEvent ->
-                    tabBackProgress = backEvent.progress
-                }
-                tabBackProgress = 0f
-                viewModel.setSelectedTab(0)
-            } catch (_: CancellationException) {
-                tabBackProgress = 0f
-            }
-        }
+        // Predictive Back for non-Notes tabs (isolated so switching tabs never recomposes AuroraApp)
+        TabPredictiveBackEffect(
+            selectedTabFlow = viewModel.selectedTab,
+            isEditorClosed = displayedEditorNote == null,
+            isSelectionHidden = !selectionBarState.isVisible,
+            onBackProgress = { tabBackProgress = it },
+            onReturnHome = { viewModel.setSelectedTab(0) }
+        )
 
         if (displayedEditorNote == null) {
             if (isWelcomeOpen) {
@@ -402,31 +396,6 @@ fun AuroraApp(
             }
         }
 
-        // Crisp lightweight reveal alpha when a newly mounted tab appears after the brief background-layer beat.
-        // Returning to an already-shown tab during the background-layer wait snaps back visible immediately.
-        val tabRevealAlpha = remember { Animatable(1f) }
-        var lastRevealedTab by remember { mutableIntStateOf(mountedTab) }
-
-        LaunchedEffect(renderedTab, mountedTab) {
-            val visibleTab = renderedTab
-            if (visibleTab == null) {
-                tabRevealAlpha.snapTo(0f)
-            } else if (visibleTab != lastRevealedTab) {
-                lastRevealedTab = visibleTab
-                tabRevealAlpha.snapTo(0f)
-                tabRevealAlpha.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(
-                        durationMillis = 110,
-                        easing = FastOutSlowInEasing
-                    )
-                )
-            } else {
-                // Restored already-shown tab after cancelling pending switch -> instant visibility
-                tabRevealAlpha.snapTo(1f)
-            }
-        }
-
         val isEditorFullyCoveringScreen =
             displayedEditorNote != null &&
                 editorRevealProgress.value >= 0.999f &&
@@ -437,28 +406,20 @@ fun AuroraApp(
             if (!isEditorFullyCoveringScreen) {
             Scaffold(
                 floatingActionButton = {
-                    if (renderedTab == 0 && !selectionBarState.isVisible) {
-                        FloatingActionButton(
-                            onClick = { viewModel.openNewNote() },
-                            containerColor = AuroraRoyalViolet,
-                            contentColor = Color.White,
-                            shape = CircleShape,
-                            modifier = Modifier.onGloballyPositioned { coords ->
-                                val pos = coords.positionInRoot()
-                                fabCenterX = pos.x + coords.size.width / 2f
-                                fabCenterY = pos.y + coords.size.height / 2f
-                                fabRadiusPx = coords.size.width / 2f
-                            }
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "New Note")
+                    AuroraFabHost(
+                        selectedTabFlow = viewModel.selectedTab,
+                        isSelectionVisible = selectionBarState.isVisible,
+                        onCreateNote = { viewModel.openNewNote() },
+                        onFabPositioned = { cx, cy, r ->
+                            fabCenterX = cx
+                            fabCenterY = cy
+                            fabRadiusPx = r
                         }
-                    }
+                    )
                 },
                 bottomBar = {
-                    AnimatedBottomPillBar(
-                        selectedTab = selectedTab,
-                        pendingTab = pendingNavTab,
-                        isNavTransitionPending = isNavTransitionPending,
+                    AuroraBottomBarHost(
+                        selectedTabFlow = viewModel.selectedTab,
                         onTabSelected = { viewModel.setSelectedTab(it) },
                         archivedCount = archivedCount,
                         trashCount = trashCount,
@@ -467,141 +428,119 @@ fun AuroraApp(
                     )
                 }
             ) { paddingValues ->
-                Box(
+                PreloadedTabViewport(
+                    selectedTabFlow = viewModel.selectedTab,
+                    tabBackProgressProvider = { tabBackProgress },
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(paddingValues)
-                        .background(MaterialTheme.colorScheme.background)
-                        .graphicsLayer {
-                            if (tabBackProgress > 0f) {
-                                val s = 1f - (tabBackProgress * 0.08f)
-                                scaleX = s
-                                scaleY = s
-                                alpha = (1f - tabBackProgress * 0.25f).coerceIn(0.6f, 1f)
+                        .padding(paddingValues),
+                    tab0 = {
+                        NotesScreen(
+                            notes = allFilteredNotes,
+                            userTags = userTags,
+                            searchQuery = searchQuery,
+                            onSearchChange = { viewModel.setSearchQuery(it) },
+                            selectedCategory = selectedCategory,
+                            onSelectCategory = { viewModel.setSelectedCategory(it) },
+                            isGridView = isGridView,
+                            onToggleGridView = { viewModel.toggleGridView() },
+                            onSelectNote = { viewModel.openEditNote(it) },
+                            onTogglePin = { viewModel.togglePin(it) },
+                            onDeleteNote = { viewModel.moveToTrash(it) },
+                            onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
+                            onArchiveNotesBatch = { ids -> viewModel.archiveNotesBatch(ids) },
+                            onToggleCheckItem = { noteId, itemId ->
+                                viewModel.toggleChecklistItem(noteId, itemId)
+                            },
+                            onAddNote = { viewModel.openNewNote() },
+                            onSaveNoteDetails = { updatedNote -> viewModel.saveNote(updatedNote) },
+                            onReorderNotes = { orderedIds -> viewModel.reorderNotes(orderedIds, isArchive = false) },
+                            onTagNotesBatch = { ids, tags -> viewModel.tagNotesBatch(ids, tags, isArchive = false) },
+                            onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
+                            onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
+                            isArchiveTab = false,
+                            selectedTabFlow = viewModel.selectedTab,
+                            tabIndex = 0,
+                            onSelectionBarStateChange = { state ->
+                                if (viewModel.selectedTab.value == 0) selectionBarState = state
                             }
-                        }
-                ) {
-                    // Compose strictly ONE active screen (`mountedTab`). Intermediate skipped tabs
-                    // are never composed during rapid switching.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                alpha = tabRevealAlpha.value
+                        )
+                    },
+                    tab1 = {
+                        NotesScreen(
+                            notes = archivedFilteredNotes,
+                            userTags = userTags,
+                            searchQuery = searchQuery,
+                            onSearchChange = { viewModel.setSearchQuery(it) },
+                            selectedCategory = selectedCategory,
+                            onSelectCategory = { viewModel.setSelectedCategory(it) },
+                            isGridView = isGridView,
+                            onToggleGridView = { viewModel.toggleGridView() },
+                            onSelectNote = { viewModel.openEditNote(it) },
+                            onTogglePin = { viewModel.togglePin(it) },
+                            onDeleteNote = { viewModel.moveToTrash(it) },
+                            onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
+                            onUnarchiveNote = { id -> viewModel.unarchiveNote(id) },
+                            onUnarchiveNotesBatch = { ids -> viewModel.unarchiveNotesBatch(ids) },
+                            onToggleCheckItem = { noteId, itemId ->
+                                viewModel.toggleChecklistItem(noteId, itemId)
+                            },
+                            onAddNote = { viewModel.openNewNote() },
+                            onReorderNotes = { orderedIds -> viewModel.reorderNotes(orderedIds, isArchive = true) },
+                            onTagNotesBatch = { ids, tags -> viewModel.tagNotesBatch(ids, tags, isArchive = true) },
+                            onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
+                            onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
+                            isArchiveTab = true,
+                            selectedTabFlow = viewModel.selectedTab,
+                            tabIndex = 1,
+                            onSelectionBarStateChange = { state ->
+                                if (viewModel.selectedTab.value == 1) selectionBarState = state
                             }
-                    ) {
-                        when (mountedTab) {
-                            0 -> NotesScreen(
-                                notes = allFilteredNotes,
-                                userTags = userTags,
-                                searchQuery = searchQuery,
-                                onSearchChange = { viewModel.setSearchQuery(it) },
-                                selectedCategory = selectedCategory,
-                                onSelectCategory = { viewModel.setSelectedCategory(it) },
-                                isGridView = isGridView,
-                                onToggleGridView = { viewModel.toggleGridView() },
-                                onSelectNote = { viewModel.openEditNote(it) },
-                                onTogglePin = { viewModel.togglePin(it) },
-                                onDeleteNote = { viewModel.moveToTrash(it) },
-                                onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
-                                onArchiveNotesBatch = { ids -> viewModel.archiveNotesBatch(ids) },
-                                onToggleCheckItem = { noteId, itemId ->
-                                    viewModel.toggleChecklistItem(noteId, itemId)
-                                },
-                                onAddNote = { viewModel.openNewNote() },
-                                onSaveNoteDetails = { updatedNote -> viewModel.saveNote(updatedNote) },
-                                onReorderNotes = { orderedIds -> viewModel.reorderNotes(orderedIds, isArchive = false) },
-                                onTagNotesBatch = { ids, tags -> viewModel.tagNotesBatch(ids, tags, isArchive = false) },
-                                onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
-                                onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
-                                isArchiveTab = false,
-                                isActiveTab = renderedTab == 0,
-                                onSelectionBarStateChange = { state ->
-                                    if (mountedTab == 0) selectionBarState = state
-                                }
-                            )
-
-                            1 -> NotesScreen(
-                                notes = archivedFilteredNotes,
-                                userTags = userTags,
-                                searchQuery = searchQuery,
-                                onSearchChange = { viewModel.setSearchQuery(it) },
-                                selectedCategory = selectedCategory,
-                                onSelectCategory = { viewModel.setSelectedCategory(it) },
-                                isGridView = isGridView,
-                                onToggleGridView = { viewModel.toggleGridView() },
-                                onSelectNote = { viewModel.openEditNote(it) },
-                                onTogglePin = { viewModel.togglePin(it) },
-                                onDeleteNote = { viewModel.moveToTrash(it) },
-                                onDeleteNotesBatch = { ids -> viewModel.moveToTrashBatch(ids) },
-                                onUnarchiveNote = { id -> viewModel.unarchiveNote(id) },
-                                onUnarchiveNotesBatch = { ids -> viewModel.unarchiveNotesBatch(ids) },
-                                onToggleCheckItem = { noteId, itemId ->
-                                    viewModel.toggleChecklistItem(noteId, itemId)
-                                },
-                                onAddNote = { viewModel.openNewNote() },
-                                onReorderNotes = { orderedIds -> viewModel.reorderNotes(orderedIds, isArchive = true) },
-                                onTagNotesBatch = { ids, tags -> viewModel.tagNotesBatch(ids, tags, isArchive = true) },
-                                onCreateTag = { newTag -> viewModel.addUserTag(newTag) },
-                                onDeleteTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
-                                isArchiveTab = true,
-                                isActiveTab = renderedTab == 1,
-                                onSelectionBarStateChange = { state ->
-                                    if (mountedTab == 1) selectionBarState = state
-                                }
-                            )
-
-                            2 -> TrashScreen(
-                                trashedNotes = filteredTrashedNotes,
-                                searchQuery = searchQuery,
-                                onSearchChange = { viewModel.setSearchQuery(it) },
-                                isGridView = isGridView,
-                                onToggleGridView = { viewModel.toggleGridView() },
-                                onRestoreNote = { viewModel.restoreFromTrash(it) },
-                                onDeletePermanently = { viewModel.deletePermanently(it) },
-                                onEmptyTrash = { viewModel.emptyTrash() }
-                            )
-
-                            3 -> SettingsScreen(
-                                themeMode = themeMode,
-                                onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
-                                isHapticsEnabled = isHapticsEnabled,
-                                onSetHapticsEnabled = { enabled -> viewModel.setHapticsEnabled(enabled) },
-                                isDbEncryptionEnabled = isDbEncryptionEnabled,
-                                onSetDatabaseEncryption = { enabled ->
-                                    viewModel.setDatabaseEncryptionEnabled(enabled)
-                                },
-                                storageStats = storageStats,
-                                lastCleanupSummary = lastCleanupSummary,
-                                onCleanUpOrphanedFiles = { onComplete ->
-                                    viewModel.cleanUpOrphanedFiles(onComplete)
-                                },
-                                userTags = userTags,
-                                onAddTag = { newTag -> viewModel.addUserTag(newTag) },
-                                onRemoveTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
-                                onWipeAllData = { viewModel.wipeAllData() },
-                                isBiometricEnabled = isBiometricEnabled,
-                                onSetBiometricLock = { enabled ->
-                                    viewModel.setBiometricLockEnabled(enabled)
-                                },
-                                onOpenWelcomeTour = { viewModel.reopenWelcome() },
-                                onOpenWhatsNew = { viewModel.reopenWhatsNew() },
-                                onClearLogs = { viewModel.clearDiagnosticLogs() },
-                                onExportLogs = { viewModel.exportDiagnosticLogs() },
-                                onTriggerBiometricAuth = onTriggerBiometricAuth
-                            )
-                        }
-                    }
-
-                    // Brief clean background layer shown for ~65ms before mounting the next screen
-                    if (renderedTab == null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.background)
+                        )
+                    },
+                    tab2 = {
+                        TrashScreen(
+                            trashedNotes = filteredTrashedNotes,
+                            searchQuery = searchQuery,
+                            onSearchChange = { viewModel.setSearchQuery(it) },
+                            isGridView = isGridView,
+                            onToggleGridView = { viewModel.toggleGridView() },
+                            onRestoreNote = { viewModel.restoreFromTrash(it) },
+                            onDeletePermanently = { viewModel.deletePermanently(it) },
+                            onEmptyTrash = { viewModel.emptyTrash() }
+                        )
+                    },
+                    tab3 = {
+                        SettingsScreen(
+                            themeMode = themeMode,
+                            onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
+                            isHapticsEnabled = isHapticsEnabled,
+                            onSetHapticsEnabled = { enabled -> viewModel.setHapticsEnabled(enabled) },
+                            isDbEncryptionEnabled = isDbEncryptionEnabled,
+                            onSetDatabaseEncryption = { enabled ->
+                                viewModel.setDatabaseEncryptionEnabled(enabled)
+                            },
+                            storageStats = storageStats,
+                            lastCleanupSummary = lastCleanupSummary,
+                            onCleanUpOrphanedFiles = { onComplete ->
+                                viewModel.cleanUpOrphanedFiles(onComplete)
+                            },
+                            userTags = userTags,
+                            onAddTag = { newTag -> viewModel.addUserTag(newTag) },
+                            onRemoveTag = { tag -> viewModel.deleteTagAndDetachFromNotes(tag) },
+                            onWipeAllData = { viewModel.wipeAllData() },
+                            isBiometricEnabled = isBiometricEnabled,
+                            onSetBiometricLock = { enabled ->
+                                viewModel.setBiometricLockEnabled(enabled)
+                            },
+                            onOpenWelcomeTour = { viewModel.reopenWelcome() },
+                            onOpenWhatsNew = { viewModel.reopenWhatsNew() },
+                            onClearLogs = { viewModel.clearDiagnosticLogs() },
+                            onExportLogs = { viewModel.exportDiagnosticLogs() },
+                            onTriggerBiometricAuth = onTriggerBiometricAuth
                         )
                     }
-                }
+                )
             }
             }
 
@@ -1112,4 +1051,161 @@ private fun WhatsNewDialog(
         }
     }
 }
+
+@Composable
+private fun AuroraFabHost(
+    selectedTabFlow: StateFlow<Int>,
+    isSelectionVisible: Boolean,
+    onCreateNote: () -> Unit,
+    onFabPositioned: (Float, Float, Float) -> Unit
+) {
+    val selectedTab by selectedTabFlow.collectAsState()
+    if (selectedTab == 0 && !isSelectionVisible) {
+        FloatingActionButton(
+            onClick = onCreateNote,
+            containerColor = AuroraRoyalViolet,
+            contentColor = Color.White,
+            shape = CircleShape,
+            modifier = Modifier.onGloballyPositioned { coords ->
+                val pos = coords.positionInRoot()
+                onFabPositioned(
+                    pos.x + coords.size.width / 2f,
+                    pos.y + coords.size.height / 2f,
+                    coords.size.width / 2f
+                )
+            }
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "New Note")
+        }
+    }
+}
+
+@Composable
+private fun AuroraBottomBarHost(
+    selectedTabFlow: StateFlow<Int>,
+    onTabSelected: (Int) -> Unit,
+    archivedCount: Int,
+    trashCount: Int,
+    isHapticsEnabled: Boolean,
+    selectionState: SelectionActionBarState
+) {
+    val selectedTab by selectedTabFlow.collectAsState()
+    AnimatedBottomPillBar(
+        selectedTab = selectedTab,
+        pendingTab = selectedTab,
+        isNavTransitionPending = false,
+        onTabSelected = onTabSelected,
+        archivedCount = archivedCount,
+        trashCount = trashCount,
+        isHapticsEnabled = isHapticsEnabled,
+        selectionState = selectionState
+    )
+}
+
+@Composable
+private fun TabPredictiveBackEffect(
+    selectedTabFlow: StateFlow<Int>,
+    isEditorClosed: Boolean,
+    isSelectionHidden: Boolean,
+    onBackProgress: (Float) -> Unit,
+    onReturnHome: () -> Unit
+) {
+    val selectedTab by selectedTabFlow.collectAsState()
+    PredictiveBackHandler(enabled = isEditorClosed && selectedTab != 0 && isSelectionHidden) { progress ->
+        try {
+            progress.collect { backEvent ->
+                onBackProgress(backEvent.progress)
+            }
+            onBackProgress(0f)
+            onReturnHome()
+        } catch (_: CancellationException) {
+            onBackProgress(0f)
+        }
+    }
+}
+
+@Composable
+private fun PreloadedTabViewport(
+    selectedTabFlow: StateFlow<Int>,
+    tabBackProgressProvider: () -> Float,
+    modifier: Modifier = Modifier,
+    tab0: @Composable () -> Unit,
+    tab1: @Composable () -> Unit,
+    tab2: @Composable () -> Unit,
+    tab3: @Composable () -> Unit
+) {
+    // All 4 pages stay permanently loaded in memory from first launch.
+    // Snapshot state (`fromTab`, `toTab`, `slideProgress`) is read STRICTLY inside `.graphicsLayer`
+    // (RenderNode/Draw phase ONLY), so switching menus triggers ZERO recompositions and ZERO re-layouts.
+    var fromTab by remember { mutableIntStateOf(selectedTabFlow.value) }
+    var toTab by remember { mutableIntStateOf(selectedTabFlow.value) }
+    val slideProgress = remember { Animatable(1f) }
+
+    LaunchedEffect(selectedTabFlow) {
+        selectedTabFlow.collectLatest { targetTab ->
+            if (targetTab != toTab) {
+                fromTab = toTab
+                toTab = targetTab
+                slideProgress.snapTo(0f)
+                slideProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(
+                        durationMillis = 135,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+                fromTab = toTab
+            }
+        }
+    }
+
+    fun Modifier.preloadedTabLayer(tabIndex: Int): Modifier = this.graphicsLayer {
+        val progress = slideProgress.value
+        val curFrom = fromTab
+        val curTo = toTab
+        val widthPx = size.width.coerceAtLeast(1f)
+        val slideDir = if (curTo >= curFrom) 1f else -1f
+        val slideSpan = widthPx * 0.12f
+
+        when {
+            tabIndex == curTo -> {
+                if (curFrom == curTo || progress >= 0.999f) {
+                    translationX = 0f
+                    alpha = 1f
+                } else {
+                    translationX = (1f - progress) * slideDir * slideSpan
+                    alpha = progress.coerceIn(0f, 1f)
+                }
+            }
+            tabIndex == curFrom && progress < 0.999f -> {
+                translationX = -progress * slideDir * slideSpan
+                alpha = (1f - progress).coerceIn(0f, 1f)
+            }
+            else -> {
+                translationX = widthPx * 2.5f
+                alpha = 0f
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val backProgress = tabBackProgressProvider()
+                if (backProgress > 0f) {
+                    val s = 1f - (backProgress * 0.08f)
+                    scaleX = s
+                    scaleY = s
+                    alpha = (1f - backProgress * 0.25f).coerceIn(0.6f, 1f)
+                }
+            }
+    ) {
+        Box(modifier = Modifier.fillMaxSize().preloadedTabLayer(0)) { tab0() }
+        Box(modifier = Modifier.fillMaxSize().preloadedTabLayer(1)) { tab1() }
+        Box(modifier = Modifier.fillMaxSize().preloadedTabLayer(2)) { tab2() }
+        Box(modifier = Modifier.fillMaxSize().preloadedTabLayer(3)) { tab3() }
+    }
+}
+
 

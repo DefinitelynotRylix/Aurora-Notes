@@ -22,11 +22,6 @@ import {
   cleanupOrphanedPrivateStorageEntries,
   applyArchivePreservingPin,
   applyUnarchivePreservingPin,
-  TAB_BACKGROUND_LAYER_MS,
-  TabTransitionState,
-  createInitialTabTransitionState,
-  planTabTransition,
-  completeTabTransition,
   resolveFirstSelectedNoteForShare,
 } from './utils/editorRules';
 import { FileText, Plus, Fingerprint, Smartphone, X, Archive, Tag, Pin, Check } from 'lucide-react';
@@ -78,66 +73,16 @@ export default function App() {
     }
   };
 
-  // Cancellable menu switching with a brief clean background-layer beat:
-  // Navbar pill responds immediately; if user switches back before the next tab loads,
-  // the intermediate tab is cancelled completely and the already-shown tab restores instantly.
-  const [tabTransition, setTabTransition] = useState<TabTransitionState<ActiveTab>>(() =>
-    createInitialTabTransitionState<ActiveTab>('notes')
-  );
-  const tabTransitionRef = useRef<TabTransitionState<ActiveTab>>(tabTransition);
-  tabTransitionRef.current = tabTransition;
-  const tabTransitionTimerRef = useRef<number | null>(null);
-  const [slideDirection, setSlideDirection] = useState<number>(1);
-
-  const activeTab = tabTransition.mountedTab;
-  const pendingNavTab = tabTransition.requestedTab;
-  const renderedTab = tabTransition.renderedTab;
-  const isNavTransitionPending = tabTransition.isPending;
-
-  const TAB_ORDER: Record<ActiveTab, number> = {
-    notes: 0,
-    archive: 1,
-    trash: 2,
-    settings: 3,
-  };
-
-  useEffect(() => {
-    return () => {
-      if (tabTransitionTimerRef.current !== null) {
-        window.clearTimeout(tabTransitionTimerRef.current);
-      }
-    };
-  }, []);
+  // Instant zero-delay menu switching: all 4 pages stay permanently loaded in memory
+  // so switching menus never unmounts/remounts heavy screens or shows a blank delay.
+  const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
+  const pendingNavTab = activeTab;
+  const isNavTransitionPending = false;
 
   const handleSelectNavTab = (nextTab: ActiveTab) => {
-    const current = tabTransitionRef.current;
-    const plan = planTabTransition(current, nextTab);
-    if (!plan.shouldCancelPending && !plan.shouldScheduleMount && plan.nextState === current) {
-      return;
-    }
-
-    if (plan.shouldCancelPending && tabTransitionTimerRef.current !== null) {
-      window.clearTimeout(tabTransitionTimerRef.current);
-      tabTransitionTimerRef.current = null;
-    }
-
-    setSlideDirection(TAB_ORDER[nextTab] >= TAB_ORDER[current.requestedTab] ? 1 : -1);
-    if (plan.shouldScheduleMount) {
-      setSelectedNoteIds([]);
-    }
-    tabTransitionRef.current = plan.nextState;
-    setTabTransition(plan.nextState);
-
-    if (plan.shouldScheduleMount) {
-      tabTransitionTimerRef.current = window.setTimeout(() => {
-        tabTransitionTimerRef.current = null;
-        setTabTransition((prev) => {
-          const completed = completeTabTransition(prev, nextTab);
-          tabTransitionRef.current = completed;
-          return completed;
-        });
-      }, TAB_BACKGROUND_LAYER_MS);
-    }
+    if (nextTab === activeTab) return;
+    setSelectedNoteIds([]);
+    setActiveTab(nextTab);
   };
 
   // Custom user tags - starts completely empty in the base app
@@ -1002,161 +947,227 @@ export default function App() {
         noteCount={activeNotes.length}
       />
 
-      {/* Main Workspace: Cancellable Brief Background-Layer Transition (Never stacks overlapping screens) */}
+      {/* Main Workspace: All 4 menus permanently preloaded for instant, smooth GPU switching */}
       <main
-        data-rendered-tab={renderedTab ?? 'background-layer'}
-        data-mounted-tab={activeTab}
-        data-requested-tab={pendingNavTab}
-        className="max-w-6xl w-full mx-auto px-3 sm:px-6 pt-4 flex-1 overflow-x-hidden"
+        data-active-tab={activeTab}
+        className="max-w-6xl w-full mx-auto px-3 sm:px-6 pt-4 flex-1 overflow-x-hidden relative"
       >
-        <div
-          className={renderedTab === null ? 'hidden' : 'block'}
-          aria-hidden={renderedTab === null}
+        {/* Tab 0: Notes (permanently mounted) */}
+        <section
+          data-tab-panel="notes"
+          data-active={activeTab === 'notes'}
+          aria-hidden={activeTab !== 'notes'}
+          className={`w-full transition-[opacity,transform] duration-150 ease-out will-change-[transform,opacity] ${
+            activeTab === 'notes'
+              ? 'relative opacity-100 translate-x-0 pointer-events-auto visible z-10'
+              : 'absolute top-4 left-3 right-3 sm:left-6 sm:right-6 max-h-[85vh] overflow-hidden opacity-0 -translate-x-2 pointer-events-none invisible z-0'
+          }`}
         >
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, x: slideDirection > 0 ? 14 : -14 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.11, ease: [0.22, 1, 0.36, 1] }}
-          >
-            {activeTab === 'settings' ? (
-              <SettingsPage
-                currentTheme={theme}
-                onSelectTheme={handleSelectTheme}
-                isHapticsEnabled={isHapticsEnabled}
-                onToggleHaptics={handleToggleHaptics}
-                isDbEncryptionEnabled={true}
-                storageStats={storageStats}
-                lastCleanupSummary={lastCleanupSummary}
-                onCleanUpOrphanedFiles={handleCleanUpOrphanedFiles}
-                customCategories={customCategories}
-                onAddCategory={handleAddCategory}
-                onRemoveCategory={handleRemoveCategory}
-                notes={notes}
-                onOpenWelcomeTour={() => setIsWelcomeOpen(true)}
-                onOpenWhatsNew={() => setIsWhatsNewOpen(true)}
-                onWipeData={() => {
-                  localStorage.removeItem(STORAGE_NOTES_KEY);
-                  localStorage.removeItem('aurora_user_tags_v2');
-                  syncNotesToPrivateExternalStorage([], isDbEncryptionEnabled);
-                  setNotes([]);
-                  setCustomCategories([]);
-                  setSelectedCategory('All');
-                  setSelectedNoteIds([]);
-                  setLastCleanupSummary('Wiped all notes and cleaned private external storage');
-                  logger.security('STORAGE', 'User wiped local storage notes and custom categories after biometric verification');
-                }}
-              />
-            ) : activeTab === 'trash' ? (
-              <TrashView
-                trashedNotes={trashedNotes}
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                isGridView={isGridView}
-                onRestoreNote={handleRestoreNote}
-                onPermanentDelete={handlePermanentDelete}
-                onEmptyTrash={handleEmptyTrash}
-              />
-            ) : (
-              <>
-                {/* Category Filter Bar */}
-                <div className="mb-2.5">
-                  <CategoryFilterBar
-                    currentCategory={selectedCategory}
-                    onSelectCategory={setSelectedCategory}
-                    customCategories={customCategories}
-                    onAddCategory={handleAddCategory}
-                    onRemoveCategory={handleRemoveCategory}
-                    counts={categoryCounts}
+          <div className="mb-2.5">
+            <CategoryFilterBar
+              currentCategory={selectedCategory}
+              onSelectCategory={setSelectedCategory}
+              customCategories={customCategories}
+              onAddCategory={handleAddCategory}
+              onRemoveCategory={handleRemoveCategory}
+              counts={categoryCounts}
+            />
+          </div>
+
+          {allFilteredNotes.length === 0 ? (
+            <div className="py-16 text-center flex flex-col items-center justify-center">
+              <div className="w-14 h-14 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center text-[#5925DC] dark:text-[#C296FD] mb-3 shadow-sm">
+                <FileText className="w-7 h-7 stroke-[1.5]" />
+              </div>
+              <h3 className="font-bold text-base text-[#1E1A24] dark:text-[#F7EEFC] mb-1">
+                {searchQuery ? 'No matching notes found' : 'No notes has been created.'}
+              </h3>
+              <p className="text-xs text-[#797487] dark:text-[#A39BAC] max-w-xs mb-5">
+                {searchQuery
+                  ? 'Try a different keyword or reset the filter.'
+                  : 'Tap the circular button in the bottom right corner to write a note.'}
+              </p>
+              <button
+                onClick={handleCreateNote}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Note</span>
+              </button>
+            </div>
+          ) : (
+            <MorphingNotesGrid
+              isGridView={isGridView}
+              itemIds={allFilteredNotes.map((n) => n.id)}
+              lockedItemIds={allFilteredNotes.filter((n) => n.isPinned).map((n) => n.id)}
+              onHoldNote={handleHoldNoteStart}
+              onReleaseHoldWithoutDrag={handleHoldNoteReleaseWithoutDrag}
+              onReorderNotes={handleReorderNotes}
+            >
+              {allFilteredNotes.map((note) => (
+                <div key={note.id} className="w-full">
+                  <NoteCard
+                    note={note}
+                    isGridView={isGridView}
+                    animateMovement={note.id === lastPinnedId}
+                    isSelectionMode={activeTab === 'notes' && selectedNoteIds.length > 0}
+                    isSelected={activeTab === 'notes' && selectedNoteIds.includes(note.id)}
+                    onToggleSelection={handleToggleNoteSelection}
+                    disableInternalLongPress={true}
+                    onSelect={(selected) => {
+                      captureFabOrigin();
+                      setActiveNote(selected);
+                    }}
+                    onTogglePin={handleTogglePin}
+                    onArchive={handleArchiveNote}
+                    onUnarchive={handleUnarchiveNote}
+                    onDelete={handleDeleteNote}
+                    onShare={(noteToShare) => setNotesToShare([noteToShare])}
+                    onEditDetails={openEditNoteDetailsModal}
+                    onToggleCheckItem={handleToggleCheckItem}
+                    onDeleteTag={handleRemoveCategory}
                   />
                 </div>
+              ))}
+            </MorphingNotesGrid>
+          )}
+        </section>
 
-                {/* Notes Grid or Empty State */}
-                {currentTabNotes.length === 0 ? (
-                  <div className="py-16 text-center flex flex-col items-center justify-center animate-glide-in">
-                    <div className="w-14 h-14 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center text-[#5925DC] dark:text-[#C296FD] mb-3 shadow-sm">
-                      {activeTab === 'archive' ? (
-                        <Archive className="w-7 h-7 stroke-[1.5]" />
-                      ) : (
-                        <FileText className="w-7 h-7 stroke-[1.5]" />
-                      )}
-                    </div>
-                    <h3 className="font-bold text-base text-[#1E1A24] dark:text-[#F7EEFC] mb-1">
-                      {searchQuery
-                        ? 'No matching notes found'
-                        : activeTab === 'archive'
-                        ? 'No archived notes'
-                        : 'No notes has been created.'}
-                    </h3>
-                    <p className="text-xs text-[#797487] dark:text-[#A39BAC] max-w-xs mb-5">
-                      {searchQuery
-                        ? 'Try a different keyword or reset the filter.'
-                        : activeTab === 'archive'
-                        ? 'Hold any note in the Notes menu to archive one or multiple notes as read-only.'
-                        : 'Tap the circular button in the bottom right corner to write a note.'}
-                    </p>
-                    {activeTab === 'notes' && (
-                      <button
-                        onClick={handleCreateNote}
-                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5925DC] to-[#9B51E0] dark:from-[#9D5AF5] dark:to-[#C296FD] text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span>Create Note</span>
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <MorphingNotesGrid
+        {/* Tab 1: Archive (permanently mounted) */}
+        <section
+          data-tab-panel="archive"
+          data-active={activeTab === 'archive'}
+          aria-hidden={activeTab !== 'archive'}
+          className={`w-full transition-[opacity,transform] duration-150 ease-out will-change-[transform,opacity] ${
+            activeTab === 'archive'
+              ? 'relative opacity-100 translate-x-0 pointer-events-auto visible z-10'
+              : 'absolute top-4 left-3 right-3 sm:left-6 sm:right-6 max-h-[85vh] overflow-hidden opacity-0 translate-x-2 pointer-events-none invisible z-0'
+          }`}
+        >
+          <div className="mb-2.5">
+            <CategoryFilterBar
+              currentCategory={selectedCategory}
+              onSelectCategory={setSelectedCategory}
+              customCategories={customCategories}
+              onAddCategory={handleAddCategory}
+              onRemoveCategory={handleRemoveCategory}
+              counts={categoryCounts}
+            />
+          </div>
+
+          {archivedFilteredNotes.length === 0 ? (
+            <div className="py-16 text-center flex flex-col items-center justify-center">
+              <div className="w-14 h-14 rounded-2xl bg-[#F4EBFF] dark:bg-[#2B1E3E] border border-[#EADBFC] dark:border-[#322742] flex items-center justify-center text-[#5925DC] dark:text-[#C296FD] mb-3 shadow-sm">
+                <Archive className="w-7 h-7 stroke-[1.5]" />
+              </div>
+              <h3 className="font-bold text-base text-[#1E1A24] dark:text-[#F7EEFC] mb-1">
+                {searchQuery ? 'No matching notes found' : 'No archived notes'}
+              </h3>
+              <p className="text-xs text-[#797487] dark:text-[#A39BAC] max-w-xs mb-5">
+                {searchQuery
+                  ? 'Try a different keyword or reset the filter.'
+                  : 'Hold any note in the Notes menu to archive one or multiple notes as read-only.'}
+              </p>
+            </div>
+          ) : (
+            <MorphingNotesGrid
+              isGridView={isGridView}
+              itemIds={archivedFilteredNotes.map((n) => n.id)}
+              lockedItemIds={[]}
+              onHoldNote={handleHoldNoteStart}
+              onReleaseHoldWithoutDrag={handleHoldNoteReleaseWithoutDrag}
+              onReorderNotes={handleReorderNotes}
+            >
+              {archivedFilteredNotes.map((note) => (
+                <div key={note.id} className="w-full">
+                  <NoteCard
+                    note={note}
                     isGridView={isGridView}
-                    itemIds={currentTabNotes.map((n) => n.id)}
-                    lockedItemIds={
-                      activeTab === 'archive'
-                        ? []
-                        : currentTabNotes.filter((n) => n.isPinned).map((n) => n.id)
-                    }
-                    onHoldNote={handleHoldNoteStart}
-                    onReleaseHoldWithoutDrag={handleHoldNoteReleaseWithoutDrag}
-                    onReorderNotes={handleReorderNotes}
-                  >
-                    {currentTabNotes.map((note) => {
-                      const animateMovement = note.id === lastPinnedId;
+                    animateMovement={false}
+                    isSelectionMode={activeTab === 'archive' && selectedNoteIds.length > 0}
+                    isSelected={activeTab === 'archive' && selectedNoteIds.includes(note.id)}
+                    onToggleSelection={handleToggleNoteSelection}
+                    disableInternalLongPress={true}
+                    onSelect={(selected) => {
+                      captureFabOrigin();
+                      setActiveNote(selected);
+                    }}
+                    onTogglePin={handleTogglePin}
+                    onArchive={handleArchiveNote}
+                    onUnarchive={handleUnarchiveNote}
+                    onDelete={handleDeleteNote}
+                    onShare={(noteToShare) => setNotesToShare([noteToShare])}
+                    onEditDetails={openEditNoteDetailsModal}
+                    onToggleCheckItem={handleToggleCheckItem}
+                    onDeleteTag={handleRemoveCategory}
+                  />
+                </div>
+              ))}
+            </MorphingNotesGrid>
+          )}
+        </section>
 
-                      const handleDeleteTagAndDetach = (tagToDelete: string) => {
-                        handleRemoveCategory(tagToDelete);
-                      };
+        {/* Tab 2: Trash (permanently mounted) */}
+        <section
+          data-tab-panel="trash"
+          data-active={activeTab === 'trash'}
+          aria-hidden={activeTab !== 'trash'}
+          className={`w-full transition-[opacity,transform] duration-150 ease-out will-change-[transform,opacity] ${
+            activeTab === 'trash'
+              ? 'relative opacity-100 translate-x-0 pointer-events-auto visible z-10'
+              : 'absolute top-4 left-3 right-3 sm:left-6 sm:right-6 max-h-[85vh] overflow-hidden opacity-0 translate-x-2 pointer-events-none invisible z-0'
+          }`}
+        >
+          <TrashView
+            trashedNotes={trashedNotes}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            isGridView={isGridView}
+            onRestoreNote={handleRestoreNote}
+            onPermanentDelete={handlePermanentDelete}
+            onEmptyTrash={handleEmptyTrash}
+          />
+        </section>
 
-                      return (
-                        <div key={note.id} className="w-full">
-                          <NoteCard
-                            note={note}
-                            isGridView={isGridView}
-                            animateMovement={animateMovement}
-                            isSelectionMode={selectedNoteIds.length > 0}
-                            isSelected={selectedNoteIds.includes(note.id)}
-                            onToggleSelection={handleToggleNoteSelection}
-                            disableInternalLongPress={true}
-                            onSelect={(selected) => {
-                              captureFabOrigin();
-                              setActiveNote(selected);
-                            }}
-                            onTogglePin={handleTogglePin}
-                            onArchive={handleArchiveNote}
-                            onUnarchive={handleUnarchiveNote}
-                            onDelete={handleDeleteNote}
-                            onShare={(noteToShare) => setNotesToShare([noteToShare])}
-                            onEditDetails={openEditNoteDetailsModal}
-                            onToggleCheckItem={handleToggleCheckItem}
-                            onDeleteTag={handleDeleteTagAndDetach}
-                          />
-                        </div>
-                      );
-                    })}
-                  </MorphingNotesGrid>
-                )}
-              </>
-            )}
-          </motion.div>
-        </div>
+        {/* Tab 3: Settings (permanently mounted) */}
+        <section
+          data-tab-panel="settings"
+          data-active={activeTab === 'settings'}
+          aria-hidden={activeTab !== 'settings'}
+          className={`w-full transition-[opacity,transform] duration-150 ease-out will-change-[transform,opacity] ${
+            activeTab === 'settings'
+              ? 'relative opacity-100 translate-x-0 pointer-events-auto visible z-10'
+              : 'absolute top-4 left-3 right-3 sm:left-6 sm:right-6 max-h-[85vh] overflow-hidden opacity-0 translate-x-2 pointer-events-none invisible z-0'
+          }`}
+        >
+          <SettingsPage
+            currentTheme={theme}
+            onSelectTheme={handleSelectTheme}
+            isHapticsEnabled={isHapticsEnabled}
+            onToggleHaptics={handleToggleHaptics}
+            isDbEncryptionEnabled={true}
+            storageStats={storageStats}
+            lastCleanupSummary={lastCleanupSummary}
+            onCleanUpOrphanedFiles={handleCleanUpOrphanedFiles}
+            customCategories={customCategories}
+            onAddCategory={handleAddCategory}
+            onRemoveCategory={handleRemoveCategory}
+            notes={notes}
+            onOpenWelcomeTour={() => setIsWelcomeOpen(true)}
+            onOpenWhatsNew={() => setIsWhatsNewOpen(true)}
+            onWipeData={() => {
+              localStorage.removeItem(STORAGE_NOTES_KEY);
+              localStorage.removeItem('aurora_user_tags_v2');
+              syncNotesToPrivateExternalStorage([], isDbEncryptionEnabled);
+              setNotes([]);
+              setCustomCategories([]);
+              setSelectedCategory('All');
+              setSelectedNoteIds([]);
+              setLastCleanupSummary('Wiped all notes and cleaned private external storage');
+              logger.security('STORAGE', 'User wiped local storage notes and custom categories after biometric verification');
+            }}
+          />
+        </section>
       </main>
 
       {/* Batch Delete Confirmation Modal */}
@@ -1502,8 +1513,8 @@ export default function App() {
         />
       )}
 
-      {/* Floating Circular UI Element in the Down Right Corner (only on visible Notes tab when not holding/selecting a note) */}
-      {renderedTab === 'notes' && selectedNoteIds.length === 0 && (
+      {/* Floating Circular UI Element in the Down Right Corner (only on active Notes tab when not holding/selecting a note) */}
+      {activeTab === 'notes' && selectedNoteIds.length === 0 && (
         <motion.button
           ref={fabButtonRef}
           type="button"
